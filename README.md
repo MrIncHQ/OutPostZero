@@ -4,26 +4,26 @@ Outpost Zero is a portable, offline-first knowledge and tools platform. The appl
 
 ## Download
 
-Download the current `OutpostZero-Windows-x64.zip` package from the [Releases page](https://github.com/MrIncHQ/OutPostZero/releases/latest).
+Select **Code**, then **Download ZIP** on this repository page.
 
 ## Run on Windows
 
-1. Download the ZIP from Releases.
-2. Extract the complete `OutpostZero-Windows-x64` folder to an external SSD or another local folder.
+1. Download the repository ZIP from GitHub.
+2. Extract the complete folder to an external SSD or another local folder.
 3. Keep all extracted files together.
 4. Double-click `Run_Outpost_Zero.bat`.
 5. Before removing an external drive, use **Prepare Drive for Removal**, close the app, and safely eject the drive.
 
-No installer, administrator access, Node.js installation, or internet account is required to run the packaged application.
+On the first launch, the launcher assembles and verifies the packaged executable from GitHub-compatible runtime parts. No installer, administrator access, Node.js installation, or internet account is required.
 
 ## Current release
 
 Version: `0.3.0`
 
-SHA-256 for `OutpostZero-Windows-x64.zip`:
+SHA-256 for the assembled `Outpost Zero.exe`:
 
 ```text
-9F3232444955F2085AFA676B7FA31B3A5129351C72A8EC6B16B8F0BD2DB606F3
+F5DF149F7C20A42DF76026A0DB66AFEA6678B05549B998778EE46F6FFB2434AD
 ```
 
 This repository is used only to distribute ready-to-run Outpost Zero releases. Source code is not published here.
