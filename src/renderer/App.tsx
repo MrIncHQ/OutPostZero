@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import type { BootstrapData, LocalProfile, ModuleOperationResult, ModuleSummary, StorageSummary } from '../shared/contracts';
+import type { BootstrapData, LocalProfile, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary } from '../shared/contracts';
 
 type ViewId = 'home' | 'search' | 'library' | 'documents' | 'maps' | 'learning' | 'notes' |
   'media' | 'relay' | 'tools' | 'modules' | 'downloads' | 'storage' | 'settings' | 'updates';
@@ -15,7 +15,6 @@ const navigation: Array<{ id: ViewId; label: string }> = [
 ];
 
 const comingSoon: Partial<Record<ViewId, { title: string; description: string; milestone: string }>> = {
-  library: { title: 'Your offline library', description: 'ZIM catalogs and integrated knowledge browsing arrive after the module installer is proven.', milestone: 'PHASE 4' },
   documents: { title: 'Portable document library', description: 'PDF import, page-level search, collections, bookmarks, and annotations are the next major application slice.', milestone: 'PHASE 2' },
   maps: { title: 'Maps without a connection', description: 'User-selected PMTiles and MBTiles packages will remain entirely on this drive.', milestone: 'PHASE 5' },
   learning: { title: 'Education center', description: 'Drive-contained lessons, courses, media, quizzes, and progress require no online account.', milestone: 'PHASE 7' },
@@ -129,6 +128,79 @@ function SearchView() {
   );
 }
 
+function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => void }) {
+  const [library, setLibrary] = useState<OfflineLibraryStatus>();
+  const [busy, setBusy] = useState<'install' | 'sample' | 'scan' | 'start' | 'stop' | null>(null);
+  const [message, setMessage] = useState('');
+  useEffect(() => { void window.outpost.getLibraryStatus().then(setLibrary); }, []);
+
+  async function moduleAction(action: 'install' | 'start' | 'stop') {
+    setBusy(action);
+    setMessage('');
+    try {
+      const result = action === 'install' ? await window.outpost.installModule('library-engine')
+        : action === 'start' ? await window.outpost.startModule('library-engine')
+          : await window.outpost.stopModule('library-engine');
+      onModules(result.modules);
+      setMessage(result.message);
+      setLibrary(await window.outpost.getLibraryStatus());
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : 'Kiwix action failed.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function installSample() {
+    setBusy('sample');
+    setMessage('');
+    try {
+      const result = await window.outpost.installKiwixSample();
+      setLibrary(result.status);
+      setMessage(result.message);
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : 'Sample library download failed.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function scan() {
+    setBusy('scan');
+    setLibrary(await window.outpost.scanLibrary());
+    setMessage('Content/ZIM scan complete.');
+    setBusy(null);
+  }
+
+  if (!library) return <section className="page-panel"><p className="section-label">OFFLINE LIBRARY</p><h2>Scanning portable knowledge...</h2></section>;
+  return (
+    <section className="page-panel library-panel">
+      <div className="page-heading">
+        <div><p className="section-label">OFFLINE LIBRARY · KIWIX</p><h2>{library.content.length} ZIM {library.content.length === 1 ? 'library' : 'libraries'}</h2></div>
+        <button className="secondary-button" onClick={() => void scan()} disabled={busy !== null}>{busy === 'scan' ? 'SCANNING...' : 'SCAN CONTENT/ZIM'}</button>
+      </div>
+      <p className="page-intro">Kiwix runs from this drive, serves only on 127.0.0.1, and blocks direct external-resource navigation. ZIM files remain separate from the removable engine.</p>
+      <div className="library-actions">
+        {!library.engineInstalled && <button className="primary-button" onClick={() => void moduleAction('install')} disabled={busy !== null}>{busy === 'install' ? 'DOWNLOADING AND VERIFYING KIWIX...' : 'INSTALL KIWIX ENGINE'}</button>}
+        <button className="secondary-button" onClick={() => void installSample()} disabled={busy !== null}>{busy === 'sample' ? 'DOWNLOADING SAMPLE...' : 'ADD 41 KB TEST LIBRARY'}</button>
+        {library.engineInstalled && !library.running && <button className="primary-button" onClick={() => void moduleAction('start')} disabled={busy !== null}>{busy === 'start' ? 'STARTING...' : 'START OFFLINE LIBRARY'}</button>}
+        {library.running && <button className="secondary-button" onClick={() => void moduleAction('stop')} disabled={busy !== null}>{busy === 'stop' ? 'STOPPING...' : 'STOP LIBRARY'}</button>}
+      </div>
+      {message && <div className="module-result" role="status">{message}</div>}
+      <dl className="detail-list library-details">
+        <div><dt>Engine</dt><dd>{library.engineInstalled ? `Kiwix Tools ${library.engineVersion}` : 'Not installed'}</dd></div>
+        <div><dt>Process</dt><dd>{library.running ? `Healthy · PID ${library.pid} · 127.0.0.1:${library.port}` : 'Stopped'}</dd></div>
+        <div><dt>Content location</dt><dd>Content/ZIM</dd></div>
+      </dl>
+      <div className="zim-list">
+        {library.content.map((item) => <div key={item.id}><span><b>{item.name}</b><small>{item.relativePath}</small></span><strong>{formatBytes(item.size)}</strong></div>)}
+        {library.content.length === 0 && <p>No ZIM files found. Add your own file to Content/ZIM or download the small test library.</p>}
+      </div>
+      {library.running && library.serverUrl && <div className="kiwix-frame-shell"><div><span>LOCAL KIWIX</span><code>{library.serverUrl}</code></div><iframe title="Offline Kiwix library" src={library.serverUrl} sandbox="allow-scripts allow-forms allow-same-origin" /></div>}
+    </section>
+  );
+}
+
 function StorageView({ storage, onRefresh }: { storage: StorageSummary; onRefresh: () => Promise<void> }) {
   const largest = Math.max(1, ...storage.categories.map((category) => category.bytes));
   return (
@@ -180,7 +252,7 @@ function ModulesView({ modules, onModules }: { modules: ModuleSummary[]; onModul
     <section className="page-panel">
       <p className="section-label">MODULE CENTER</p>
       <h2>Expand this outpost.</h2>
-      <p className="page-intro">The Portable Process Test is the signed lifecycle test for future modules. It installs entirely on this drive and binds its health service only to 127.0.0.1.</p>
+      <p className="page-intro">Signed modules install entirely on this drive. The process test proves lifecycle safety; the Offline Library Engine adds real Kiwix-powered ZIM browsing.</p>
       {message && <div className="module-result" role="status">{message}</div>}
       <div className="module-list">
         {modules.map((module) => (
@@ -189,7 +261,7 @@ function ModulesView({ modules, onModules }: { modules: ModuleSummary[]; onModul
             <div>
               <h3>{module.name}</h3><p>{module.description}</p>
               <small>{module.status.replace('-', ' ').toUpperCase()}{module.version ? ` · V${module.version}` : ''}{module.pid ? ` · PID ${module.pid}` : ''}{module.port ? ` · 127.0.0.1:${module.port}` : ''}</small>
-              {module.logPath && module.testModule && <code className="module-log">{module.logPath}</code>}
+              {module.logPath && <code className="module-log">{module.logPath}</code>}
             </div>
             <div className="module-actions">
               {module.status === 'available' && <button onClick={() => void operate(module, 'install')} disabled={busy !== null}>{busy === `${module.id}:install` ? 'INSTALLING...' : 'INSTALL'}</button>}
@@ -347,6 +419,7 @@ export default function App() {
   function renderView() {
     if (view === 'home') return <HomeView data={activeData} go={setView} />;
     if (view === 'search') return <SearchView />;
+    if (view === 'library') return <LibraryView onModules={(modules) => setData({ ...activeData, modules })} />;
     if (view === 'storage') return <StorageView storage={activeData.storage} onRefresh={refreshStorage} />;
     if (view === 'modules') return <ModulesView modules={activeData.modules} onModules={(modules) => setData({ ...activeData, modules })} />;
     if (view === 'updates') return <UpdatesView data={activeData} />;

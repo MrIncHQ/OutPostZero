@@ -1,6 +1,6 @@
 {
   "name": "outpost-zero",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "Portable offline knowledge, tools, and communication platform",
   "main": "dist/main/main/main.js",
@@ -63,6 +63,10 @@
       {
         "from": "portable/PortableUpdater.ps1",
         "to": "PortableUpdater.ps1"
+      },
+      {
+        "from": "portable/Extract_Kiwix.ps1",
+        "to": "Extract_Kiwix.ps1"
       }
     ],
     "win": {

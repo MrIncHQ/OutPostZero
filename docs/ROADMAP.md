@@ -53,4 +53,9 @@ After Phase 0 acceptance, build the first-run profile and local identity, SQLite
 - [x] Graceful module shutdown during application exit and drive preparation
 - [x] Tiny Portable Process Test module
 - [ ] External downloadable module packages and module updates
-- [ ] Kiwix engine package and ZIM content workflow
+- [x] Signed Kiwix Tools 3.8.1 Windows x64 engine descriptor
+- [x] Verified portable Kiwix download, extraction, installation, repair, and uninstall
+- [x] Recursive `Content/ZIM` scanning with engine/content separation
+- [x] Loopback-only Kiwix process and integrated Library viewer
+- [x] Small official OpenZIM test-library download
+- [ ] Current Kiwix catalog, language and edition selection, and large resumable downloads

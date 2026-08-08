@@ -11,6 +11,8 @@ OUTPOST ZERO - PORTABLE WINDOWS BUILD
    GitHub update checks occur only when you select CHECK FOR UPDATES.
    In Module Center, install and start PORTABLE PROCESS TEST to verify the
    signed module and child-process lifecycle before installing Kiwix.
+   In Library, install the Kiwix engine and add the 41 KB test library to
+   verify real offline ZIM browsing before downloading large archives.
 6. Before unplugging the drive, choose PREPARE DRIVE FOR REMOVAL in the app,
    close Outpost Zero, and use Windows Safely Remove Hardware.
 

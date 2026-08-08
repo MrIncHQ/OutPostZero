@@ -112,6 +112,22 @@ footer { position: fixed; left: 230px; right: 0; bottom: 0; height: 54px; paddin
 .module-actions .stop-button { border-color: #8d5c50; color: #e0a495; }
 .module-log { display: block; max-width: 520px; margin-top: 8px; overflow: hidden; color: #63736b; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .module-result { max-width: 820px; margin-top: 18px; padding: 12px 14px; border-left: 2px solid #a97b43; background: rgba(0,0,0,.2); color: #b8c2bc; font-size: 11px; }
+.library-panel { padding-bottom: 44px; }
+.library-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+.library-actions .primary-button { margin: 0; }
+.library-details { margin-top: 24px; }
+.zim-list { display: grid; gap: 8px; max-width: 820px; margin-top: 22px; }
+.zim-list > div { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 13px 15px; border: 1px solid #303b35; background: rgba(0,0,0,.16); }
+.zim-list span { display: grid; gap: 4px; }
+.zim-list b { color: #d8dfdb; font-family: 'Newsreader Variable', serif; font-size: 17px; font-weight: 450; }
+.zim-list small { color: #69776f; font-size: 8px; }
+.zim-list strong { color: #c3aa7d; font-size: 10px; font-weight: 500; }
+.zim-list > p { padding: 20px; border: 1px dashed #35413b; color: #7f8d85; font-size: 11px; }
+.kiwix-frame-shell { margin-top: 26px; overflow: hidden; border: 1px solid #3b4c43; background: #fff; }
+.kiwix-frame-shell > div { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; background: #17201b; }
+.kiwix-frame-shell span { color: #8eb9aa; font-size: 8px; letter-spacing: .13em; }
+.kiwix-frame-shell code { color: #7c8a82; font-size: 8px; }
+.kiwix-frame-shell iframe { display: block; width: 100%; height: 560px; border: 0; background: #fff; }
 .settings-form { max-width: 620px; margin-top: 32px; }
 .settings-form > div { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: start; margin-top: 9px; }
 .settings-form .primary-button { height: 45px; margin: 0; }

@@ -9,7 +9,8 @@ import { DatabaseService } from './database-service';
 import { collectHardwareDiagnostics } from './hardware-service';
 import { UpdateService } from './update-service';
 import { ModuleService } from './module-service';
-import type { BootstrapData, PortableStatus } from '../shared/contracts';
+import { KiwixService } from './kiwix-service';
+import type { BootstrapData, ModuleOperationResult, ModuleSummary, PortableStatus } from '../shared/contracts';
 
 const root = findPortableRoot([path.dirname(process.execPath), process.cwd(), __dirname]);
 const portablePaths = new PortablePathService(root);
@@ -33,8 +34,13 @@ const storageService = new StorageService(portablePaths);
 const databaseService = new DatabaseService(portablePaths);
 const updateService = new UpdateService(databaseService, app.getVersion(), portablePaths);
 const moduleService = new ModuleService(databaseService, portablePaths);
+const kiwixService = new KiwixService(databaseService, portablePaths);
 let isPrepared = false;
 let shutdownInProgress = false;
+
+function modules(): ModuleSummary[] {
+  return [kiwixService.summary(), ...moduleService.modules().filter((module) => module.id !== 'library-engine')];
+}
 
 function getStatus(): PortableStatus {
   let diskSpace: ReturnType<typeof fs.statfsSync> | undefined;
@@ -92,7 +98,7 @@ ipcMain.handle('outpost:get-bootstrap', async (): Promise<BootstrapData> => ({
   status: getStatus(),
   profile: profileService.read(),
   storage: await storageService.summarize(),
-  modules: moduleService.modules(),
+  modules: modules(),
   hardware: await collectHardwareDiagnostics(app.getGPUInfo('basic')),
   updates: updateService.status(),
   database: {
@@ -110,20 +116,40 @@ ipcMain.handle('outpost:update-profile', (_event, displayName: unknown) => {
 });
 ipcMain.handle('outpost:refresh-storage', () => storageService.summarize());
 ipcMain.handle('outpost:refresh-hardware', () => collectHardwareDiagnostics(app.getGPUInfo('basic')));
-ipcMain.handle('outpost:refresh-modules', () => moduleService.modules());
+ipcMain.handle('outpost:refresh-modules', () => modules());
 function moduleId(value: unknown): string {
   if (typeof value !== 'string' || !/^[a-z0-9-]{1,64}$/.test(value)) throw new Error('Module identifier is invalid.');
   return value;
 }
-ipcMain.handle('outpost:install-module', (_event, value: unknown) => moduleService.install(moduleId(value)));
-ipcMain.handle('outpost:start-module', (_event, value: unknown) => moduleService.start(moduleId(value)));
-ipcMain.handle('outpost:stop-module', (_event, value: unknown) => moduleService.stop(moduleId(value)));
-ipcMain.handle('outpost:repair-module', (_event, value: unknown) => moduleService.repair(moduleId(value)));
-ipcMain.handle('outpost:uninstall-module', (_event, value: unknown) => moduleService.uninstall(moduleId(value)));
+async function moduleAction(action: 'install' | 'start' | 'stop' | 'repair' | 'uninstall', value: unknown): Promise<ModuleOperationResult> {
+  const id = moduleId(value);
+  if (id === 'library-engine') {
+    const result = action === 'install' ? await kiwixService.install()
+      : action === 'start' ? await kiwixService.start()
+        : action === 'stop' ? await kiwixService.stop()
+          : action === 'repair' ? await kiwixService.repair()
+            : await kiwixService.uninstall();
+    return { ...result, modules: modules() };
+  }
+  const result = action === 'install' ? await moduleService.install(id)
+    : action === 'start' ? await moduleService.start(id)
+      : action === 'stop' ? await moduleService.stop(id)
+        : action === 'repair' ? await moduleService.repair(id)
+          : await moduleService.uninstall(id);
+  return { ...result, modules: modules() };
+}
+ipcMain.handle('outpost:install-module', (_event, value: unknown) => moduleAction('install', value));
+ipcMain.handle('outpost:start-module', (_event, value: unknown) => moduleAction('start', value));
+ipcMain.handle('outpost:stop-module', (_event, value: unknown) => moduleAction('stop', value));
+ipcMain.handle('outpost:repair-module', (_event, value: unknown) => moduleAction('repair', value));
+ipcMain.handle('outpost:uninstall-module', (_event, value: unknown) => moduleAction('uninstall', value));
+ipcMain.handle('outpost:get-library-status', () => kiwixService.status());
+ipcMain.handle('outpost:scan-library', () => kiwixService.status());
+ipcMain.handle('outpost:install-kiwix-sample', () => kiwixService.installSample());
 ipcMain.handle('outpost:check-updates', () => updateService.check());
 ipcMain.handle('outpost:download-update', () => updateService.download());
 ipcMain.handle('outpost:apply-update', async () => {
-  await moduleService.stopAll();
+  await Promise.all([moduleService.stopAll(), kiwixService.stop(true)]);
   await databaseService.createRotatingBackup();
   const result = updateService.apply(process.pid);
   if (result.status === 'launching') {
@@ -135,7 +161,7 @@ ipcMain.handle('outpost:apply-update', async () => {
   return result;
 });
 ipcMain.handle('outpost:prepare-removal', async () => {
-  await moduleService.stopAll();
+  await Promise.all([moduleService.stopAll(), kiwixService.stop(true)]);
   await session.defaultSession.clearCache();
   await databaseService.createRotatingBackup();
   databaseService.close();
@@ -149,7 +175,7 @@ app.whenReady().then(() => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:5173 ws://127.0.0.1:5173"],
+        'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:5173; frame-src http://127.0.0.1:*"],
       },
     });
   });
@@ -158,10 +184,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', (event) => {
-  if (moduleService.hasRunningModules() && !shutdownInProgress) {
+  if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess()) && !shutdownInProgress) {
     event.preventDefault();
     shutdownInProgress = true;
-    void moduleService.stopAll().finally(() => app.quit());
+    void Promise.all([moduleService.stopAll(), kiwixService.stop(true)]).finally(() => app.quit());
     return;
   }
   databaseService.close();

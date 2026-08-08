@@ -83,6 +83,7 @@ test('rejects update paths that could overwrite portable user data', () => {
   }
   assert.equal(validateRuntimePath('resources/app.asar'), 'resources/app.asar');
   assert.equal(validateRuntimePath('Outpost Zero.exe'), 'Outpost Zero.exe');
+  assert.equal(validateRuntimePath('Extract_Kiwix.ps1'), 'Extract_Kiwix.ps1');
 });
 
 test('verifies a signed GitHub manifest and detects a newer version', async () => {

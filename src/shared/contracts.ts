@@ -50,6 +50,30 @@ export interface ModuleOperationResult {
   modules: ModuleSummary[];
 }
 
+export interface ZimContentSummary {
+  id: string;
+  name: string;
+  fileName: string;
+  relativePath: string;
+  size: number;
+}
+
+export interface OfflineLibraryStatus {
+  engineInstalled: boolean;
+  engineVersion: string | null;
+  running: boolean;
+  pid?: number;
+  port?: number;
+  serverUrl?: string;
+  content: ZimContentSummary[];
+}
+
+export interface LibraryOperationResult {
+  ok: boolean;
+  message: string;
+  status: OfflineLibraryStatus;
+}
+
 export interface HardwareDiagnostics {
   cpuModel: string;
   logicalCores: number;
@@ -116,6 +140,9 @@ export interface OutpostBridge {
   stopModule(moduleId: string): Promise<ModuleOperationResult>;
   repairModule(moduleId: string): Promise<ModuleOperationResult>;
   uninstallModule(moduleId: string): Promise<ModuleOperationResult>;
+  getLibraryStatus(): Promise<OfflineLibraryStatus>;
+  scanLibrary(): Promise<OfflineLibraryStatus>;
+  installKiwixSample(): Promise<LibraryOperationResult>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   downloadUpdate(): Promise<UpdateDownloadResult>;
   applyUpdate(): Promise<UpdateApplyResult>;
