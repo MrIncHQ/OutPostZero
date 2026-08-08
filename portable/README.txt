@@ -9,6 +9,8 @@ OUTPOST ZERO - PORTABLE WINDOWS BUILD
 5. Use the navigation, Storage Inspector, Module Center, Update Center,
    hardware diagnostics, and Settings.
    GitHub update checks occur only when you select CHECK FOR UPDATES.
+   In Module Center, install and start PORTABLE PROCESS TEST to verify the
+   signed module and child-process lifecycle before installing Kiwix.
 6. Before unplugging the drive, choose PREPARE DRIVE FOR REMOVAL in the app,
    close Outpost Zero, and use Windows Safely Remove Hardware.
 

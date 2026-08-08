@@ -8,7 +8,8 @@ import { StorageService } from './storage-service';
 import { DatabaseService } from './database-service';
 import { collectHardwareDiagnostics } from './hardware-service';
 import { UpdateService } from './update-service';
-import type { BootstrapData, ModuleSummary, PortableStatus } from '../shared/contracts';
+import { ModuleService } from './module-service';
+import type { BootstrapData, PortableStatus } from '../shared/contracts';
 
 const root = findPortableRoot([path.dirname(process.execPath), process.cwd(), __dirname]);
 const portablePaths = new PortablePathService(root);
@@ -31,15 +32,9 @@ const profileService = new ProfileService(portablePaths);
 const storageService = new StorageService(portablePaths);
 const databaseService = new DatabaseService(portablePaths);
 const updateService = new UpdateService(databaseService, app.getVersion(), portablePaths);
+const moduleService = new ModuleService(databaseService, portablePaths);
 let isPrepared = false;
-
-const modules: ModuleSummary[] = [
-  { id: 'library-engine', name: 'Offline Library Engine', description: 'Kiwix-compatible ZIM browsing and catalog management.', status: 'available-later', optional: true },
-  { id: 'offline-maps', name: 'Offline Maps', description: 'Portable MapLibre map packages selected by the user.', status: 'available-later', optional: true },
-  { id: 'education', name: 'Education Center', description: 'Drive-contained courses, lessons, and learning progress.', status: 'available-later', optional: true },
-  { id: 'ocr', name: 'OCR Pack', description: 'Extract searchable text from image-only documents.', status: 'available-later', optional: true },
-  { id: 'local-ai', name: 'Local AI Assistant', description: 'Optional portable AI runtime and user-selected model.', status: 'available-later', optional: true },
-];
+let shutdownInProgress = false;
 
 function getStatus(): PortableStatus {
   let diskSpace: ReturnType<typeof fs.statfsSync> | undefined;
@@ -97,7 +92,7 @@ ipcMain.handle('outpost:get-bootstrap', async (): Promise<BootstrapData> => ({
   status: getStatus(),
   profile: profileService.read(),
   storage: await storageService.summarize(),
-  modules,
+  modules: moduleService.modules(),
   hardware: await collectHardwareDiagnostics(app.getGPUInfo('basic')),
   updates: updateService.status(),
   database: {
@@ -115,9 +110,20 @@ ipcMain.handle('outpost:update-profile', (_event, displayName: unknown) => {
 });
 ipcMain.handle('outpost:refresh-storage', () => storageService.summarize());
 ipcMain.handle('outpost:refresh-hardware', () => collectHardwareDiagnostics(app.getGPUInfo('basic')));
+ipcMain.handle('outpost:refresh-modules', () => moduleService.modules());
+function moduleId(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-z0-9-]{1,64}$/.test(value)) throw new Error('Module identifier is invalid.');
+  return value;
+}
+ipcMain.handle('outpost:install-module', (_event, value: unknown) => moduleService.install(moduleId(value)));
+ipcMain.handle('outpost:start-module', (_event, value: unknown) => moduleService.start(moduleId(value)));
+ipcMain.handle('outpost:stop-module', (_event, value: unknown) => moduleService.stop(moduleId(value)));
+ipcMain.handle('outpost:repair-module', (_event, value: unknown) => moduleService.repair(moduleId(value)));
+ipcMain.handle('outpost:uninstall-module', (_event, value: unknown) => moduleService.uninstall(moduleId(value)));
 ipcMain.handle('outpost:check-updates', () => updateService.check());
 ipcMain.handle('outpost:download-update', () => updateService.download());
 ipcMain.handle('outpost:apply-update', async () => {
+  await moduleService.stopAll();
   await databaseService.createRotatingBackup();
   const result = updateService.apply(process.pid);
   if (result.status === 'launching') {
@@ -129,6 +135,7 @@ ipcMain.handle('outpost:apply-update', async () => {
   return result;
 });
 ipcMain.handle('outpost:prepare-removal', async () => {
+  await moduleService.stopAll();
   await session.defaultSession.clearCache();
   await databaseService.createRotatingBackup();
   databaseService.close();
@@ -150,7 +157,13 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
+  if (moduleService.hasRunningModules() && !shutdownInProgress) {
+    event.preventDefault();
+    shutdownInProgress = true;
+    void moduleService.stopAll().finally(() => app.quit());
+    return;
+  }
   databaseService.close();
   if (!isPrepared) sessionState.markClean();
 });

@@ -12,6 +12,8 @@
 - SQLite uses full synchronization, delete journaling, foreign keys, short migrations, integrity checks, and backups beneath `Backups/`.
 - Update checks run only after explicit user action. GitHub manifests require a valid Ed25519 signature from the pinned release key, and every downloaded file requires a matching size and SHA-256 hash.
 - Both the main process and external swap helper reject update targets under user-data roots. The signing private key remains local under ignored `ReleaseSigning/`; it is never packaged or uploaded.
+- Module packages use a separate pinned Ed25519 key. The private module-signing key remains under ignored `ModuleSigning/`. Package files are checksum-verified in staging, runtime commands are allowlisted, and the first process module binds only to `127.0.0.1`.
+- Module engines and shared data have separate ownership boundaries. Uninstall removes only `Modules/Installed/<module-id>`; data and logs remain unless a future explicit user choice removes them.
 - Outpost Zero creates no services, scheduled tasks, firewall rules, registry configuration, or permanent environment changes.
 
-Imported content, modules, cryptographic identity, and local networking are not implemented yet and must receive dedicated threat modeling before release.
+Imported content and peer networking are not implemented yet and must receive dedicated threat modeling before release. The current module process test is intentionally loopback-only and contains no user content.

@@ -102,6 +102,16 @@ footer { position: fixed; left: 230px; right: 0; bottom: 0; height: 54px; paddin
 .module-row p { margin: 0 0 6px; color: #89968f; font-size: 11px; }
 .module-row small { color: #736a58; font-size: 8px; letter-spacing: .12em; }
 .module-row button { padding: 8px 10px; border: 1px solid #38443e; background: transparent; color: #67736c; font-size: 8px; letter-spacing: .1em; }
+.module-row button:not(:disabled) { border-color: #80653f; color: #d8b77f; cursor: pointer; }
+.module-row button:not(:disabled):hover { background: rgba(213,154,69,.1); }
+.module-row.module-running { border-color: #477463; background: rgba(54,112,89,.08); }
+.module-row.module-running .module-icon { color: #67c49f; }
+.module-row.module-installed .module-icon { color: #b8a06f; }
+.module-row.module-error { border-color: #774d45; }
+.module-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 260px; }
+.module-actions .stop-button { border-color: #8d5c50; color: #e0a495; }
+.module-log { display: block; max-width: 520px; margin-top: 8px; overflow: hidden; color: #63736b; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.module-result { max-width: 820px; margin-top: 18px; padding: 12px 14px; border-left: 2px solid #a97b43; background: rgba(0,0,0,.2); color: #b8c2bc; font-size: 11px; }
 .settings-form { max-width: 620px; margin-top: 32px; }
 .settings-form > div { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: start; margin-top: 9px; }
 .settings-form .primary-button { height: 45px; margin: 0; }

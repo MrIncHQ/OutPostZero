@@ -41,3 +41,16 @@ After Phase 0 acceptance, build the first-run profile and local identity, SQLite
 - [ ] Add byte-level download progress events
 - [ ] Add a post-restart health acknowledgement and automatic stale-staging cleanup
 - [ ] Add Linux update swap support
+
+## Phase 3 - Module system
+
+- [x] Signed module manifest and pinned module release key
+- [x] Portable staging and per-file checksum verification
+- [x] Atomic engine activation and failed-health rollback
+- [x] Separate engine and shared-data ownership
+- [x] Install, repair, start, stop, and safe uninstall controls
+- [x] PID, loopback port, health, start time, and module logging
+- [x] Graceful module shutdown during application exit and drive preparation
+- [x] Tiny Portable Process Test module
+- [ ] External downloadable module packages and module updates
+- [ ] Kiwix engine package and ZIM content workflow

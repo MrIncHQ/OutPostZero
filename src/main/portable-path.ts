@@ -7,7 +7,7 @@ const MANAGED_DIRECTORIES = [
   'AI/Embeddings', 'AI/Indexes', 'AI/Models', 'AI/Runtime', 'Backups', 'Cache', 'Config',
   'Content/Books', 'Content/Custom', 'Content/Documents', 'Content/Education', 'Content/Maps',
   'Content/Media', 'Content/PDFs', 'Content/ZIM', 'Data/Chat', 'Data/Notes', 'Data/Search',
-  'Data/State', 'Downloads', 'Exports', 'Logs', 'Modules/Installed', 'Modules/Manifests',
+  'Data/State', 'Data/Modules', 'Downloads', 'Exports', 'Logs', 'Logs/Modules', 'Modules/Installed', 'Modules/Manifests',
   'Modules/Packages', 'Modules/Staging', 'Profile/Identity', 'Temp', 'Updates',
 ] as const;
 

@@ -13,6 +13,7 @@ Outpost Zero is a portable Electron application. The Electron main process is th
 - `HardwareService` reports current host compute resources without persisting host data.
 - `UpdateService` verifies the pinned Ed25519 signature on GitHub manifests, rejects non-runtime paths, downloads changed files into portable staging, verifies SHA-256 hashes, and launches the external swap helper.
 - `PortableUpdater.ps1` waits for the app to exit, backs up runtime files, replaces only the verified allowlist, rolls back on any failure, and restarts the portable launcher.
+- `ModuleService` verifies signed module packages, stages and atomically activates engine files, performs loopback health checks, tracks child processes, rolls back unhealthy replacements, and keeps shared module data separate from uninstallable engines.
 - The renderer has context isolation enabled, Node integration disabled, sandboxing enabled, and a restrictive content security policy.
 
-Feature modules will be added only after the containment milestone is proven.
+The built-in Portable Process Test proves the module lifecycle before the Kiwix engine is integrated.

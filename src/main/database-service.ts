@@ -130,6 +130,28 @@ export class DatabaseService {
     };
   }
 
+  moduleRecords(): Array<{ moduleId: string; version: string | null; status: string }> {
+    return (this.database.prepare('SELECT module_id, version, status FROM module_registry ORDER BY module_id').all() as Array<{
+      module_id: string;
+      version: string | null;
+      status: string;
+    }>).map((row) => ({ moduleId: row.module_id, version: row.version, status: row.status }));
+  }
+
+  setModuleInstalled(moduleId: string, version: string): void {
+    if (this.closed) throw new Error('Cannot update a closed database.');
+    const now = new Date().toISOString();
+    this.database.prepare(`INSERT INTO module_registry
+      (module_id, version, status, installed_at, updated_at) VALUES (?, ?, 'installed', ?, ?)
+      ON CONFLICT(module_id) DO UPDATE SET version = excluded.version, status = 'installed', updated_at = excluded.updated_at`)
+      .run(moduleId, version, now, now);
+  }
+
+  removeModule(moduleId: string): void {
+    if (this.closed) throw new Error('Cannot update a closed database.');
+    this.database.prepare('DELETE FROM module_registry WHERE module_id = ?').run(moduleId);
+  }
+
   async createRotatingBackup(keep = 3): Promise<string> {
     if (this.closed) throw new Error('Cannot back up a closed database.');
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import type { BootstrapData, LocalProfile, StorageSummary } from '../shared/contracts';
+import type { BootstrapData, LocalProfile, ModuleOperationResult, ModuleSummary, StorageSummary } from '../shared/contracts';
 
 type ViewId = 'home' | 'search' | 'library' | 'documents' | 'maps' | 'learning' | 'notes' |
   'media' | 'relay' | 'tools' | 'modules' | 'downloads' | 'storage' | 'settings' | 'updates';
@@ -152,18 +152,52 @@ function StorageView({ storage, onRefresh }: { storage: StorageSummary; onRefres
   );
 }
 
-function ModulesView({ data }: { data: BootstrapData }) {
+function ModulesView({ modules, onModules }: { modules: ModuleSummary[]; onModules: (modules: ModuleSummary[]) => void }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState('');
+
+  async function operate(module: ModuleSummary, action: 'install' | 'start' | 'stop' | 'repair' | 'uninstall') {
+    if (action === 'uninstall' && !window.confirm('Remove this module engine? Its portable data and logs will be kept.')) return;
+    setBusy(`${module.id}:${action}`);
+    setMessage('');
+    try {
+      let result: ModuleOperationResult;
+      if (action === 'install') result = await window.outpost.installModule(module.id);
+      else if (action === 'start') result = await window.outpost.startModule(module.id);
+      else if (action === 'stop') result = await window.outpost.stopModule(module.id);
+      else if (action === 'repair') result = await window.outpost.repairModule(module.id);
+      else result = await window.outpost.uninstallModule(module.id);
+      onModules(result.modules);
+      setMessage(result.message);
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : 'Module action failed.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <section className="page-panel">
       <p className="section-label">MODULE CENTER</p>
       <h2>Expand this outpost.</h2>
-      <p className="page-intro">Modules will install onto the portable drive only. Installation remains locked until signed package verification and rollback are implemented.</p>
+      <p className="page-intro">The Portable Process Test is the signed lifecycle test for future modules. It installs entirely on this drive and binds its health service only to 127.0.0.1.</p>
+      {message && <div className="module-result" role="status">{message}</div>}
       <div className="module-list">
-        {data.modules.map((module) => (
-          <article className="module-row" key={module.id}>
-            <div className="module-icon">○</div>
-            <div><h3>{module.name}</h3><p>{module.description}</p><small>OPTIONAL · NOT INSTALLED</small></div>
-            <button disabled>COMING LATER</button>
+        {modules.map((module) => (
+          <article className={`module-row module-${module.status}`} key={module.id}>
+            <div className="module-icon">{module.status === 'running' ? '●' : module.status === 'installed' ? '✓' : '○'}</div>
+            <div>
+              <h3>{module.name}</h3><p>{module.description}</p>
+              <small>{module.status.replace('-', ' ').toUpperCase()}{module.version ? ` · V${module.version}` : ''}{module.pid ? ` · PID ${module.pid}` : ''}{module.port ? ` · 127.0.0.1:${module.port}` : ''}</small>
+              {module.logPath && module.testModule && <code className="module-log">{module.logPath}</code>}
+            </div>
+            <div className="module-actions">
+              {module.status === 'available' && <button onClick={() => void operate(module, 'install')} disabled={busy !== null}>{busy === `${module.id}:install` ? 'INSTALLING...' : 'INSTALL'}</button>}
+              {module.status === 'installed' && <><button onClick={() => void operate(module, 'start')} disabled={busy !== null}>START</button><button onClick={() => void operate(module, 'repair')} disabled={busy !== null}>REPAIR</button><button onClick={() => void operate(module, 'uninstall')} disabled={busy !== null}>UNINSTALL</button></>}
+              {module.status === 'running' && <button className="stop-button" onClick={() => void operate(module, 'stop')} disabled={busy !== null}>STOP</button>}
+              {module.status === 'error' && <><button onClick={() => void operate(module, 'repair')} disabled={busy !== null}>REPAIR</button><button onClick={() => void operate(module, 'uninstall')} disabled={busy !== null}>UNINSTALL</button></>}
+              {module.status === 'available-later' && <button disabled>COMING LATER</button>}
+            </div>
           </article>
         ))}
       </div>
@@ -314,7 +348,7 @@ export default function App() {
     if (view === 'home') return <HomeView data={activeData} go={setView} />;
     if (view === 'search') return <SearchView />;
     if (view === 'storage') return <StorageView storage={activeData.storage} onRefresh={refreshStorage} />;
-    if (view === 'modules') return <ModulesView data={activeData} />;
+    if (view === 'modules') return <ModulesView modules={activeData.modules} onModules={(modules) => setData({ ...activeData, modules })} />;
     if (view === 'updates') return <UpdatesView data={activeData} />;
     if (view === 'settings') return <SettingsView data={activeData} onProfile={(profile) => setData({ ...activeData, profile })} onHardware={refreshHardware} go={setView} />;
     return <PlannedView view={view} go={setView} />;

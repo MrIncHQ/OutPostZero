@@ -33,8 +33,21 @@ export interface ModuleSummary {
   id: string;
   name: string;
   description: string;
-  status: 'foundation' | 'available-later';
+  status: 'available' | 'installed' | 'running' | 'error' | 'available-later';
   optional: boolean;
+  version?: string;
+  pid?: number;
+  port?: number;
+  startedAt?: string;
+  health?: 'stopped' | 'healthy' | 'unhealthy';
+  logPath?: string;
+  testModule?: boolean;
+}
+
+export interface ModuleOperationResult {
+  ok: boolean;
+  message: string;
+  modules: ModuleSummary[];
 }
 
 export interface HardwareDiagnostics {
@@ -97,6 +110,12 @@ export interface OutpostBridge {
   updateProfile(displayName: string): Promise<LocalProfile>;
   refreshStorage(): Promise<StorageSummary>;
   refreshHardware(): Promise<HardwareDiagnostics>;
+  refreshModules(): Promise<ModuleSummary[]>;
+  installModule(moduleId: string): Promise<ModuleOperationResult>;
+  startModule(moduleId: string): Promise<ModuleOperationResult>;
+  stopModule(moduleId: string): Promise<ModuleOperationResult>;
+  repairModule(moduleId: string): Promise<ModuleOperationResult>;
+  uninstallModule(moduleId: string): Promise<ModuleOperationResult>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   downloadUpdate(): Promise<UpdateDownloadResult>;
   applyUpdate(): Promise<UpdateApplyResult>;

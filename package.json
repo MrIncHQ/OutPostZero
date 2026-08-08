@@ -1,6 +1,6 @@
 {
   "name": "outpost-zero",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "private": true,
   "description": "Portable offline knowledge, tools, and communication platform",
   "main": "dist/main/main/main.js",
@@ -11,6 +11,7 @@
     "build": "npm run typecheck && vite build && tsc -p tsconfig.main.json",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.main.json --noEmit",
     "test": "tsx --test tests/**/*.test.ts",
+    "test:packaged-module": "node scripts/test-packaged-module-host.mjs",
     "verify": "npm run test && npm run build",
     "package:win": "npm run verify && electron-builder --win dir",
     "release:win": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-PortableWindows.ps1"
