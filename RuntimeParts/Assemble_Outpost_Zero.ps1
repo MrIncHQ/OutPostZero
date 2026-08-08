@@ -4,12 +4,20 @@ $partsDirectory = $PSScriptRoot
 $portableRoot = Split-Path -Parent $partsDirectory
 $outputPath = Join-Path $portableRoot 'Outpost Zero.exe'
 $temporaryPath = Join-Path $portableRoot 'Outpost Zero.exe.assembling'
-$expectedHash = 'F5DF149F7C20A42DF76026A0DB66AFEA6678B05549B998778EE46F6FFB2434AD'
+$expectedHashFile = Join-Path $partsDirectory 'OutpostZero.exe.sha256'
 $partNames = @(
     'OutpostZero.exe.001',
     'OutpostZero.exe.002',
     'OutpostZero.exe.003'
 )
+
+if (-not (Test-Path -LiteralPath $expectedHashFile)) {
+    throw 'The executable verification file is missing.'
+}
+$expectedHash = (Get-Content -LiteralPath $expectedHashFile -Raw).Trim().ToUpperInvariant()
+if ($expectedHash -notmatch '^[A-F0-9]{64}$') {
+    throw 'The executable verification hash is invalid.'
+}
 
 if (Test-Path -LiteralPath $outputPath) {
     $existingHash = (Get-FileHash -LiteralPath $outputPath -Algorithm SHA256).Hash
