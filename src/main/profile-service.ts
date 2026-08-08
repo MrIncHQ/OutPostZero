@@ -74,7 +74,11 @@ export class ProfileService {
       deviceFingerprint: fingerprint,
     };
     writeAtomic(this.profilePath, `${JSON.stringify(profile, null, 2)}\n`);
-    return profile;
+    return {
+      displayName: profile.displayName,
+      createdAt: profile.createdAt,
+      deviceFingerprint: profile.deviceFingerprint,
+    };
   }
 
   update(displayName: string): LocalProfile {

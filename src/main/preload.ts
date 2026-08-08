@@ -6,6 +6,8 @@ const bridge: OutpostBridge = {
   createProfile: (displayName) => ipcRenderer.invoke('outpost:create-profile', displayName),
   updateProfile: (displayName) => ipcRenderer.invoke('outpost:update-profile', displayName),
   refreshStorage: () => ipcRenderer.invoke('outpost:refresh-storage'),
+  refreshHardware: () => ipcRenderer.invoke('outpost:refresh-hardware'),
+  checkForUpdates: () => ipcRenderer.invoke('outpost:check-updates'),
   prepareForRemoval: () => ipcRenderer.invoke('outpost:prepare-removal'),
 };
 

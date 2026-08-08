@@ -16,3 +16,26 @@
 ## Next
 
 After Phase 0 acceptance, build the first-run profile and local identity, SQLite metadata, storage inspection, and Module Center skeleton. Documents and full-text search follow after the core shell.
+
+## Phase 1 - Core shell
+
+- [x] First-run local identity setup
+- [x] Persistent Ed25519 device identity
+- [x] Editable display name
+- [x] Working application navigation
+- [x] Live storage category inspection
+- [x] Module Center catalog foundation
+- [x] Clear locked states for unimplemented modules
+- [x] SQLite critical metadata and migrations
+- [x] SQLite integrity checks and rotating portable backups
+- [x] Hardware diagnostics
+- [x] Update Center with automatic checks disabled
+- [x] Future GitHub Releases provider model
+
+## Update milestone prerequisites
+
+- [ ] Publish the stable base repository
+- [ ] Configure the GitHub owner and repository
+- [ ] Define and sign the release manifest format
+- [ ] Verify package signatures and checksums
+- [ ] Apply updates through staging with health checks and rollback

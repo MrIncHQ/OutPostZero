@@ -37,11 +37,44 @@ export interface ModuleSummary {
   optional: boolean;
 }
 
+export interface HardwareDiagnostics {
+  cpuModel: string;
+  logicalCores: number;
+  totalMemoryBytes: number;
+  freeMemoryBytes: number;
+  operatingSystem: string;
+  platform: NodeJS.Platform;
+  architecture: string;
+  hostname: string;
+  gpuDevices: string[];
+}
+
+export interface UpdateStatus {
+  currentVersion: string;
+  provider: 'none' | 'github';
+  repositoryOwner: string | null;
+  repositoryName: string | null;
+  channel: 'stable' | 'preview';
+  automaticChecks: boolean;
+  lastCheckedAt: string | null;
+  configured: boolean;
+}
+
+export interface UpdateCheckResult {
+  status: 'not-configured' | 'up-to-date' | 'available' | 'error';
+  message: string;
+  currentVersion: string;
+  availableVersion?: string;
+}
+
 export interface BootstrapData {
   status: PortableStatus;
   profile: LocalProfile | null;
   storage: StorageSummary;
   modules: ModuleSummary[];
+  hardware: HardwareDiagnostics;
+  updates: UpdateStatus;
+  database: { schemaVersion: number; integrityOk: boolean };
 }
 
 export interface OutpostBridge {
@@ -49,5 +82,7 @@ export interface OutpostBridge {
   createProfile(displayName: string): Promise<LocalProfile>;
   updateProfile(displayName: string): Promise<LocalProfile>;
   refreshStorage(): Promise<StorageSummary>;
+  refreshHardware(): Promise<HardwareDiagnostics>;
+  checkForUpdates(): Promise<UpdateCheckResult>;
   prepareForRemoval(): Promise<{ ready: boolean; message: string }>;
 }

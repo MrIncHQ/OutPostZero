@@ -5,6 +5,9 @@ import { findPortableRoot, PortablePathService } from './portable-path';
 import { SessionState } from './session-state';
 import { ProfileService } from './profile-service';
 import { StorageService } from './storage-service';
+import { DatabaseService } from './database-service';
+import { collectHardwareDiagnostics } from './hardware-service';
+import { UpdateService } from './update-service';
 import type { BootstrapData, ModuleSummary, PortableStatus } from '../shared/contracts';
 
 const root = findPortableRoot([path.dirname(process.execPath), process.cwd(), __dirname]);
@@ -26,6 +29,8 @@ app.commandLine.appendSwitch('disable-component-update');
 const sessionState = new SessionState(layout['Data/State']);
 const profileService = new ProfileService(portablePaths);
 const storageService = new StorageService(portablePaths);
+const databaseService = new DatabaseService(portablePaths);
+const updateService = new UpdateService(databaseService, app.getVersion());
 let isPrepared = false;
 
 const modules: ModuleSummary[] = [
@@ -93,6 +98,12 @@ ipcMain.handle('outpost:get-bootstrap', async (): Promise<BootstrapData> => ({
   profile: profileService.read(),
   storage: await storageService.summarize(),
   modules,
+  hardware: await collectHardwareDiagnostics(app.getGPUInfo('basic')),
+  updates: updateService.status(),
+  database: {
+    schemaVersion: databaseService.schemaVersion(),
+    integrityOk: databaseService.integrityCheck(),
+  },
 }));
 ipcMain.handle('outpost:create-profile', (_event, displayName: unknown) => {
   if (typeof displayName !== 'string') throw new Error('Display name must be text.');
@@ -103,8 +114,12 @@ ipcMain.handle('outpost:update-profile', (_event, displayName: unknown) => {
   return profileService.update(displayName);
 });
 ipcMain.handle('outpost:refresh-storage', () => storageService.summarize());
+ipcMain.handle('outpost:refresh-hardware', () => collectHardwareDiagnostics(app.getGPUInfo('basic')));
+ipcMain.handle('outpost:check-updates', () => updateService.check());
 ipcMain.handle('outpost:prepare-removal', async () => {
   await session.defaultSession.clearCache();
+  await databaseService.createRotatingBackup();
+  databaseService.close();
   sessionState.markClean();
   isPrepared = true;
   return { ready: true, message: 'All Outpost Zero data is flushed. Close the app, then safely eject the drive.' };
@@ -124,5 +139,6 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => {
+  databaseService.close();
   if (!isPrepared) sessionState.markClean();
 });
