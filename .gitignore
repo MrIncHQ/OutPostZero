@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+Releases/
+Data/
+Cache/
+Temp/
+Logs/
+Backups/
+Downloads/
+Updates/
+Exports/
+Profile/profile.json
+Profile/Identity/
+*.log
+
