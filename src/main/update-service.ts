@@ -56,6 +56,7 @@ interface PendingUpdate {
   version: string;
   previousVersion: string;
   createdAt: string;
+  stagingDirectory?: string;
   files: ManifestFile[];
 }
 
@@ -121,6 +122,13 @@ async function sha256File(filePath: string): Promise<string> {
 function safeStagingVersion(version: string): string {
   parseVersion(version);
   return version;
+}
+
+function safeStagingDirectory(directory: string): string {
+  if (!/^\d+\.\d+\.\d+(?:-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/.test(directory)) {
+    throw new Error('Update staging directory is invalid.');
+  }
+  return directory;
 }
 
 function remoteUrl(relativePath: string): string {
@@ -244,7 +252,8 @@ export class UpdateService {
       if (compareVersions(manifest.version, this.currentVersion) <= 0) {
         return { status: 'no-update', message: 'No newer update is available.' };
       }
-      const stagingRelative = `Updates/Staging/${safeStagingVersion(manifest.version)}`;
+      const stagingDirectory = `${safeStagingVersion(manifest.version)}-${crypto.randomUUID()}`;
+      const stagingRelative = `Updates/Staging/${stagingDirectory}`;
       const stagingRoot = this.paths.resolve(stagingRelative);
       const conservativeRequiredBytes = manifest.files.reduce((sum, file) => sum + file.size, 0)
         + manifest.executable.parts.reduce((sum, part) => sum + part.size, 0)
@@ -261,7 +270,6 @@ export class UpdateService {
         if (error instanceof Error && error.message.startsWith('Not enough portable-drive space')) throw error;
         // Filesystems without statfs support continue; per-file writes still fail safely in staging.
       }
-      if (fs.existsSync(stagingRoot)) fs.rmSync(stagingRoot, { recursive: true, force: true });
       fs.mkdirSync(stagingRoot, { recursive: true });
       const changed: ManifestFile[] = [];
       let downloadedBytes = 0;
@@ -309,6 +317,7 @@ export class UpdateService {
         version: manifest.version,
         previousVersion: this.currentVersion,
         createdAt: new Date().toISOString(),
+        stagingDirectory,
         files: changed,
       };
       const temporaryPending = `${this.pendingFile}.new`;
@@ -331,7 +340,8 @@ export class UpdateService {
       if (!fs.existsSync(this.pendingFile)) return { status: 'not-ready', message: 'No verified update is ready to install.' };
       const pending = JSON.parse(fs.readFileSync(this.pendingFile, 'utf8')) as PendingUpdate;
       safeStagingVersion(pending.version);
-      const stagingRoot = this.paths.resolve(`Updates/Staging/${pending.version}`);
+      const stagingDirectory = safeStagingDirectory(pending.stagingDirectory ?? pending.version);
+      const stagingRoot = this.paths.resolve(`Updates/Staging/${stagingDirectory}`);
       const updater = this.paths.resolve('PortableUpdater.ps1');
       if (!fs.existsSync(updater)) throw new Error('Portable updater helper is missing.');
       const child = spawn('powershell.exe', [

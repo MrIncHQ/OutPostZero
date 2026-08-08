@@ -113,11 +113,13 @@ test('downloads, verifies, and assembles an update only in portable staging', as
   assert.equal((await updates.check()).status, 'available');
   const result = await updates.download();
   assert.equal(result.status, 'ready');
-  assert.equal(fs.readFileSync(path.join(root, 'Updates', 'Staging', '0.4.0', 'README.txt'), 'utf8'), fixture.readme.toString());
-  assert.deepEqual(fs.readFileSync(path.join(root, 'Updates', 'Staging', '0.4.0', 'Outpost Zero.exe')), fixture.executable);
   assert.equal(fs.existsSync(path.join(root, 'Data', 'outpost-zero.sqlite')), true);
   assert.equal(fs.existsSync(path.join(root, 'Profile', 'profile.json')), false);
   const pending = JSON.parse(fs.readFileSync(path.join(root, 'Updates', 'State', 'pending-update.json'), 'utf8'));
+  assert.match(pending.stagingDirectory, /^0\.4\.0-[0-9a-f-]{36}$/);
+  const staging = path.join(root, 'Updates', 'Staging', pending.stagingDirectory);
+  assert.equal(fs.readFileSync(path.join(staging, 'README.txt'), 'utf8'), fixture.readme.toString());
+  assert.deepEqual(fs.readFileSync(path.join(staging, 'Outpost Zero.exe')), fixture.executable);
   assert.deepEqual(pending.files.map((file: { path: string }) => file.path).sort(), ['Outpost Zero.exe', 'README.txt']);
   database.close();
 });

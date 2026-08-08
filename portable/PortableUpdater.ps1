@@ -128,6 +128,19 @@ catch {
     throw
 }
 
+try {
+    if (Test-Path -LiteralPath $pendingFilePath) {
+        Remove-Item -LiteralPath $pendingFilePath -Force
+    }
+    if (Test-Path -LiteralPath $stagingRootPath) {
+        Remove-Item -LiteralPath $stagingRootPath -Recurse -Force
+    }
+    Write-UpdateLog 'Removed verified update staging files.'
+}
+catch {
+    Write-UpdateLog "Update succeeded, but staging cleanup was deferred: $($_.Exception.Message)"
+}
+
 $launcher = Join-Path $portableRootPath 'Run_Outpost_Zero.bat'
 if (-not $NoRestart -and (Test-Path -LiteralPath $launcher)) {
     Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', "`"$launcher`"") -WorkingDirectory $portableRootPath -WindowStyle Hidden

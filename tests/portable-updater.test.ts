@@ -64,6 +64,8 @@ test('portable updater installs runtime files without changing user content', {
   const installedText = fs.readFileSync(path.join(root, 'Data', 'State', 'installed-version.json'), 'utf8').replace(/^\uFEFF/, '');
   const installed = JSON.parse(installedText);
   assert.equal(installed.version, '0.4.1');
+  assert.equal(fs.existsSync(staging), false);
+  assert.equal(fs.existsSync(pendingFile), false);
 });
 
 test('portable updater refuses to overwrite user data even with a malicious pending file', {
