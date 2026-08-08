@@ -10,8 +10,9 @@ $ErrorActionPreference = 'Stop'
 $portableRootPath = [System.IO.Path]::GetFullPath($PortableRoot)
 $stagingRootPath = [System.IO.Path]::GetFullPath($StagingRoot)
 $pendingFilePath = [System.IO.Path]::GetFullPath($PendingFile)
-$rootPrefix = $portableRootPath + [System.IO.Path]::DirectorySeparatorChar
-$stagingPrefix = $stagingRootPath + [System.IO.Path]::DirectorySeparatorChar
+$separator = [System.IO.Path]::DirectorySeparatorChar
+$rootPrefix = if ($portableRootPath.EndsWith($separator)) { $portableRootPath } else { $portableRootPath + $separator }
+$stagingPrefix = if ($stagingRootPath.EndsWith($separator)) { $stagingRootPath } else { $stagingRootPath + $separator }
 $protectedRoots = @(
     'AI', 'Backups', 'Cache', 'Config', 'Content', 'Data', 'Downloads',
     'Exports', 'Logs', 'Modules', 'Profile', 'Temp', 'Updates'
@@ -39,9 +40,21 @@ function Write-UpdateLog([string]$Message) {
     Add-Content -LiteralPath $logPath -Value "$(Get-Date -Format o) $Message" -Encoding UTF8
 }
 
-Write-UpdateLog "Waiting for Outpost Zero process $ProcessId to exit."
+Write-UpdateLog "Updater launched for portable root $portableRootPath."
+Write-UpdateLog "Waiting for Outpost Zero process $ProcessId and its child processes to exit."
+$executablePath = Join-Path $portableRootPath 'Outpost Zero.exe'
+function Get-OutpostProcesses {
+    return @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        try {
+            $_.Path -and [System.IO.Path]::GetFullPath($_.Path).Equals($executablePath, [System.StringComparison]::OrdinalIgnoreCase)
+        }
+        catch {
+            $false
+        }
+    })
+}
 $deadline = (Get-Date).AddSeconds(90)
-while (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) {
+while ((Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) -or (Get-OutpostProcesses).Count -gt 0) {
     if ((Get-Date) -gt $deadline) {
         throw 'Outpost Zero did not exit before the update timeout.'
     }
@@ -72,6 +85,13 @@ function Resolve-ControlledPath([string]$BasePath, [string]$RelativePath, [strin
     return $resolved
 }
 
+function Ensure-ParentDirectory([string]$FilePath) {
+    $parent = Split-Path -Parent $FilePath
+    if (-not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    }
+}
+
 try {
     foreach ($file in $pending.files) {
         $relativePath = [string]$file.path
@@ -88,11 +108,11 @@ try {
         $hadOriginal = Test-Path -LiteralPath $destination
         if ($hadOriginal) {
             $backupPath = Resolve-ControlledPath $rollbackRoot $relativePath ($rollbackRoot + [System.IO.Path]::DirectorySeparatorChar)
-            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $backupPath) | Out-Null
+            Ensure-ParentDirectory $backupPath
             Copy-Item -LiteralPath $destination -Destination $backupPath -Force
         }
 
-        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+        Ensure-ParentDirectory $destination
         Copy-Item -LiteralPath $source -Destination $destination -Force
         $destinationHash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash
         if ($destinationHash -ne [string]$file.sha256) {
@@ -103,7 +123,7 @@ try {
     }
 
     $installedStatePath = Join-Path $portableRootPath 'Data\State\installed-version.json'
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $installedStatePath) | Out-Null
+    Ensure-ParentDirectory $installedStatePath
     [ordered]@{
         version = [string]$pending.version
         previousVersion = [string]$pending.previousVersion
@@ -143,5 +163,6 @@ catch {
 
 $launcher = Join-Path $portableRootPath 'Run_Outpost_Zero.bat'
 if (-not $NoRestart -and (Test-Path -LiteralPath $launcher)) {
-    Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', "`"$launcher`"") -WorkingDirectory $portableRootPath -WindowStyle Hidden
+    Start-Process -FilePath $launcher -WorkingDirectory $portableRootPath -WindowStyle Hidden
+    Write-UpdateLog 'Relaunch requested through Run_Outpost_Zero.bat.'
 }
