@@ -9,14 +9,15 @@ The update flow:
 1. Download `update-manifest.json` from GitHub.
 2. Verify its Ed25519 signature against the public key pinned in the application.
 3. Reject absolute paths, traversal, unknown runtime targets, and every protected user-data root.
-4. Download changed runtime files into `Updates/Staging/<version>/`.
-5. Verify every size and SHA-256 checksum.
-6. Assemble and verify the executable from GitHub-compatible runtime parts.
-7. Back up the portable database and start the external update helper.
-8. Exit the main application.
-9. Back up each runtime file before replacing it.
-10. Verify each installed file and roll back all prior replacements if any step fails.
-11. Record the installed version and restart Outpost Zero.
+4. Confirm the portable drive has enough free space for staging, assembly, and rollback.
+5. Download changed runtime files into `Updates/Staging/<version>/`.
+6. Verify every size and SHA-256 checksum.
+7. Assemble and verify the executable from GitHub-compatible runtime parts.
+8. Back up the portable database and start the external update helper.
+9. Exit the main application.
+10. Back up each runtime file before replacing it.
+11. Verify each installed file and roll back all prior replacements if any step fails.
+12. Record the installed version and restart Outpost Zero.
 
 The updater's protected roots include `Data`, `Content`, `Profile`, `AI`, `Modules`, `Downloads`, `Exports`, `Backups`, `Config`, `Cache`, `Logs`, `Temp`, and `Updates`. A signed manifest still cannot target these locations.
 

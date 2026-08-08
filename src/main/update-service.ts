@@ -246,6 +246,21 @@ export class UpdateService {
       }
       const stagingRelative = `Updates/Staging/${safeStagingVersion(manifest.version)}`;
       const stagingRoot = this.paths.resolve(stagingRelative);
+      const conservativeRequiredBytes = manifest.files.reduce((sum, file) => sum + file.size, 0)
+        + manifest.executable.parts.reduce((sum, part) => sum + part.size, 0)
+        + manifest.executable.size
+        + (fs.existsSync(this.paths.resolve('Outpost Zero.exe')) ? fs.statSync(this.paths.resolve('Outpost Zero.exe')).size : 0)
+        + 100 * 1024 * 1024;
+      try {
+        const disk = fs.statfsSync(this.paths.root);
+        const freeBytes = disk.bavail * disk.bsize;
+        if (freeBytes < conservativeRequiredBytes) {
+          throw new Error(`Not enough portable-drive space for safe staging and rollback. Required: ${Math.ceil(conservativeRequiredBytes / 1024 / 1024)} MB.`);
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('Not enough portable-drive space')) throw error;
+        // Filesystems without statfs support continue; per-file writes still fail safely in staging.
+      }
       if (fs.existsSync(stagingRoot)) fs.rmSync(stagingRoot, { recursive: true, force: true });
       fs.mkdirSync(stagingRoot, { recursive: true });
       const changed: ManifestFile[] = [];

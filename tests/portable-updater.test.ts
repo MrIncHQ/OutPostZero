@@ -29,8 +29,42 @@ function runUpdater(root: string, staging: string, pendingFile: string) {
     '-StagingRoot', staging,
     '-PendingFile', pendingFile,
     '-ProcessId', '2147483647',
+    '-NoRestart',
   ], { encoding: 'utf8', timeout: 30_000 });
 }
+
+test('portable updater installs runtime files without changing user content', {
+  skip: process.platform !== 'win32',
+}, () => {
+  const { root, staging, pendingFile } = makeUpdateRoot();
+  const runtime = Buffer.from('new signed runtime');
+  const userFiles = new Map([
+    ['Data/user.db', Buffer.from('database bytes')],
+    ['Content/library.txt', Buffer.from('saved library')],
+    ['Profile/identity.json', Buffer.from('{"identity":"local"}')],
+  ]);
+  fs.writeFileSync(path.join(staging, 'README.txt'), runtime);
+  for (const [relativePath, content] of userFiles) {
+    const destination = path.join(root, ...relativePath.split('/'));
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.writeFileSync(destination, content);
+  }
+  fs.writeFileSync(pendingFile, JSON.stringify({
+    version: '0.4.1',
+    previousVersion: '0.4.0',
+    files: [{ path: 'README.txt', size: runtime.length, sha256: hash(runtime) }],
+  }));
+
+  const result = runUpdater(root, staging, pendingFile);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(fs.readFileSync(path.join(root, 'README.txt')), runtime);
+  for (const [relativePath, content] of userFiles) {
+    assert.deepEqual(fs.readFileSync(path.join(root, ...relativePath.split('/'))), content);
+  }
+  const installedText = fs.readFileSync(path.join(root, 'Data', 'State', 'installed-version.json'), 'utf8').replace(/^\uFEFF/, '');
+  const installed = JSON.parse(installedText);
+  assert.equal(installed.version, '0.4.1');
+});
 
 test('portable updater refuses to overwrite user data even with a malicious pending file', {
   skip: process.platform !== 'win32',

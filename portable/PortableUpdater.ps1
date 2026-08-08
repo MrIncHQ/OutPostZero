@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)][string]$PortableRoot,
     [Parameter(Mandatory = $true)][string]$StagingRoot,
     [Parameter(Mandatory = $true)][string]$PendingFile,
-    [Parameter(Mandatory = $true)][int]$ProcessId
+    [Parameter(Mandatory = $true)][int]$ProcessId,
+    [switch]$NoRestart
 )
 
 $ErrorActionPreference = 'Stop'
@@ -128,6 +129,6 @@ catch {
 }
 
 $launcher = Join-Path $portableRootPath 'Run_Outpost_Zero.bat'
-if (Test-Path -LiteralPath $launcher) {
+if (-not $NoRestart -and (Test-Path -LiteralPath $launcher)) {
     Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', "`"$launcher`"") -WorkingDirectory $portableRootPath -WindowStyle Hidden
 }
