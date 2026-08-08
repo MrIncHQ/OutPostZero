@@ -65,6 +65,20 @@ export interface UpdateCheckResult {
   message: string;
   currentVersion: string;
   availableVersion?: string;
+  downloadBytes?: number;
+}
+
+export interface UpdateDownloadResult {
+  status: 'ready' | 'no-update' | 'error';
+  message: string;
+  version?: string;
+  changedFiles?: number;
+  downloadedBytes?: number;
+}
+
+export interface UpdateApplyResult {
+  status: 'launching' | 'not-ready' | 'error';
+  message: string;
 }
 
 export interface BootstrapData {
@@ -84,5 +98,7 @@ export interface OutpostBridge {
   refreshStorage(): Promise<StorageSummary>;
   refreshHardware(): Promise<HardwareDiagnostics>;
   checkForUpdates(): Promise<UpdateCheckResult>;
+  downloadUpdate(): Promise<UpdateDownloadResult>;
+  applyUpdate(): Promise<UpdateApplyResult>;
   prepareForRemoval(): Promise<{ ready: boolean; message: string }>;
 }

@@ -11,7 +11,8 @@ Outpost Zero is a portable Electron application. The Electron main process is th
 - `StorageService` scans declared portable categories without following symbolic links.
 - `DatabaseService` owns the portable SQLite metadata database, versioned migrations, integrity checks, and rotating drive-local backups.
 - `HardwareService` reports current host compute resources without persisting host data.
-- `UpdateService` provides a provider-neutral update boundary; GitHub Releases is planned but deliberately unconfigured.
+- `UpdateService` verifies the pinned Ed25519 signature on GitHub manifests, rejects non-runtime paths, downloads changed files into portable staging, verifies SHA-256 hashes, and launches the external swap helper.
+- `PortableUpdater.ps1` waits for the app to exit, backs up runtime files, replaces only the verified allowlist, rolls back on any failure, and restarts the portable launcher.
 - The renderer has context isolation enabled, Node integration disabled, sandboxing enabled, and a restrictive content security policy.
 
 Feature modules will be added only after the containment milestone is proven.

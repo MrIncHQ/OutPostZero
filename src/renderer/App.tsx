@@ -226,12 +226,29 @@ function SettingsView({ data, onProfile, onHardware, go }: {
 
 function UpdatesView({ data }: { data: BootstrapData }) {
   const [result, setResult] = useState('');
-  const [checking, setChecking] = useState(false);
+  const [busy, setBusy] = useState<'checking' | 'downloading' | 'applying' | null>(null);
+  const [available, setAvailable] = useState(false);
+  const [ready, setReady] = useState(false);
   async function check() {
-    setChecking(true);
+    setBusy('checking');
+    setReady(false);
     const checkResult = await window.outpost.checkForUpdates();
-    setResult(checkResult.message);
-    setChecking(false);
+    setAvailable(checkResult.status === 'available');
+    setResult(checkResult.downloadBytes ? `${checkResult.message} Download: ${formatBytes(checkResult.downloadBytes)}.` : checkResult.message);
+    setBusy(null);
+  }
+  async function download() {
+    setBusy('downloading');
+    const downloadResult = await window.outpost.downloadUpdate();
+    setReady(downloadResult.status === 'ready');
+    setResult(downloadResult.downloadedBytes ? `${downloadResult.message} Downloaded ${formatBytes(downloadResult.downloadedBytes)}.` : downloadResult.message);
+    setBusy(null);
+  }
+  async function apply() {
+    setBusy('applying');
+    const applyResult = await window.outpost.applyUpdate();
+    setResult(applyResult.message);
+    if (applyResult.status !== 'launching') setBusy(null);
   }
   return (
     <section className="page-panel">
@@ -239,16 +256,20 @@ function UpdatesView({ data }: { data: BootstrapData }) {
       <p className="page-intro">Core, module, and content updates will always be downloaded and applied on this drive. Automatic checks are off.</p>
       <dl className="detail-list update-details">
         <div><dt>Current version</dt><dd>v{data.updates.currentVersion}</dd></div>
-        <div><dt>Provider</dt><dd>{data.updates.configured ? 'GitHub Releases' : 'Not configured'}</dd></div>
-        <div><dt>Repository</dt><dd>{data.updates.repositoryOwner && data.updates.repositoryName ? `${data.updates.repositoryOwner}/${data.updates.repositoryName}` : 'Will be linked after the base is published'}</dd></div>
+        <div><dt>Provider</dt><dd>{data.updates.configured ? 'GitHub signed manifest' : 'Not configured'}</dd></div>
+        <div><dt>Repository</dt><dd>{data.updates.repositoryOwner && data.updates.repositoryName ? `${data.updates.repositoryOwner}/${data.updates.repositoryName}` : 'Not configured'}</dd></div>
         <div><dt>Channel</dt><dd>{data.updates.channel}</dd></div>
         <div><dt>Automatic checks</dt><dd>{data.updates.automaticChecks ? 'Enabled' : 'Disabled'}</dd></div>
       </dl>
       <div className="update-explainer">
-        <b>Future GitHub release flow</b>
-        <p>Check release metadata, verify a signed manifest and checksums, download into <code>Updates/</code>, stop the app, swap versions, health-check, and roll back if needed.</p>
+        <b>User data is outside the update boundary</b>
+        <p>Updates verify an Ed25519-signed manifest and every SHA-256 checksum, stage beneath <code>Updates/</code>, back up the current runtime, and roll back on failure. Documents, profiles, content, databases, models, modules, notes, and downloads are never update targets.</p>
       </div>
-      <button className="primary-button" onClick={() => void check()} disabled={checking}>{checking ? 'CHECKING...' : 'CHECK FOR UPDATES'}</button>
+      <div className="update-actions">
+        <button className="primary-button" onClick={() => void check()} disabled={busy !== null}>{busy === 'checking' ? 'CHECKING...' : 'CHECK FOR UPDATES'}</button>
+        {available && !ready && <button className="secondary-button" onClick={() => void download()} disabled={busy !== null}>{busy === 'downloading' ? 'DOWNLOADING AND VERIFYING...' : 'DOWNLOAD UPDATE'}</button>}
+        {ready && <button className="primary-button" onClick={() => void apply()} disabled={busy !== null}>{busy === 'applying' ? 'STARTING UPDATER...' : 'INSTALL AND RESTART'}</button>}
+      </div>
       {result && <div className="update-result">{result}</div>}
     </section>
   );

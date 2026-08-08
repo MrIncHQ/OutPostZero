@@ -16,17 +16,19 @@ function createDatabase() {
 
 test('creates and migrates the portable SQLite database', () => {
   const { root, database } = createDatabase();
-  assert.equal(database.schemaVersion(), 2);
+  assert.equal(database.schemaVersion(), 3);
   assert.equal(database.integrityCheck(), true);
   assert.equal(fs.existsSync(path.join(root, 'Data', 'outpost-zero.sqlite')), true);
   database.close();
 });
 
-test('starts with network update checks disabled and no provider', () => {
+test('configures GitHub updates with automatic checks disabled', () => {
   const { database } = createDatabase();
   const updates = database.updateStatus('0.3.0');
-  assert.equal(updates.provider, 'none');
-  assert.equal(updates.configured, false);
+  assert.equal(updates.provider, 'github');
+  assert.equal(updates.configured, true);
+  assert.equal(updates.repositoryOwner, 'MrIncHQ');
+  assert.equal(updates.repositoryName, 'OutPostZero');
   assert.equal(updates.automaticChecks, false);
   assert.equal(updates.currentVersion, '0.3.0');
   database.close();

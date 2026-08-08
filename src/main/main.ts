@@ -30,7 +30,7 @@ const sessionState = new SessionState(layout['Data/State']);
 const profileService = new ProfileService(portablePaths);
 const storageService = new StorageService(portablePaths);
 const databaseService = new DatabaseService(portablePaths);
-const updateService = new UpdateService(databaseService, app.getVersion());
+const updateService = new UpdateService(databaseService, app.getVersion(), portablePaths);
 let isPrepared = false;
 
 const modules: ModuleSummary[] = [
@@ -116,6 +116,18 @@ ipcMain.handle('outpost:update-profile', (_event, displayName: unknown) => {
 ipcMain.handle('outpost:refresh-storage', () => storageService.summarize());
 ipcMain.handle('outpost:refresh-hardware', () => collectHardwareDiagnostics(app.getGPUInfo('basic')));
 ipcMain.handle('outpost:check-updates', () => updateService.check());
+ipcMain.handle('outpost:download-update', () => updateService.download());
+ipcMain.handle('outpost:apply-update', async () => {
+  await databaseService.createRotatingBackup();
+  const result = updateService.apply(process.pid);
+  if (result.status === 'launching') {
+    databaseService.close();
+    sessionState.markClean();
+    isPrepared = true;
+    setTimeout(() => app.quit(), 250);
+  }
+  return result;
+});
 ipcMain.handle('outpost:prepare-removal', async () => {
   await session.defaultSession.clearCache();
   await databaseService.createRotatingBackup();

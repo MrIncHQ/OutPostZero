@@ -1,6 +1,6 @@
 {
   "name": "outpost-zero",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Portable offline knowledge, tools, and communication platform",
   "main": "dist/main/main/main.js",
@@ -58,6 +58,10 @@
       {
         "from": "portable/Run_Outpost_Zero.bat",
         "to": "Run_Outpost_Zero.bat"
+      },
+      {
+        "from": "portable/PortableUpdater.ps1",
+        "to": "PortableUpdater.ps1"
       }
     ],
     "win": {

@@ -8,6 +8,8 @@ const bridge: OutpostBridge = {
   refreshStorage: () => ipcRenderer.invoke('outpost:refresh-storage'),
   refreshHardware: () => ipcRenderer.invoke('outpost:refresh-hardware'),
   checkForUpdates: () => ipcRenderer.invoke('outpost:check-updates'),
+  downloadUpdate: () => ipcRenderer.invoke('outpost:download-update'),
+  applyUpdate: () => ipcRenderer.invoke('outpost:apply-update'),
   prepareForRemoval: () => ipcRenderer.invoke('outpost:prepare-removal'),
 };
 

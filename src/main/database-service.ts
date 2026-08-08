@@ -44,6 +44,18 @@ const MIGRATIONS: Migration[] = [
         VALUES (1, 'none', 'stable', 0)`,
     ],
   },
+  {
+    version: 3,
+    statements: [
+      `UPDATE update_settings SET
+        provider = 'github',
+        repository_owner = 'MrIncHQ',
+        repository_name = 'OutPostZero',
+        channel = 'stable',
+        automatic_checks = 0
+      WHERE singleton_id = 1`,
+    ],
+  },
 ];
 
 export class DatabaseService {

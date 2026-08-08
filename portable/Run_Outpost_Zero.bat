@@ -7,9 +7,18 @@ if not exist ".outpost-zero-root" (
   exit /b 1
 )
 if not exist "Outpost Zero.exe" (
-  echo ERROR: Outpost Zero.exe is missing from this portable folder.
-  pause
-  exit /b 1
+  if not exist "RuntimeParts\Assemble_Outpost_Zero.ps1" (
+    echo ERROR: Outpost Zero runtime files are missing.
+    pause
+    exit /b 1
+  )
+  echo Preparing Outpost Zero for first launch...
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0RuntimeParts\Assemble_Outpost_Zero.ps1"
+  if errorlevel 1 (
+    echo ERROR: Outpost Zero could not be prepared.
+    pause
+    exit /b 1
+  )
 )
 if not exist "Temp" mkdir "Temp"
 if not exist "Data\State\Electron" mkdir "Data\State\Electron"

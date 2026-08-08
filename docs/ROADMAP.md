@@ -31,11 +31,13 @@ After Phase 0 acceptance, build the first-run profile and local identity, SQLite
 - [x] Hardware diagnostics
 - [x] Update Center with automatic checks disabled
 - [x] Future GitHub Releases provider model
+- [x] Ed25519-signed GitHub update manifests
+- [x] Per-file staged downloads and SHA-256 verification
+- [x] Protected user-data update boundary
+- [x] Runtime backup, rollback, and restart helper
 
-## Update milestone prerequisites
+## Update milestone follow-up
 
-- [ ] Publish the stable base repository
-- [ ] Configure the GitHub owner and repository
-- [ ] Define and sign the release manifest format
-- [ ] Verify package signatures and checksums
-- [ ] Apply updates through staging with health checks and rollback
+- [ ] Add byte-level download progress events
+- [ ] Add a post-restart health acknowledgement and automatic stale-staging cleanup
+- [ ] Add Linux update swap support

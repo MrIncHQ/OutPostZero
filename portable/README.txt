@@ -8,6 +8,7 @@ OUTPOST ZERO - PORTABLE WINDOWS BUILD
    generated and stored only inside this portable folder.
 5. Use the navigation, Storage Inspector, Module Center, Update Center,
    hardware diagnostics, and Settings.
+   GitHub update checks occur only when you select CHECK FOR UPDATES.
 6. Before unplugging the drive, choose PREPARE DRIVE FOR REMOVAL in the app,
    close Outpost Zero, and use Windows Safely Remove Hardware.
 
