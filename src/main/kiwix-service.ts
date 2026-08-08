@@ -236,7 +236,7 @@ export class KiwixService {
       await this.download(manifest.archive, packagePath);
       staging = this.paths.resolve(`Modules/Staging/kiwix-engine-${crypto.randomUUID()}`);
       fs.mkdirSync(staging, { recursive: true });
-      const extractor = this.paths.resolve('Extract_Kiwix.ps1');
+      const extractor = this.paths.resolve('resources/Extract_Kiwix.ps1');
       await run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', extractor,
         '-PortableRoot', this.paths.root, '-ArchivePath', packagePath, '-StagingRoot', staging], this.paths.root, 120_000);
       const stagedFiles = fs.readdirSync(staging, { withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => entry.name).sort();

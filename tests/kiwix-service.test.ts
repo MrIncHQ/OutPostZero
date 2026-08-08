@@ -15,7 +15,8 @@ const samplePath = path.resolve('VendorCache', 'openzim-small.zim');
 function makeRuntime() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'outpost-zero-kiwix-'));
   fs.writeFileSync(path.join(root, '.outpost-zero-root'), 'test');
-  fs.copyFileSync(path.resolve('portable', 'Extract_Kiwix.ps1'), path.join(root, 'Extract_Kiwix.ps1'));
+  fs.mkdirSync(path.join(root, 'resources'), { recursive: true });
+  fs.copyFileSync(path.resolve('portable', 'Extract_Kiwix.ps1'), path.join(root, 'resources', 'Extract_Kiwix.ps1'));
   const paths = new PortablePathService(root);
   paths.initializeLayout();
   const database = new DatabaseService(paths);

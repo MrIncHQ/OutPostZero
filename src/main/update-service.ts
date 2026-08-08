@@ -22,7 +22,7 @@ export const PROTECTED_DATA_ROOTS = new Set([
 
 const ALLOWED_RUNTIME_DIRECTORIES = new Set(['locales', 'resources']);
 const ALLOWED_ROOT_FILES = new Set([
-  'Outpost Zero.exe', 'Run_Outpost_Zero.bat', 'PortableUpdater.ps1', 'Extract_Kiwix.ps1', 'README.txt',
+  'Outpost Zero.exe', 'Run_Outpost_Zero.bat', 'PortableUpdater.ps1', 'README.txt',
   'LICENSE.electron.txt', 'LICENSES.chromium.html', 'chrome_100_percent.pak',
   'chrome_200_percent.pak', 'd3dcompiler_47.dll', 'dxcompiler.dll', 'dxil.dll',
   'ffmpeg.dll', 'icudtl.dat', 'libEGL.dll', 'libGLESv2.dll', 'resources.pak',
