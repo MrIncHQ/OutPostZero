@@ -22,15 +22,23 @@ function makeUpdateRoot() {
   return { root, staging, state, pendingFile: path.join(state, 'pending-update.json') };
 }
 
-function runUpdater(root: string, staging: string, pendingFile: string) {
-  return spawnSync('powershell.exe', [
+function runUpdater(root: string, staging: string, pendingFile: string, noRestart = true) {
+  const args = [
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', updaterScript,
     '-PortableRoot', root,
     '-StagingRoot', staging,
     '-PendingFile', pendingFile,
     '-ProcessId', '2147483647',
-    '-NoRestart',
-  ], { encoding: 'utf8', timeout: 30_000 });
+  ];
+  if (noRestart) args.push('-NoRestart');
+  return spawnSync('powershell.exe', args, { encoding: 'utf8', timeout: 30_000 });
+}
+
+async function waitForFile(filePath: string, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!fs.existsSync(filePath) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }
 
 test('portable updater installs runtime files without changing user content', {
@@ -87,6 +95,56 @@ test('portable updater refuses to overwrite user data even with a malicious pend
   const result = runUpdater(root, staging, pendingFile);
   assert.notEqual(result.status, 0);
   assert.deepEqual(fs.readFileSync(path.join(root, 'Data', 'user.txt')), original);
+});
+
+test('portable updater supports a portable root at the root of a Windows drive', {
+  skip: process.platform !== 'win32',
+}, () => {
+  const backingRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'outpost-zero-drive-root-'));
+  const driveLetter = ['Z', 'Y', 'X', 'W'].find((letter) => !fs.existsSync(`${letter}:\\`));
+  assert.ok(driveLetter, 'No unused drive letter was available for the test.');
+  const drive = `${driveLetter}:`;
+  const mapped = spawnSync('subst.exe', [drive, backingRoot], { encoding: 'utf8' });
+  assert.equal(mapped.status, 0, mapped.stderr);
+  const root = `${drive}\\`;
+  try {
+    const staging = path.join(root, 'Updates', 'Staging', '0.4.0');
+    const pendingFile = path.join(root, 'Updates', 'State', 'pending-update.json');
+    fs.mkdirSync(staging, { recursive: true });
+    fs.mkdirSync(path.dirname(pendingFile), { recursive: true });
+    fs.writeFileSync(path.join(root, '.outpost-zero-root'), 'test');
+    const runtime = Buffer.from('drive-root runtime');
+    fs.writeFileSync(path.join(staging, 'README.txt'), runtime);
+    fs.writeFileSync(pendingFile, JSON.stringify({
+      version: '0.4.1', previousVersion: '0.4.0',
+      files: [{ path: 'README.txt', size: runtime.length, sha256: hash(runtime) }],
+    }));
+    const result = runUpdater(root, staging, pendingFile);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(fs.readFileSync(path.join(root, 'README.txt')), runtime);
+  } finally {
+    spawnSync('subst.exe', [drive, '/D'], { encoding: 'utf8' });
+    fs.rmSync(backingRoot, { recursive: true, force: true });
+  }
+});
+
+test('portable updater relaunches through the portable batch launcher', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const { root, staging, pendingFile } = makeUpdateRoot();
+  const runtime = Buffer.from('restart runtime');
+  const restarted = path.join(root, 'restarted.txt');
+  fs.writeFileSync(path.join(staging, 'README.txt'), runtime);
+  fs.writeFileSync(path.join(root, 'Run_Outpost_Zero.bat'), '@echo off\r\n> "%~dp0restarted.txt" echo restarted\r\n');
+  fs.writeFileSync(pendingFile, JSON.stringify({
+    version: '0.4.1', previousVersion: '0.4.0',
+    files: [{ path: 'README.txt', size: runtime.length, sha256: hash(runtime) }],
+  }));
+  const result = runUpdater(root, staging, pendingFile, false);
+  assert.equal(result.status, 0, result.stderr);
+  await waitForFile(restarted);
+  assert.equal(fs.existsSync(restarted), true);
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test('portable updater rolls back runtime files when a later verification fails', {

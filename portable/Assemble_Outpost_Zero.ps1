@@ -14,10 +14,12 @@ $partNames = @(
 if (-not (Test-Path -LiteralPath $expectedHashFile)) {
     throw 'The executable verification file is missing.'
 }
-$expectedHash = (Get-Content -LiteralPath $expectedHashFile -Raw).Trim().ToUpperInvariant()
-if ($expectedHash -notmatch '^[A-F0-9]{64}$') {
+$expectedHashText = (Get-Content -LiteralPath $expectedHashFile -Raw).Trim().ToUpperInvariant()
+$hashMatch = [System.Text.RegularExpressions.Regex]::Match($expectedHashText, '[A-F0-9]{64}')
+if (-not $hashMatch.Success) {
     throw 'The executable verification hash is invalid.'
 }
+$expectedHash = $hashMatch.Value
 
 if (Test-Path -LiteralPath $outputPath) {
     $existingHash = (Get-FileHash -LiteralPath $outputPath -Algorithm SHA256).Hash
