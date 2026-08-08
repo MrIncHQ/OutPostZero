@@ -3,17 +3,18 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import test from 'node:test';
 import { DatabaseService } from '../src/main/database-service';
 import { PortablePathService, ROOT_MARKER } from '../src/main/portable-path';
-import { UpdateService, validateRuntimePath } from '../src/main/update-service';
+import { UpdateService, validateRuntimePath } from '../src/main/portable-update-service';
 
 function hash(content: Buffer): string {
   return crypto.createHash('sha256').update(content).digest('hex').toUpperCase();
 }
 
 function createServices(fetchImpl: typeof fetch, publicKey: string) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'outpost-zero-updates-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'outpost zero updates-'));
   fs.writeFileSync(path.join(root, ROOT_MARKER), 'test');
   const paths = new PortablePathService(root);
   paths.initializeLayout();
@@ -73,6 +74,13 @@ function signedFixture() {
   };
 }
 
+async function waitForFile(filePath: string, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!fs.existsSync(filePath) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 test('rejects update paths that could overwrite portable user data', () => {
   for (const protectedPath of [
     'Data/outpost-zero.sqlite', 'Profile/profile.json', 'Content/PDFs/manual.pdf',
@@ -122,4 +130,40 @@ test('downloads, verifies, and assembles an update only in portable staging', as
   assert.deepEqual(fs.readFileSync(path.join(staging, 'Outpost Zero.exe')), fixture.executable);
   assert.deepEqual(pending.files.map((file: { path: string }) => file.path).sort(), ['Outpost Zero.exe', 'README.txt']);
   database.close();
+});
+
+test('confirms updater startup, applies the staged update, and relaunches', {
+  skip: process.platform !== 'win32',
+  timeout: 30_000,
+}, async () => {
+  const fixture = signedFixture();
+  const { root, paths, database, updates } = createServices(fixture.fetchImpl, fixture.publicKey);
+  const restarted = paths.resolve('restarted.txt');
+  fs.copyFileSync(path.resolve('portable', 'PortableUpdater.ps1'), paths.resolve('PortableUpdater.ps1'));
+  fs.mkdirSync(paths.resolve('resources'), { recursive: true });
+  fs.copyFileSync(path.resolve('portable', 'UpdaterBootstrap.ps1'), paths.resolve('resources/UpdaterBootstrap.ps1'));
+  fs.writeFileSync(paths.resolve('Run_Outpost_Zero.bat'), '@echo off\r\n> "%~dp0restarted.txt" echo restarted\r\n');
+  assert.equal((await updates.check()).status, 'available');
+  assert.equal((await updates.download()).status, 'ready');
+  database.close();
+
+  const child = spawn(process.execPath, [
+    path.resolve('node_modules', 'tsx', 'dist', 'cli.mjs'),
+    path.resolve('tests', 'fixtures', 'apply-update-child.ts'),
+    root,
+  ], { windowsHide: true });
+  let stdout = '';
+  let stderr = '';
+  child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
+  child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); });
+  const exitCode = await new Promise<number | null>((resolve) => child.once('exit', resolve));
+  assert.equal(exitCode, 0, stderr);
+  assert.equal(JSON.parse(stdout).status, 'launching');
+
+  await waitForFile(restarted);
+  assert.equal(fs.existsSync(restarted), true);
+  assert.deepEqual(fs.readFileSync(paths.resolve('Outpost Zero.exe')), fixture.executable);
+  assert.equal(fs.existsSync(paths.resolve('Updates/State/pending-update.json')), false);
+  assert.match(fs.readFileSync(paths.resolve('Updates/update.log'), 'utf8'), /Update to 0\.4\.0 completed successfully/);
+  fs.rmSync(root, { recursive: true, force: true });
 });

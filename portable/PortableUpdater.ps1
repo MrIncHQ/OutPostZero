@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory = $true)][string]$StagingRoot,
     [Parameter(Mandatory = $true)][string]$PendingFile,
     [Parameter(Mandatory = $true)][int]$ProcessId,
+    [string]$HandshakeFile,
     [switch]$NoRestart
 )
 
@@ -10,6 +11,7 @@ $ErrorActionPreference = 'Stop'
 $portableRootPath = [System.IO.Path]::GetFullPath($PortableRoot)
 $stagingRootPath = [System.IO.Path]::GetFullPath($StagingRoot)
 $pendingFilePath = [System.IO.Path]::GetFullPath($PendingFile)
+$handshakeFilePath = if ([string]::IsNullOrWhiteSpace($HandshakeFile)) { $null } else { [System.IO.Path]::GetFullPath($HandshakeFile) }
 $separator = [System.IO.Path]::DirectorySeparatorChar
 $rootPrefix = if ($portableRootPath.EndsWith($separator)) { $portableRootPath } else { $portableRootPath + $separator }
 $stagingPrefix = if ($stagingRootPath.EndsWith($separator)) { $stagingRootPath } else { $stagingRootPath + $separator }
@@ -27,6 +29,9 @@ if (-not $stagingRootPath.StartsWith((Join-Path $portableRootPath 'Updates') + [
 if (-not $pendingFilePath.StartsWith((Join-Path $portableRootPath 'Updates') + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw 'Pending update file is outside the portable Updates directory.'
 }
+if ($handshakeFilePath -and -not $handshakeFilePath.StartsWith((Join-Path $portableRootPath 'Updates') + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Updater handshake file is outside the portable Updates directory.'
+}
 
 $pending = Get-Content -LiteralPath $pendingFilePath -Raw | ConvertFrom-Json
 if (-not $pending.version -or -not $pending.files) {
@@ -41,6 +46,10 @@ function Write-UpdateLog([string]$Message) {
 }
 
 Write-UpdateLog "Updater launched for portable root $portableRootPath."
+if ($handshakeFilePath) {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $handshakeFilePath) | Out-Null
+    Set-Content -LiteralPath $handshakeFilePath -Value "ready $PID" -Encoding ascii
+}
 Write-UpdateLog "Waiting for Outpost Zero process $ProcessId and its child processes to exit."
 $executablePath = Join-Path $portableRootPath 'Outpost Zero.exe'
 function Get-OutpostProcesses {

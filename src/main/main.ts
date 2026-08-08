@@ -7,7 +7,7 @@ import { ProfileService } from './profile-service';
 import { StorageService } from './storage-service';
 import { DatabaseService } from './database-service';
 import { collectHardwareDiagnostics } from './hardware-service';
-import { UpdateService } from './update-service';
+import { UpdateService } from './portable-update-service';
 import { ModuleService } from './module-service';
 import { KiwixService } from './kiwix-service';
 import type { BootstrapData, ModuleOperationResult, ModuleSummary, PortableStatus } from '../shared/contracts';
@@ -151,7 +151,7 @@ ipcMain.handle('outpost:download-update', () => updateService.download());
 ipcMain.handle('outpost:apply-update', async () => {
   await Promise.all([moduleService.stopAll(), kiwixService.stop(true)]);
   await databaseService.createRotatingBackup();
-  const result = updateService.apply(process.pid);
+  const result = await updateService.apply(process.pid);
   if (result.status === 'launching') {
     databaseService.close();
     sessionState.markClean();

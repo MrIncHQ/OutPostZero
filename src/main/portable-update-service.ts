@@ -335,7 +335,7 @@ export class UpdateService {
     }
   }
 
-  apply(processId: number): UpdateApplyResult {
+  async apply(processId: number): Promise<UpdateApplyResult> {
     try {
       if (!fs.existsSync(this.pendingFile)) return { status: 'not-ready', message: 'No verified update is ready to install.' };
       const pending = JSON.parse(fs.readFileSync(this.pendingFile, 'utf8')) as PendingUpdate;
@@ -344,14 +344,34 @@ export class UpdateService {
       const stagingRoot = this.paths.resolve(`Updates/Staging/${stagingDirectory}`);
       const updater = this.paths.resolve('PortableUpdater.ps1');
       if (!fs.existsSync(updater)) throw new Error('Portable updater helper is missing.');
+      const bootstrap = this.paths.resolve('resources/UpdaterBootstrap.ps1');
+      if (!fs.existsSync(bootstrap)) throw new Error('Portable updater bootstrap is missing.');
+      const handshake = path.join(this.stateDirectory, `updater-started-${crypto.randomUUID()}.txt`);
       const child = spawn('powershell.exe', [
-        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', updater,
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', bootstrap,
+        '-Updater', updater,
         '-PortableRoot', this.paths.root,
         '-StagingRoot', stagingRoot,
         '-PendingFile', this.pendingFile,
         '-ProcessId', String(processId),
-      ], { detached: true, stdio: 'ignore', windowsHide: true });
-      child.unref();
+        '-HandshakeFile', handshake,
+      ], { stdio: 'ignore', windowsHide: true });
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          child.kill();
+          reject(new Error('Portable updater did not confirm startup. Outpost Zero will remain open.'));
+        }, 20_000);
+        child.once('error', (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+        child.once('exit', (code) => {
+          clearTimeout(timeout);
+          if (code === 0 && fs.existsSync(handshake)) resolve();
+          else reject(new Error(`Portable updater bootstrap failed before startup confirmation (code ${code ?? 'unknown'}).`));
+        });
+      });
+      fs.rmSync(handshake, { force: true });
       return { status: 'launching', message: 'Outpost Zero will close, apply the update, verify it, and restart.' };
     } catch (error) {
       return { status: 'error', message: error instanceof Error ? error.message : 'Could not launch the portable updater.' };
