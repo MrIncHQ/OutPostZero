@@ -316,6 +316,26 @@ export class KiwixService {
     };
   }
 
+  async removeContent(contentId: string): Promise<LibraryOperationResult> {
+    if (!/^[A-F0-9]{16}$/i.test(contentId)) return this.result(false, 'Library content identifier is invalid.');
+    const content = this.scan().find((item) => item.id.toLowerCase() === contentId.toLowerCase());
+    if (!content) return this.result(false, 'That offline library is no longer present on this drive.');
+    const wasRunning = Boolean(this.active);
+    if (wasRunning) await this.stop(true);
+    try {
+      fs.rmSync(this.paths.resolve(content.relativePath), { force: false });
+    } catch (error) {
+      if (wasRunning) await this.start();
+      return this.result(false, error instanceof Error ? `Could not remove ${content.name}: ${error.message}` : `Could not remove ${content.name}.`);
+    }
+    const remaining = this.scan();
+    if (wasRunning && remaining.length) {
+      const restarted = await this.start();
+      if (!restarted.ok) return this.result(true, `${content.name} was removed, but the offline reader could not restart: ${restarted.message}`);
+    }
+    return this.result(true, `${content.name} was removed from this drive and freed ${content.size.toLocaleString()} bytes.`);
+  }
+
   private result(ok: boolean, message: string): LibraryOperationResult { return { ok, message, status: this.status() }; }
 
   async fetchCatalogOptions(): Promise<KiwixCatalogOptionsResult> {

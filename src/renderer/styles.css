@@ -135,6 +135,10 @@ footer { position: fixed; left: 230px; right: 0; bottom: 0; height: 54px; paddin
 .zim-list b { color: #d8dfdb; font-family: 'Newsreader Variable', serif; font-size: 17px; font-weight: 450; }
 .zim-list small { color: #69776f; font-size: 8px; }
 .zim-list strong { color: #c3aa7d; font-size: 10px; font-weight: 500; }
+.zim-actions { display: flex; align-items: center; gap: 14px; }
+.zim-actions button { padding: 6px 9px; border: 1px solid #654d42; background: transparent; color: #b98c79; font-size: 8px; letter-spacing: .1em; cursor: pointer; }
+.zim-actions button:hover { border-color: #a76a51; color: #e0a98f; }
+.zim-actions button:disabled { cursor: wait; opacity: .45; }
 .zim-list > p { padding: 20px; border: 1px dashed #35413b; color: #7f8d85; font-size: 11px; }
 .kiwix-catalog { max-width: 920px; margin-top: 28px; }
 .catalog-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; }
@@ -191,6 +195,9 @@ footer { position: fixed; left: 230px; right: 0; bottom: 0; height: 54px; paddin
 .download-confirm p:not(.section-label) { margin: 6px 0 0; color: #a99d8d; font-size: 10px; }
 .download-confirm > div:last-child { display: flex; gap: 8px; flex-shrink: 0; }
 .download-confirm .primary-button { margin: 0; }
+.library-remove-confirm { border-color: #7e4e3e; background: #211b18; }
+.danger-button { padding: 10px 13px; border: 1px solid #a55f49; background: #7f4434; color: #fff0e8; font-size: 9px; letter-spacing: .09em; cursor: pointer; }
+.danger-button:hover { background: #99513d; }
 .download-progress { display: grid; grid-template-columns: 1fr auto; gap: 9px 18px; margin-top: 18px; padding: 15px; border: 1px solid #5b523d; background: rgba(181,132,68,.07); }
 .download-progress > div { display: grid; gap: 4px; }
 .download-progress b { color: #ded6ca; font-size: 11px; }

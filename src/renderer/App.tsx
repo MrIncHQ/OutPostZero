@@ -155,7 +155,7 @@ function SearchView() {
 function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => void }) {
   const [library, setLibrary] = useState<OfflineLibraryStatus>();
   const [librarySection, setLibrarySection] = useState<'browse' | 'add' | 'manage'>('browse');
-  const [busy, setBusy] = useState<'install' | 'sample' | 'scan' | 'start' | 'stop' | 'catalog' | 'download' | null>(null);
+  const [busy, setBusy] = useState<'install' | 'sample' | 'scan' | 'start' | 'stop' | 'catalog' | 'download' | 'remove' | null>(null);
   const [message, setMessage] = useState('');
   const [catalog, setCatalog] = useState<KiwixCatalogResult>();
   const [catalogOptions, setCatalogOptions] = useState<KiwixCatalogOptionsResult>();
@@ -164,6 +164,7 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
   const [catalogCategory, setCatalogCategory] = useState('wikipedia');
   const [selectedEditions, setSelectedEditions] = useState<Record<string, string>>({});
   const [confirmDownload, setConfirmDownload] = useState<KiwixCatalogEntry>();
+  const [confirmRemove, setConfirmRemove] = useState<OfflineLibraryStatus['content'][number]>();
   const [download, setDownload] = useState<KiwixDownloadStatus>();
   useEffect(() => { void window.outpost.getLibraryStatus().then((status) => { setLibrary(status); if (!status.content.length) setLibrarySection('add'); }); }, []);
   useEffect(() => { void window.outpost.getKiwixCatalogOptions().then(setCatalogOptions); }, []);
@@ -278,6 +279,22 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
     setDownload(await window.outpost.cancelKiwixDownload());
   }
 
+  async function removeContent(contentId: string) {
+    setConfirmRemove(undefined);
+    setBusy('remove');
+    setMessage('');
+    try {
+      const result = await window.outpost.removeKiwixContent(contentId);
+      setLibrary(result.status);
+      setMessage(result.message);
+      if (catalog) setCatalog(await window.outpost.fetchKiwixCatalog(catalogQuery, catalogLanguage, catalogCategory, catalog.startIndex));
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : 'Could not remove the offline library.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (!library) return <section className="page-panel"><p className="section-label">OFFLINE LIBRARY</p><h2>Scanning portable knowledge...</h2></section>;
   return (
     <section className="page-panel library-panel">
@@ -286,13 +303,13 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
         <button className="primary-button library-add-button" onClick={() => setLibrarySection('add')}>+ ADD CONTENT</button>
       </div>
       <nav className="library-tabs" aria-label="Library sections">
-        <button className={librarySection === 'browse' ? 'active' : ''} onClick={() => setLibrarySection('browse')}>MY LIBRARY <span>{library.content.length}</span></button>
+        <button className={librarySection === 'browse' ? 'active' : ''} onClick={() => setLibrarySection('browse')}>MY LIBRARY</button>
         <button className={librarySection === 'add' ? 'active' : ''} onClick={() => setLibrarySection('add')}>ADD CONTENT</button>
-        <button className={librarySection === 'manage' ? 'active' : ''} onClick={() => setLibrarySection('manage')}>MANAGE</button>
+        <button className={librarySection === 'manage' ? 'active' : ''} onClick={() => setLibrarySection('manage')}>MANAGE <span>{library.content.length}</span></button>
       </nav>
-      {message && <div className="module-result" role="status">{message}</div>}
+      {message && librarySection !== 'browse' && <div className="module-result" role="status">{message}</div>}
       {librarySection === 'manage' && <section className="library-manage">
-      <div className="library-section-heading"><div><p className="section-label">LIBRARY MANAGEMENT</p><h3>Engine and files</h3></div><button className="secondary-button" onClick={() => void scan()} disabled={busy !== null}>{busy === 'scan' ? 'SCANNING...' : 'SCAN FOR ZIM FILES'}</button></div>
+      <div className="library-section-heading"><div><p className="section-label">LIBRARY MANAGEMENT</p><h3>Engine and downloaded content</h3></div><button className="secondary-button" onClick={() => void scan()} disabled={busy !== null}>{busy === 'scan' ? 'SCANNING...' : 'SCAN FOR ZIM FILES'}</button></div>
       <p className="page-intro">Kiwix runs from this drive, serves only on 127.0.0.1, and blocks direct external-resource navigation. ZIM files remain separate from the removable engine.</p>
       <div className="library-actions">
         {!library.engineInstalled && <button className="primary-button" onClick={() => void moduleAction('install')} disabled={busy !== null}>{busy === 'install' ? 'DOWNLOADING AND VERIFYING KIWIX...' : 'INSTALL KIWIX ENGINE'}</button>}
@@ -305,8 +322,9 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
         <div><dt>Process</dt><dd>{library.running ? `Healthy · PID ${library.pid} · 127.0.0.1:${library.port}` : 'Stopped'}</dd></div>
         <div><dt>Content location</dt><dd>Content/ZIM</dd></div>
       </dl>
+      {confirmRemove && <div className="download-confirm library-remove-confirm" role="alertdialog" aria-label="Confirm library removal"><div><p className="section-label">REMOVE OFFLINE CONTENT</p><b>{confirmRemove.name}</b><p>This permanently deletes this ZIM file and frees {formatBytes(confirmRemove.size)} on the drive. This cannot be undone.</p></div><div><button className="secondary-button" onClick={() => setConfirmRemove(undefined)}>KEEP IT</button><button className="danger-button" onClick={() => void removeContent(confirmRemove.id)}>DELETE FROM DRIVE</button></div></div>}
       <div className="zim-list">
-        {library.content.map((item) => <div key={item.id}><span><b>{item.name}</b><small>{item.relativePath}</small></span><strong>{formatBytes(item.size)}</strong></div>)}
+        {library.content.map((item) => <div key={item.id}><span><b>{item.name}</b><small>{item.relativePath}</small></span><div className="zim-actions"><strong>{formatBytes(item.size)}</strong><button onClick={() => setConfirmRemove(item)} disabled={busy !== null}>REMOVE</button></div></div>)}
         {library.content.length === 0 && <p>No ZIM files found. Add your own file to Content/ZIM or download the small test library.</p>}
       </div>
       </section>}
@@ -352,9 +370,9 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
       </section>}
 
       {librarySection === 'browse' && <section className="library-browse">
-        <div className="library-section-heading"><div><p className="section-label">READY OFFLINE</p><h3>{library.content.length ? `${library.content.length} installed ${library.content.length === 1 ? 'library' : 'libraries'}` : 'Your library is empty'}</h3></div>{library.engineInstalled && !library.running && library.content.length > 0 && <button className="primary-button" onClick={() => void moduleAction('start')} disabled={busy !== null}>{busy === 'start' ? 'OPENING...' : 'OPEN LIBRARY'}</button>}{library.running && <button className="secondary-button" onClick={() => void moduleAction('stop')} disabled={busy !== null}>{busy === 'stop' ? 'CLOSING...' : 'CLOSE READER'}</button>}</div>
+        <div className="library-section-heading"><div><p className="section-label">OFFLINE READER</p><h3>{library.running ? 'Browse your offline knowledge' : library.content.length ? 'Reader is ready' : 'Your library is empty'}</h3></div>{library.engineInstalled && !library.running && library.content.length > 0 && <button className="primary-button" onClick={() => void moduleAction('start')} disabled={busy !== null}>{busy === 'start' ? 'OPENING...' : 'OPEN READER'}</button>}{library.running && <button className="secondary-button" onClick={() => void moduleAction('stop')} disabled={busy !== null}>{busy === 'stop' ? 'CLOSING...' : 'CLOSE READER'}</button>}</div>
         {!library.content.length && <div className="library-empty"><b>Add your first offline knowledge source</b><p>Choose a language, content type, and size. Only the edition you select is downloaded.</p><button className="primary-button" onClick={() => setLibrarySection('add')}>CHOOSE CONTENT</button></div>}
-        {library.content.length > 0 && <div className="zim-list">{library.content.map((item) => <div key={item.id}><span><b>{item.name}</b><small>Available without internet</small></span><strong>{formatBytes(item.size)}</strong></div>)}</div>}
+        {library.content.length > 0 && !library.engineInstalled && <div className="library-empty"><b>The offline reader is not installed</b><p>Your downloaded content is safe. Install or repair the Kiwix engine from Manage.</p><button className="secondary-button" onClick={() => setLibrarySection('manage')}>OPEN MANAGE</button></div>}
         {library.running && library.serverUrl && <div className="kiwix-frame-shell"><div><span>OFFLINE READER</span><code>{library.serverUrl}</code></div><iframe title="Offline Kiwix library" src={library.serverUrl} sandbox="allow-scripts allow-forms allow-same-origin" /></div>}
       </section>}
     </section>

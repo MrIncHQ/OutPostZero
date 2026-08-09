@@ -146,6 +146,10 @@ ipcMain.handle('outpost:repair-module', (_event, value: unknown) => moduleAction
 ipcMain.handle('outpost:uninstall-module', (_event, value: unknown) => moduleAction('uninstall', value));
 ipcMain.handle('outpost:get-library-status', () => kiwixService.status());
 ipcMain.handle('outpost:scan-library', () => kiwixService.status());
+ipcMain.handle('outpost:remove-kiwix-content', (_event, contentId: unknown) => {
+  if (typeof contentId !== 'string' || !/^[A-F0-9]{16}$/i.test(contentId)) throw new Error('Library content identifier is invalid.');
+  return kiwixService.removeContent(contentId);
+});
 ipcMain.handle('outpost:install-kiwix-sample', () => kiwixService.installSample());
 ipcMain.handle('outpost:get-kiwix-catalog-options', () => kiwixService.fetchCatalogOptions());
 ipcMain.handle('outpost:fetch-kiwix-catalog', (_event, query: unknown, language: unknown, category: unknown, startIndex: unknown) => {

@@ -62,5 +62,7 @@ After Phase 0 acceptance, build the first-run profile and local identity, SQLite
 - [x] Simplified Library workspace separating reading, adding content, and engine/file management
 - [x] Live SHA-256 verification progress for large Kiwix downloads
 - [x] Preserve Kiwix article response policies inside the embedded offline reader
+- [x] Confirmed removal of individual ZIM libraries with safe reader restart
+- [x] Reader-only My Library view with downloaded-file controls moved to Manage
 - [x] Portable large-download staging, pause/resume, live progress, free-space projection, and SHA-256 verification
 - [ ] Catalog content updates, enable/disable controls, and explicit removal

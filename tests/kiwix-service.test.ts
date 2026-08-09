@@ -83,6 +83,30 @@ test('scans only ZIM files beneath the portable content root', () => {
   }
 });
 
+test('removes only the selected ZIM file from managed library content', async () => {
+  const runtime = makeRuntime();
+  try {
+    const first = runtime.paths.resolve('Content/ZIM/remove-me.zim');
+    const second = runtime.paths.resolve('Content/ZIM/keep-me.zim');
+    fs.writeFileSync(first, Buffer.alloc(123));
+    fs.writeFileSync(second, Buffer.alloc(456));
+    const service = new KiwixService(runtime.database, runtime.paths);
+    const selected = service.scan().find((item) => item.fileName === 'remove-me.zim');
+    assert.ok(selected);
+    const result = await service.removeContent(selected.id);
+    assert.equal(result.ok, true, result.message);
+    assert.equal(fs.existsSync(first), false);
+    assert.equal(fs.existsSync(second), true);
+    assert.deepEqual(result.status.content.map((item) => item.fileName), ['keep-me.zim']);
+    const rejected = await service.removeContent('../keep-me.zim');
+    assert.equal(rejected.ok, false);
+    assert.equal(fs.existsSync(second), true);
+  } finally {
+    runtime.database.close();
+    fs.rmSync(runtime.root, { recursive: true, force: true });
+  }
+});
+
 test('parses current OPDS catalog and Metalink download metadata safely', () => {
   const catalog = `<?xml version="1.0"?><feed><totalResults>72</totalResults><startIndex>48</startIndex><itemsPerPage>24</itemsPerPage><entry>
     <id>urn:uuid:catalog-entry-1234</id><title>Wikipedia English</title><summary>Current reference</summary>

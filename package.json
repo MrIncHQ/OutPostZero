@@ -1,6 +1,6 @@
 {
   "name": "outpost-zero",
-  "version": "0.6.11",
+  "version": "0.6.12",
   "private": true,
   "description": "Portable offline knowledge, tools, and communication platform",
   "main": "dist/main/main/main.js",

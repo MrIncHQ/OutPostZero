@@ -193,6 +193,7 @@ export interface OutpostBridge {
   uninstallModule(moduleId: string): Promise<ModuleOperationResult>;
   getLibraryStatus(): Promise<OfflineLibraryStatus>;
   scanLibrary(): Promise<OfflineLibraryStatus>;
+  removeKiwixContent(contentId: string): Promise<LibraryOperationResult>;
   installKiwixSample(): Promise<LibraryOperationResult>;
   getKiwixCatalogOptions(): Promise<KiwixCatalogOptionsResult>;
   fetchKiwixCatalog(query: string, language: string, category: string, startIndex: number): Promise<KiwixCatalogResult>;

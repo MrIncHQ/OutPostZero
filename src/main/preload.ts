@@ -15,6 +15,7 @@ const bridge: OutpostBridge = {
   uninstallModule: (moduleId) => ipcRenderer.invoke('outpost:uninstall-module', moduleId),
   getLibraryStatus: () => ipcRenderer.invoke('outpost:get-library-status'),
   scanLibrary: () => ipcRenderer.invoke('outpost:scan-library'),
+  removeKiwixContent: (contentId) => ipcRenderer.invoke('outpost:remove-kiwix-content', contentId),
   installKiwixSample: () => ipcRenderer.invoke('outpost:install-kiwix-sample'),
   getKiwixCatalogOptions: () => ipcRenderer.invoke('outpost:get-kiwix-catalog-options'),
   fetchKiwixCatalog: (query, language, category, startIndex) => ipcRenderer.invoke('outpost:fetch-kiwix-catalog', query, language, category, startIndex),
