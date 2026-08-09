@@ -74,6 +74,105 @@ export interface LibraryOperationResult {
   status: OfflineLibraryStatus;
 }
 
+export type DocumentFormat = 'pdf' | 'text' | 'markdown' | 'html' | 'image';
+export type DocumentIndexStatus = 'not-indexed' | 'indexing' | 'indexed' | 'error';
+
+export interface DocumentSummary {
+  id: string;
+  title: string;
+  fileName: string;
+  relativePath: string;
+  format: DocumentFormat;
+  size: number;
+  modifiedAt: string;
+  addedAt: string;
+  lastOpenedAt: string | null;
+  currentPage: number;
+  pageCount: number;
+  favorite: boolean;
+  indexStatus: DocumentIndexStatus;
+  indexError: string | null;
+  indexedPages: number;
+  tags: string[];
+  collections: string[];
+}
+
+export interface DocumentBookmark {
+  id: string;
+  page: number;
+  label: string;
+  createdAt: string;
+}
+
+export interface DocumentNote {
+  id: string;
+  page: number;
+  title: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocumentAnnotation {
+  id: string;
+  page: number;
+  kind: 'highlight' | 'comment';
+  color: string;
+  text: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocumentDetails extends DocumentSummary {
+  readerUrl: string;
+  bookmarks: DocumentBookmark[];
+  notes: DocumentNote[];
+  annotations: DocumentAnnotation[];
+}
+
+export interface DocumentLibraryState {
+  documents: DocumentSummary[];
+  collections: string[];
+  tags: string[];
+}
+
+export interface DocumentSearchResult {
+  documentId: string;
+  title: string;
+  format: DocumentFormat;
+  page: number;
+  excerpt: string;
+  score: number;
+}
+
+export interface DocumentOperationResult {
+  ok: boolean;
+  message: string;
+  library: DocumentLibraryState;
+}
+
+export interface DocumentMetadataUpdate {
+  favorite?: boolean;
+  currentPage?: number;
+  tags?: string[];
+  collections?: string[];
+}
+
+export interface DocumentNoteInput {
+  id?: string;
+  page: number;
+  title: string;
+  body: string;
+}
+
+export interface DocumentAnnotationInput {
+  id?: string;
+  page: number;
+  kind: 'highlight' | 'comment';
+  color: string;
+  text: string;
+}
+
 export interface KiwixCatalogEntry {
   id: string;
   archiveName: string;
@@ -200,6 +299,20 @@ export interface OutpostBridge {
   downloadKiwixContent(entryId: string): Promise<LibraryOperationResult>;
   getKiwixDownloadStatus(): Promise<KiwixDownloadStatus>;
   cancelKiwixDownload(): Promise<KiwixDownloadStatus>;
+  getDocumentLibrary(): Promise<DocumentLibraryState>;
+  importDocuments(): Promise<DocumentOperationResult>;
+  scanDocuments(): Promise<DocumentOperationResult>;
+  getDocument(documentId: string): Promise<DocumentDetails>;
+  getDocumentText(documentId: string): Promise<string>;
+  searchDocuments(query: string): Promise<DocumentSearchResult[]>;
+  updateDocumentMetadata(documentId: string, update: DocumentMetadataUpdate): Promise<DocumentDetails>;
+  removeDocument(documentId: string): Promise<DocumentOperationResult>;
+  addDocumentBookmark(documentId: string, page: number, label: string): Promise<DocumentDetails>;
+  removeDocumentBookmark(documentId: string, bookmarkId: string): Promise<DocumentDetails>;
+  saveDocumentNote(documentId: string, note: DocumentNoteInput): Promise<DocumentDetails>;
+  removeDocumentNote(documentId: string, noteId: string): Promise<DocumentDetails>;
+  saveDocumentAnnotation(documentId: string, annotation: DocumentAnnotationInput): Promise<DocumentDetails>;
+  removeDocumentAnnotation(documentId: string, annotationId: string): Promise<DocumentDetails>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   downloadUpdate(): Promise<UpdateDownloadResult>;
   applyUpdate(): Promise<UpdateApplyResult>;

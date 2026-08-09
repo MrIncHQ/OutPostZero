@@ -1,5 +1,6 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
-import type { BootstrapData, KiwixCatalogEntry, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary } from '../shared/contracts';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import type { BootstrapData, DocumentSearchResult, KiwixCatalogEntry, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary } from '../shared/contracts';
+import { DocumentsView } from './DocumentsView';
 
 type ViewId = 'home' | 'search' | 'library' | 'documents' | 'maps' | 'learning' | 'notes' |
   'media' | 'relay' | 'tools' | 'modules' | 'downloads' | 'storage' | 'settings' | 'updates';
@@ -15,7 +16,6 @@ const navigation: Array<{ id: ViewId; label: string }> = [
 ];
 
 const comingSoon: Partial<Record<ViewId, { title: string; description: string; milestone: string }>> = {
-  documents: { title: 'Portable document library', description: 'PDF import, page-level search, collections, bookmarks, and annotations are the next major application slice.', milestone: 'PHASE 2' },
   maps: { title: 'Maps without a connection', description: 'User-selected PMTiles and MBTiles packages will remain entirely on this drive.', milestone: 'PHASE 5' },
   learning: { title: 'Education center', description: 'Drive-contained lessons, courses, media, quizzes, and progress require no online account.', milestone: 'PHASE 7' },
   notes: { title: 'Notes that travel with you', description: 'Markdown notes, folders, tags, attachments, and local full-text search will live on this drive.', milestone: 'PHASE 5' },
@@ -134,20 +134,38 @@ function HomeView({ data, go }: { data: BootstrapData; go: (view: ViewId) => voi
   );
 }
 
-function SearchView() {
+function SearchView({ onOpenDocument }: { onOpenDocument: (documentId: string, page: number) => void }) {
   const [query, setQuery] = useState('');
+  const [results, setResults] = useState<DocumentSearchResult[]>([]);
+  const [searched, setSearched] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function search(event: FormEvent) {
+    event.preventDefault();
+    if (!query.trim()) return;
+    setBusy(true);
+    try {
+      setResults(await window.outpost.searchDocuments(query));
+      setSearched(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="page-panel">
       <p className="section-label">UNIVERSAL SEARCH</p>
       <h2>Search everything on this drive.</h2>
-      <div className="search-block interactive">
+      <form className="search-block interactive" onSubmit={search}>
         <span>⌕</span>
         <input value={query} onChange={(event) => setQuery(event.target.value)} autoFocus placeholder="Search documents, knowledge, notes, maps, and media" />
-      </div>
-      <div className="empty-state">
-        <b>{query ? `No indexed results for “${query}”` : 'Your search index is empty'}</b>
-        <p>Universal search is working as a view; results will appear after the Document Library can import and index content.</p>
-      </div>
+        <button className="primary-button" disabled={busy || !query.trim()}>{busy ? 'SEARCHING...' : 'SEARCH'}</button>
+      </form>
+      {results.length > 0 && <div className="universal-results">{results.map((result) => <button key={`${result.documentId}:${result.page}`} onClick={() => onOpenDocument(result.documentId, result.page)}>
+        <span><b>{result.title}</b><small>PAGE {result.page} · {result.format.toUpperCase()}</small></span><p>{result.excerpt}</p><i>OPEN →</i>
+      </button>)}</div>}
+      {searched && results.length === 0 && <div className="empty-state"><b>No indexed results for “{query}”</b><p>Try another phrase or import documents into the Documents section.</p></div>}
+      {!searched && <div className="empty-state"><b>Search inside your portable documents</b><p>PDF and text content is indexed locally. Search works without an internet connection or installed browser.</p></div>}
     </section>
   );
 }
@@ -574,6 +592,8 @@ export default function App() {
   const [data, setData] = useState<BootstrapData>();
   const [view, setView] = useState<ViewId>('home');
   const [removalMessage, setRemovalMessage] = useState('');
+  const [requestedDocument, setRequestedDocument] = useState<{ id: string; page: number }>();
+  const clearRequestedDocument = useCallback(() => setRequestedDocument(undefined), []);
 
   useEffect(() => { void window.outpost.getBootstrap().then(setData); }, []);
   const title = useMemo(() => navigation.find((item) => item.id === view)?.label ?? (view === 'storage' ? 'Storage' : 'Settings'), [view]);
@@ -596,8 +616,9 @@ export default function App() {
   }
   function renderView() {
     if (view === 'home') return <HomeView data={activeData} go={setView} />;
-    if (view === 'search') return <SearchView />;
+    if (view === 'search') return <SearchView onOpenDocument={(id, page) => { setRequestedDocument({ id, page }); setView('documents'); }} />;
     if (view === 'library') return <LibraryView onModules={(modules) => setData({ ...activeData, modules })} />;
+    if (view === 'documents') return <DocumentsView requestedDocument={requestedDocument} onRequestHandled={clearRequestedDocument} />;
     if (view === 'storage') return <StorageView storage={activeData.storage} onRefresh={refreshStorage} />;
     if (view === 'modules') return <ModulesView modules={activeData.modules} onModules={(modules) => setData({ ...activeData, modules })} />;
     if (view === 'updates') return <UpdatesView data={activeData} />;

@@ -16,6 +16,9 @@
 - Module engines and shared data have separate ownership boundaries. Uninstall removes only `Modules/Installed/<module-id>`; data and logs remain unless a future explicit user choice removes them.
 - The Kiwix descriptor pins the official archive size and SHA-256 hash inside a signed package manifest. ZIP paths are checked before extraction, extracted files are checked individually, and `kiwix-serve` starts with argument arrays, `--address=127.0.0.1`, and `--blockexternal`.
 - Kiwix catalog access accepts acquisition metadata only from the official HTTPS catalog and load-balancer hosts. Large ZIM files remain as partial files under `Downloads/Kiwix` until the official Metalink size and SHA-256 checksum pass; a same-named user ZIM is preserved rather than overwritten.
+- Document imports copy only explicitly selected supported files into portable content roots. Recursive scans ignore symbolic links, document IDs are validated, and every reader path is resolved beneath the marked portable root.
+- The internal `outpost-doc:` protocol is restricted to known database records. Document page text, bookmarks, notes, and annotations remain in the portable SQLite database; annotations never modify source files.
+- PDF text extraction uses bundled application code and PDF viewing uses Electron's bundled Chromium runtime. Documents never require or launch a host-installed browser.
 - Outpost Zero creates no services, scheduled tasks, firewall rules, registry configuration, or permanent environment changes.
 
-Imported content and peer networking are not implemented yet and must receive dedicated threat modeling before release. The current module process test is intentionally loopback-only and contains no user content.
+Peer networking is not implemented yet and must receive dedicated threat modeling before release. The current module process test is intentionally loopback-only and contains no user content.

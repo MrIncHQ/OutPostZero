@@ -13,10 +13,6 @@
 - [ ] Test from an external drive and a changed drive letter
 - [ ] Portable Linux x64 packaging and mount-change test
 
-## Next
-
-After Phase 0 acceptance, build the first-run profile and local identity, SQLite metadata, storage inspection, and Module Center skeleton. Documents and full-text search follow after the core shell.
-
 ## Phase 1 - Core shell
 
 - [x] First-run local identity setup
@@ -35,6 +31,22 @@ After Phase 0 acceptance, build the first-run profile and local identity, SQLite
 - [x] Per-file staged downloads and SHA-256 verification
 - [x] Protected user-data update boundary
 - [x] Runtime backup, rollback, and restart helper
+
+## Phase 2 - Portable documents
+
+- [x] Import supported files through a native in-app picker
+- [x] Recursive scanning of `Content/PDFs` and `Content/Documents`
+- [x] PDF, text, Markdown, HTML, and image library support
+- [x] Bundled PDF parsing and reading without an installed browser
+- [x] Exact PDF page text extraction and portable SQLite full-text indexing
+- [x] Page-level document search and universal-search deep links
+- [x] Favorites, recent reading, page progress, tags, and collections
+- [x] Page bookmarks and notes
+- [x] Separate annotations that never alter the source document
+- [x] Confirmed single-document removal with source-copy protection
+- [x] Responsive document library, reader, and inspector layout
+- [ ] Optional OCR module for scanned images and image-only PDFs
+- [ ] Optional Office conversion/preview module
 
 ## Update milestone follow-up
 

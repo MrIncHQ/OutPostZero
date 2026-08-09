@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { pathToFileURL } from 'node:url';
+import { app, BrowserWindow, dialog, ipcMain, net, protocol, session } from 'electron';
 import { findPortableRoot, PortablePathService } from './portable-path';
 import { SessionState } from './session-state';
 import { ProfileService } from './profile-service';
@@ -10,8 +11,11 @@ import { collectHardwareDiagnostics } from './hardware-service';
 import { UpdateService } from './portable-update-service';
 import { ModuleService } from './module-service';
 import { KiwixService } from './kiwix-service';
+import { DocumentService } from './document-service';
 import { responseHeadersForUrl } from './security-policy';
 import type { BootstrapData, ModuleOperationResult, ModuleSummary, PortableStatus } from '../shared/contracts';
+
+protocol.registerSchemesAsPrivileged([{ scheme: 'outpost-doc', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 
 const root = findPortableRoot([path.dirname(process.execPath), process.cwd(), __dirname]);
 const portablePaths = new PortablePathService(root);
@@ -36,6 +40,7 @@ const databaseService = new DatabaseService(portablePaths);
 const updateService = new UpdateService(databaseService, app.getVersion(), portablePaths);
 const moduleService = new ModuleService(databaseService, portablePaths);
 const kiwixService = new KiwixService(databaseService, portablePaths);
+const documentService = new DocumentService(databaseService, portablePaths);
 let isPrepared = false;
 let shutdownInProgress = false;
 
@@ -162,6 +167,59 @@ ipcMain.handle('outpost:download-kiwix-content', (_event, entryId: unknown) => {
 });
 ipcMain.handle('outpost:get-kiwix-download-status', () => kiwixService.downloadStatus());
 ipcMain.handle('outpost:cancel-kiwix-download', () => kiwixService.cancelDownload());
+ipcMain.handle('outpost:get-document-library', () => documentService.reconcile(true).then((result) => result.library));
+ipcMain.handle('outpost:import-documents', async () => {
+  const selection = await dialog.showOpenDialog({
+    title: 'Add documents to Outpost Zero', properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Supported documents', extensions: ['pdf', 'txt', 'md', 'markdown', 'html', 'htm', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }],
+  });
+  return selection.canceled ? { ok: true, message: 'Import cancelled.', library: documentService.library() } : documentService.importFiles(selection.filePaths);
+});
+ipcMain.handle('outpost:scan-documents', () => documentService.reconcile(true));
+ipcMain.handle('outpost:get-document', (_event, documentId: unknown) => {
+  if (typeof documentId !== 'string') throw new Error('Document identifier is invalid.');
+  return documentService.details(documentId);
+});
+ipcMain.handle('outpost:get-document-text', (_event, documentId: unknown) => {
+  if (typeof documentId !== 'string') throw new Error('Document identifier is invalid.');
+  return documentService.text(documentId);
+});
+ipcMain.handle('outpost:search-documents', (_event, query: unknown) => {
+  if (typeof query !== 'string' || query.length > 200) throw new Error('Document search query is invalid.');
+  return documentService.search(query);
+});
+ipcMain.handle('outpost:update-document-metadata', (_event, documentId: unknown, update: unknown) => {
+  if (typeof documentId !== 'string' || !update || typeof update !== 'object') throw new Error('Document metadata update is invalid.');
+  return documentService.updateMetadata(documentId, update as Parameters<DocumentService['updateMetadata']>[1]);
+});
+ipcMain.handle('outpost:remove-document', (_event, documentId: unknown) => {
+  if (typeof documentId !== 'string') throw new Error('Document identifier is invalid.');
+  return documentService.remove(documentId);
+});
+ipcMain.handle('outpost:add-document-bookmark', (_event, documentId: unknown, page: unknown, label: unknown) => {
+  if (typeof documentId !== 'string' || typeof page !== 'number' || typeof label !== 'string') throw new Error('Bookmark is invalid.');
+  return documentService.addBookmark(documentId, page, label);
+});
+ipcMain.handle('outpost:remove-document-bookmark', (_event, documentId: unknown, bookmarkId: unknown) => {
+  if (typeof documentId !== 'string' || typeof bookmarkId !== 'string') throw new Error('Bookmark identifier is invalid.');
+  return documentService.removeBookmark(documentId, bookmarkId);
+});
+ipcMain.handle('outpost:save-document-note', (_event, documentId: unknown, note: unknown) => {
+  if (typeof documentId !== 'string' || !note || typeof note !== 'object') throw new Error('Document note is invalid.');
+  return documentService.saveNote(documentId, note as Parameters<DocumentService['saveNote']>[1]);
+});
+ipcMain.handle('outpost:remove-document-note', (_event, documentId: unknown, noteId: unknown) => {
+  if (typeof documentId !== 'string' || typeof noteId !== 'string') throw new Error('Note identifier is invalid.');
+  return documentService.removeNote(documentId, noteId);
+});
+ipcMain.handle('outpost:save-document-annotation', (_event, documentId: unknown, annotation: unknown) => {
+  if (typeof documentId !== 'string' || !annotation || typeof annotation !== 'object') throw new Error('Document annotation is invalid.');
+  return documentService.saveAnnotation(documentId, annotation as Parameters<DocumentService['saveAnnotation']>[1]);
+});
+ipcMain.handle('outpost:remove-document-annotation', (_event, documentId: unknown, annotationId: unknown) => {
+  if (typeof documentId !== 'string' || typeof annotationId !== 'string') throw new Error('Annotation identifier is invalid.');
+  return documentService.removeAnnotation(documentId, annotationId);
+});
 ipcMain.handle('outpost:check-updates', () => updateService.check());
 ipcMain.handle('outpost:download-update', () => updateService.download());
 ipcMain.handle('outpost:apply-update', async () => {
@@ -187,6 +245,13 @@ ipcMain.handle('outpost:prepare-removal', async () => {
 });
 
 app.whenReady().then(() => {
+  protocol.handle('outpost-doc', (request) => {
+    const url = new URL(request.url);
+    const documentId = url.pathname.split('/').filter(Boolean)[0];
+    if (url.hostname !== 'document' || !documentId) return new Response('Not found', { status: 404 });
+    try { return net.fetch(pathToFileURL(documentService.filePath(documentId)).toString()); }
+    catch { return new Response('Not found', { status: 404 }); }
+  });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: responseHeadersForUrl(details.url, details.responseHeaders),
