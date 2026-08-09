@@ -59,5 +59,6 @@ After Phase 0 acceptance, build the first-run profile and local identity, SQLite
 - [x] Loopback-only Kiwix process and integrated Library viewer
 - [x] Small official OpenZIM test-library download
 - [x] Current Kiwix catalog with dynamic languages/categories, grouped edition selection, exact release metadata, and pagination
+- [x] Simplified Library workspace separating reading, adding content, and engine/file management
 - [x] Portable large-download staging, pause/resume, live progress, free-space projection, and SHA-256 verification
 - [ ] Catalog content updates, enable/disable controls, and explicit removal

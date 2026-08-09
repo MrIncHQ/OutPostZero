@@ -51,6 +51,16 @@ function editionDescription(flavour: string): string {
   return 'The standard edition published for this archive.';
 }
 
+function categoryLabel(category: string): string {
+  const labels: Record<string, string> = {
+    wikipedia: 'Wikipedia', wiktionary: 'Dictionary', wikivoyage: 'Travel Guides', wikibooks: 'Books',
+    wikisource: 'Source Library', wikiquote: 'Quotes', wikiversity: 'Courses', gutenberg: 'Project Gutenberg',
+    iFixit: 'Repair Guides', stack_exchange: 'Stack Exchange', phet: 'Science Simulations', ted: 'TED Talks',
+    mooc: 'Online Courses', vikidia: 'Vikidia for Younger Readers', other: 'More Knowledge', psiram: 'Health Reference',
+  };
+  return labels[category] ?? category.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function Onboarding({ onComplete }: { onComplete: (profile: LocalProfile) => void }) {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
@@ -144,6 +154,7 @@ function SearchView() {
 
 function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => void }) {
   const [library, setLibrary] = useState<OfflineLibraryStatus>();
+  const [librarySection, setLibrarySection] = useState<'browse' | 'add' | 'manage'>('browse');
   const [busy, setBusy] = useState<'install' | 'sample' | 'scan' | 'start' | 'stop' | 'catalog' | 'download' | null>(null);
   const [message, setMessage] = useState('');
   const [catalog, setCatalog] = useState<KiwixCatalogResult>();
@@ -152,8 +163,9 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
   const [catalogLanguage, setCatalogLanguage] = useState('eng');
   const [catalogCategory, setCatalogCategory] = useState('wikipedia');
   const [selectedEditions, setSelectedEditions] = useState<Record<string, string>>({});
+  const [confirmDownload, setConfirmDownload] = useState<KiwixCatalogEntry>();
   const [download, setDownload] = useState<KiwixDownloadStatus>();
-  useEffect(() => { void window.outpost.getLibraryStatus().then(setLibrary); }, []);
+  useEffect(() => { void window.outpost.getLibraryStatus().then((status) => { setLibrary(status); if (!status.content.length) setLibrarySection('add'); }); }, []);
   useEffect(() => { void window.outpost.getKiwixCatalogOptions().then(setCatalogOptions); }, []);
   useEffect(() => {
     let disposed = false;
@@ -162,6 +174,7 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
     const timer = window.setInterval(refresh, 750);
     return () => { disposed = true; window.clearInterval(timer); };
   }, []);
+  useEffect(() => { if (download && ['downloading', 'verifying'].includes(download.state)) setLibrarySection('add'); }, [download?.state]);
   const archiveGroups = useMemo(() => {
     const groups = new Map<string, { key: string; title: string; summary: string; variants: KiwixCatalogEntry[] }>();
     for (const entry of catalog?.entries ?? []) {
@@ -181,6 +194,11 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
       return next;
     });
   }, [archiveGroups]);
+  useEffect(() => {
+    if (catalogOptions?.ok) void searchCatalog(0);
+    // Category and language choices intentionally refresh without a separate confirmation button.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalogOptions?.ok, catalogCategory, catalogLanguage]);
 
   async function moduleAction(action: 'install' | 'start' | 'stop') {
     setBusy(action);
@@ -226,7 +244,7 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
     try {
       const result = await window.outpost.fetchKiwixCatalog(catalogQuery, catalogLanguage, catalogCategory, startIndex);
       setCatalog(result);
-      setMessage(result.message);
+      setMessage(result.ok ? '' : result.message);
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : 'Kiwix catalog lookup failed.');
     } finally {
@@ -235,6 +253,7 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
   }
 
   async function downloadEntry(entryId: string) {
+    setConfirmDownload(undefined);
     setBusy('download');
     setMessage('');
     try {
@@ -250,6 +269,11 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
     }
   }
 
+  function requestDownload(entry: KiwixCatalogEntry) {
+    if (entry.downloadBytes >= 5 * 1024 ** 3) setConfirmDownload(entry);
+    else void downloadEntry(entry.id);
+  }
+
   async function cancelDownload() {
     setDownload(await window.outpost.cancelKiwixDownload());
   }
@@ -258,9 +282,17 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
   return (
     <section className="page-panel library-panel">
       <div className="page-heading">
-        <div><p className="section-label">OFFLINE LIBRARY · KIWIX</p><h2>{library.content.length} ZIM {library.content.length === 1 ? 'library' : 'libraries'}</h2></div>
-        <button className="secondary-button" onClick={() => void scan()} disabled={busy !== null}>{busy === 'scan' ? 'SCANNING...' : 'SCAN CONTENT/ZIM'}</button>
+        <div><p className="section-label">OFFLINE KNOWLEDGE</p><h2>My Library</h2></div>
+        <button className="primary-button library-add-button" onClick={() => setLibrarySection('add')}>+ ADD CONTENT</button>
       </div>
+      <nav className="library-tabs" aria-label="Library sections">
+        <button className={librarySection === 'browse' ? 'active' : ''} onClick={() => setLibrarySection('browse')}>MY LIBRARY <span>{library.content.length}</span></button>
+        <button className={librarySection === 'add' ? 'active' : ''} onClick={() => setLibrarySection('add')}>ADD CONTENT</button>
+        <button className={librarySection === 'manage' ? 'active' : ''} onClick={() => setLibrarySection('manage')}>MANAGE</button>
+      </nav>
+      {message && <div className="module-result" role="status">{message}</div>}
+      {librarySection === 'manage' && <section className="library-manage">
+      <div className="library-section-heading"><div><p className="section-label">LIBRARY MANAGEMENT</p><h3>Engine and files</h3></div><button className="secondary-button" onClick={() => void scan()} disabled={busy !== null}>{busy === 'scan' ? 'SCANNING...' : 'SCAN FOR ZIM FILES'}</button></div>
       <p className="page-intro">Kiwix runs from this drive, serves only on 127.0.0.1, and blocks direct external-resource navigation. ZIM files remain separate from the removable engine.</p>
       <div className="library-actions">
         {!library.engineInstalled && <button className="primary-button" onClick={() => void moduleAction('install')} disabled={busy !== null}>{busy === 'install' ? 'DOWNLOADING AND VERIFYING KIWIX...' : 'INSTALL KIWIX ENGINE'}</button>}
@@ -268,7 +300,6 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
         {library.engineInstalled && !library.running && <button className="primary-button" onClick={() => void moduleAction('start')} disabled={busy !== null}>{busy === 'start' ? 'STARTING...' : 'START OFFLINE LIBRARY'}</button>}
         {library.running && <button className="secondary-button" onClick={() => void moduleAction('stop')} disabled={busy !== null}>{busy === 'stop' ? 'STOPPING...' : 'STOP LIBRARY'}</button>}
       </div>
-      {message && <div className="module-result" role="status">{message}</div>}
       <dl className="detail-list library-details">
         <div><dt>Engine</dt><dd>{library.engineInstalled ? `Kiwix Tools ${library.engineVersion}` : 'Not installed'}</dd></div>
         <div><dt>Process</dt><dd>{library.running ? `Healthy · PID ${library.pid} · 127.0.0.1:${library.port}` : 'Stopped'}</dd></div>
@@ -278,18 +309,21 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
         {library.content.map((item) => <div key={item.id}><span><b>{item.name}</b><small>{item.relativePath}</small></span><strong>{formatBytes(item.size)}</strong></div>)}
         {library.content.length === 0 && <p>No ZIM files found. Add your own file to Content/ZIM or download the small test library.</p>}
       </div>
-      <section className="kiwix-catalog">
+      </section>}
+
+      {librarySection === 'add' && <section className="kiwix-catalog">
         <div className="catalog-heading">
-          <div><p className="section-label">ONLINE CONTENT CATALOG</p><h3>Choose the exact archive</h3></div>
-          <span>Nothing downloads until you choose it.</span>
+          <div><p className="section-label">ADD OFFLINE CONTENT</p><h3>What do you want to carry?</h3></div>
+          <span>Only your final choice downloads.</span>
         </div>
-        <form className="catalog-filters" onSubmit={(event) => { event.preventDefault(); void searchCatalog(); }}>
-          <label>CATEGORY<select value={catalogCategory} onChange={(event) => setCatalogCategory(event.target.value)} disabled={!catalogOptions?.ok}>{catalogOptions?.categories.map((option) => <option key={option.id} value={option.id}>{option.label.replace(/_/g, ' ')}</option>) ?? <option value="wikipedia">wikipedia</option>}</select></label>
-          <label>LANGUAGE<select value={catalogLanguage} onChange={(event) => setCatalogLanguage(event.target.value)} disabled={!catalogOptions?.ok}>{catalogOptions?.languages.map((option) => <option key={option.id} value={option.id}>{option.label} ({option.count})</option>) ?? <option value="eng">English</option>}</select></label>
-          <label>OPTIONAL SEARCH<input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} maxLength={80} placeholder="All matching archives" /></label>
-          <button className="secondary-button" type="submit" disabled={busy !== null}>{busy === 'catalog' ? 'CHECKING...' : 'CHECK CURRENT CATALOG'}</button>
-        </form>
+        <div className="content-steps"><span className="active"><i>1</i>CHOOSE</span><span><i>2</i>SELECT SIZE</span><span><i>3</i>DOWNLOAD</span></div>
+        <div className="catalog-filters simple">
+          <label>CONTENT TYPE<select value={catalogCategory} onChange={(event) => { setCatalogQuery(''); setCatalogCategory(event.target.value); }} disabled={!catalogOptions?.ok}>{catalogOptions?.categories.map((option) => <option key={option.id} value={option.id}>{categoryLabel(option.id)}</option>) ?? <option value="wikipedia">Wikipedia</option>}</select></label>
+          <label>LANGUAGE<select value={catalogLanguage} onChange={(event) => { setCatalogQuery(''); setCatalogLanguage(event.target.value); }} disabled={!catalogOptions?.ok}>{catalogOptions?.languages.map((option) => <option key={option.id} value={option.id}>{option.label}</option>) ?? <option value="eng">English</option>}</select></label>
+        </div>
+        <details className="catalog-search"><summary>Looking for something specific?</summary><form onSubmit={(event) => { event.preventDefault(); void searchCatalog(); }}><input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} maxLength={80} placeholder="Search within this content type" /><button className="secondary-button" type="submit" disabled={busy !== null}>SEARCH</button></form></details>
         {catalogOptions && !catalogOptions.ok && <p className="catalog-option-error">Live catalog choices are unavailable: {catalogOptions.message}</p>}
+        {busy === 'catalog' && !catalog && <div className="catalog-loading">Loading available editions...</div>}
         {download && ['downloading', 'verifying', 'cancelled', 'error'].includes(download.state) && (
           <div className={`download-progress download-${download.state}`}>
             <div><b>{download.title ?? 'Kiwix content'}</b><span>{download.message}</span></div>
@@ -298,6 +332,7 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
             {download.state === 'downloading' && <button type="button" onClick={() => void cancelDownload()}>PAUSE</button>}
           </div>
         )}
+        {confirmDownload && <div className="download-confirm" role="alertdialog" aria-label="Confirm large download"><div><p className="section-label">LARGE DOWNLOAD</p><b>{confirmDownload.title} · {editionLabel(confirmDownload.flavour)}</b><p>This will use {formatBytes(confirmDownload.downloadBytes)} on this drive. You can pause and resume it later.</p></div><div><button className="secondary-button" onClick={() => setConfirmDownload(undefined)}>GO BACK</button><button className="primary-button" onClick={() => void downloadEntry(confirmDownload.id)}>START DOWNLOAD</button></div></div>}
         {archiveGroups.length ? <div className="catalog-list">{archiveGroups.map((group) => {
           const selected = group.variants.find((entry) => entry.id === selectedEditions[group.key]) ?? group.variants[0];
           const freeAfter = catalog?.freeBytes === null ? null : (catalog?.freeBytes ?? 0) - selected.downloadBytes;
@@ -310,12 +345,18 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
               {entry.installed && <i>INSTALLED</i>}
             </label>)}</fieldset>
             <dl><div><dt>Language</dt><dd>{selected.language.toUpperCase()}</dd></div><div><dt>Release</dt><dd>{selected.releaseDate.slice(0, 10)}</dd></div><div><dt>Articles</dt><dd>{selected.articleCount ? selected.articleCount.toLocaleString() : 'Not listed'}</dd></div><div><dt>Free after</dt><dd className={freeAfter !== null && freeAfter < 0 ? 'low-space' : ''}>{formatBytes(freeAfter)}</dd></div></dl>
-            <button className={selected.installed ? 'installed-button' : 'secondary-button'} disabled={selected.installed || busy !== null || (freeAfter !== null && freeAfter < 0)} onClick={() => void downloadEntry(selected.id)}>{selected.installed ? 'INSTALLED' : download?.entryId === selected.id && download.state === 'cancelled' ? 'RESUME DOWNLOAD' : `DOWNLOAD ${editionLabel(selected.flavour).toUpperCase()} · ${formatBytes(selected.downloadBytes)}`}</button>
+            <button className={selected.installed ? 'installed-button' : 'secondary-button'} disabled={selected.installed || busy !== null || (freeAfter !== null && freeAfter < 0)} onClick={() => requestDownload(selected)}>{selected.installed ? 'INSTALLED' : download?.entryId === selected.id && download.state === 'cancelled' ? 'RESUME DOWNLOAD' : `DOWNLOAD ${editionLabel(selected.flavour).toUpperCase()} · ${formatBytes(selected.downloadBytes)}`}</button>
           </article>;
         })}</div> : catalog?.ok && <p className="catalog-empty">No matching archives were returned. Try a broader content name or another language.</p>}
         {catalog?.ok && catalog.totalResults > catalog.itemsPerPage && <div className="catalog-pagination"><button disabled={busy !== null || catalog.startIndex === 0} onClick={() => void searchCatalog(Math.max(0, catalog.startIndex - catalog.itemsPerPage))}>PREVIOUS</button><span>{catalog.startIndex + 1}–{Math.min(catalog.totalResults, catalog.startIndex + catalog.entries.length)} OF {catalog.totalResults} EDITIONS</span><button disabled={busy !== null || catalog.startIndex + catalog.itemsPerPage >= catalog.totalResults} onClick={() => void searchCatalog(catalog.startIndex + catalog.itemsPerPage)}>NEXT</button></div>}
-      </section>
-      {library.running && library.serverUrl && <div className="kiwix-frame-shell"><div><span>LOCAL KIWIX</span><code>{library.serverUrl}</code></div><iframe title="Offline Kiwix library" src={library.serverUrl} sandbox="allow-scripts allow-forms allow-same-origin" /></div>}
+      </section>}
+
+      {librarySection === 'browse' && <section className="library-browse">
+        <div className="library-section-heading"><div><p className="section-label">READY OFFLINE</p><h3>{library.content.length ? `${library.content.length} installed ${library.content.length === 1 ? 'library' : 'libraries'}` : 'Your library is empty'}</h3></div>{library.engineInstalled && !library.running && library.content.length > 0 && <button className="primary-button" onClick={() => void moduleAction('start')} disabled={busy !== null}>{busy === 'start' ? 'OPENING...' : 'OPEN LIBRARY'}</button>}{library.running && <button className="secondary-button" onClick={() => void moduleAction('stop')} disabled={busy !== null}>{busy === 'stop' ? 'CLOSING...' : 'CLOSE READER'}</button>}</div>
+        {!library.content.length && <div className="library-empty"><b>Add your first offline knowledge source</b><p>Choose a language, content type, and size. Only the edition you select is downloaded.</p><button className="primary-button" onClick={() => setLibrarySection('add')}>CHOOSE CONTENT</button></div>}
+        {library.content.length > 0 && <div className="zim-list">{library.content.map((item) => <div key={item.id}><span><b>{item.name}</b><small>Available without internet</small></span><strong>{formatBytes(item.size)}</strong></div>)}</div>}
+        {library.running && library.serverUrl && <div className="kiwix-frame-shell"><div><span>OFFLINE READER</span><code>{library.serverUrl}</code></div><iframe title="Offline Kiwix library" src={library.serverUrl} sandbox="allow-scripts allow-forms allow-same-origin" /></div>}
+      </section>}
     </section>
   );
 }
