@@ -17,6 +17,9 @@ OUTPOST ZERO - PORTABLE WINDOWS BUILD
    and Content/Documents and select SCAN FOLDERS. PDF reading, page search,
    bookmarks, notes, and annotations work inside Outpost Zero without an
    installed browser or internet connection.
+   Notes autosave Markdown on this drive and can carry local attachments.
+   Tools run entirely in the app. Maps accepts user-selected PMTiles or
+   MBTiles packages and supports saved places, measurements, and GPX files.
 6. Before unplugging the drive, choose PREPARE DRIVE FOR REMOVAL in the app,
    close Outpost Zero, and use Windows Safely Remove Hardware.
 
