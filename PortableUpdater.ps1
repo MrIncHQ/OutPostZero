@@ -137,7 +137,7 @@ try {
         version = [string]$pending.version
         previousVersion = [string]$pending.previousVersion
         installedAt = (Get-Date).ToUniversalTime().ToString('o')
-        rollbackPath = $rollbackRoot.Substring($portableRootPath.Length + 1).Replace('\', '/')
+        rollbackPath = $rollbackRoot.Substring($rootPrefix.Length).Replace('\', '/')
     } | ConvertTo-Json | Set-Content -LiteralPath $installedStatePath -Encoding UTF8
     Write-UpdateLog "Update to $($pending.version) completed successfully."
 }
