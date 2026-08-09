@@ -13,6 +13,10 @@ OUTPOST ZERO - PORTABLE WINDOWS BUILD
    signed module and child-process lifecycle before installing Kiwix.
    In Library, install the Kiwix engine and add the 41 KB test library to
    verify real offline ZIM browsing before downloading large archives.
+   In Documents, choose IMPORT DOCUMENTS or copy files beneath Content/PDFs
+   and Content/Documents and select SCAN FOLDERS. PDF reading, page search,
+   bookmarks, notes, and annotations work inside Outpost Zero without an
+   installed browser or internet connection.
 6. Before unplugging the drive, choose PREPARE DRIVE FOR REMOVAL in the app,
    close Outpost Zero, and use Windows Safely Remove Hardware.
 

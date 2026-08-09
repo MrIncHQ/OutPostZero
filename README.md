@@ -14,16 +14,16 @@ Select **Code**, then **Download ZIP** on this repository page.
 4. Double-click `Run_Outpost_Zero.bat`.
 5. Before removing an external drive, use **Prepare Drive for Removal**, close the app, and safely eject the drive.
 
-On the first launch, the launcher assembles and verifies the packaged executable from GitHub-compatible runtime parts. No installer, administrator access, Node.js installation, or internet account is required.
+On first launch, the launcher assembles and verifies the packaged executable from GitHub-compatible runtime parts. No installer, administrator access, Node.js installation, installed web browser, or internet account is required.
 
 ## Current release
 
-Version: `0.6.13`
+Version: `0.7.0`
 
 SHA-256 for the assembled `Outpost Zero.exe`:
 
 ```text
-E48FBB79A90200D75EE3ACAB5CAD1FE0D6FAA11A3D3811EE249F8416069D5EAF
+855EC0C7A02D0FDDCE9126A3B70564BFC9B3A26D8D9C906D4C97BAF7B6707006
 ```
 
 This repository is used only to distribute ready-to-run Outpost Zero releases. Source code is not published here.
