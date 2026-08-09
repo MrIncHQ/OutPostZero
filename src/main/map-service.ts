@@ -3,6 +3,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { PMTiles, TileType, type RangeResponse, type Source } from 'pmtiles';
 import type { MapDownloadRequest, MapDownloadStatus, MapLocationResult, MapPackage, MapPlace, MapPlaceInput, MapsState, PhaseFiveOperationResult } from '../shared/contracts';
 import { DatabaseService } from './database-service';
 import { PortablePathService } from './portable-path';
@@ -18,6 +19,18 @@ interface MapServiceOptions {
   now?: () => Date;
 }
 
+class NodeFileSource implements Source {
+  constructor(private readonly filePath: string) {}
+  getKey(): string { return this.filePath; }
+  async getBytes(offset: number, length: number): Promise<RangeResponse> {
+    const bytes = Buffer.alloc(length); const descriptor = fs.openSync(this.filePath, 'r');
+    try {
+      const read = fs.readSync(descriptor, bytes, 0, length, offset);
+      return { data: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + read) as ArrayBuffer };
+    } finally { fs.closeSync(descriptor); }
+  }
+}
+
 export class MapService {
   private readonly helperPath?: string;
   private readonly fetchImpl: typeof fetch;
@@ -25,6 +38,8 @@ export class MapService {
   private activeDownload: ChildProcessWithoutNullStreams | null = null;
   private downloadAbort: AbortController | null = null;
   private lastLocationRequestAt = 0;
+  private readonly pmtilesArchives = new Map<string, PMTiles>();
+  private readonly pmtilesDetails = new Map<string, Pick<MapPackage, 'tileType' | 'sourceLayers' | 'minZoom' | 'maxZoom' | 'bounds'>>();
   private currentDownload: MapDownloadStatus = { state: 'idle', percent: 0, downloadedBytes: 0, estimatedBytes: 0, elapsedSeconds: 0, message: 'No map download is active.' };
 
   constructor(private readonly database: DatabaseService, private readonly paths: PortablePathService, options: MapServiceOptions = {}) {
@@ -33,7 +48,24 @@ export class MapService {
     this.now = options.now ?? (() => new Date());
   }
 
-  state(): MapsState { return { packages: this.database.mapPackages().map((item) => item.format === 'mbtiles' ? { ...item, ...this.mbtilesInfo(this.paths.resolve(item.relativePath)) } : item), places: this.database.mapPlaces() }; }
+  state(): MapsState { return { packages: this.database.mapPackages().map((item) => item.format === 'mbtiles' ? { ...item, ...this.mbtilesInfo(this.paths.resolve(item.relativePath)) } : { ...item, ...this.pmtilesDetails.get(item.id) }), places: this.database.mapPlaces() }; }
+
+  private archive(packageId: string, filePath: string): PMTiles {
+    let archive = this.pmtilesArchives.get(packageId);
+    if (!archive) { archive = new PMTiles(new NodeFileSource(filePath)); this.pmtilesArchives.set(packageId, archive); }
+    return archive;
+  }
+
+  private async pmtilesInfo(packageId: string, filePath: string): Promise<Pick<MapPackage, 'tileType' | 'sourceLayers' | 'minZoom' | 'maxZoom' | 'bounds'>> {
+    const archive = this.archive(packageId, filePath); const header = await archive.getHeader();
+    const metadata = await archive.getMetadata() as { vector_layers?: Array<{ id?: unknown }> };
+    return {
+      tileType: header.tileType === TileType.Mvt || header.tileType === TileType.Mlt ? 'vector' : header.tileType === TileType.Unknown ? 'unknown' : 'raster',
+      sourceLayers: metadata.vector_layers?.flatMap((layer) => typeof layer.id === 'string' ? [layer.id] : []),
+      minZoom: header.minZoom, maxZoom: header.maxZoom,
+      bounds: header.minLon < header.maxLon && header.minLat < header.maxLat ? [header.minLon, header.minLat, header.maxLon, header.maxLat] : undefined,
+    };
+  }
 
   private mbtilesInfo(filePath: string): Pick<MapPackage, 'tileType' | 'sourceLayers' | 'minZoom' | 'maxZoom' | 'bounds'> {
     const db = new DatabaseSync(filePath, { readOnly: true });
@@ -73,8 +105,9 @@ export class MapService {
       const relativePath = path.relative(this.paths.root, filePath).replace(/\\/g, '/'); seen.add(relativePath.toLowerCase());
       const id = crypto.createHash('sha256').update(relativePath.toLowerCase()).digest('hex').slice(0, 24).toUpperCase();
       this.database.upsertMapPackage({ id, title: titleFor(entry.name), fileName: entry.name, relativePath, format, size: fs.statSync(filePath).size, addedAt: new Date().toISOString() });
+      if (format === 'pmtiles') this.pmtilesDetails.set(id, await this.pmtilesInfo(id, filePath));
     }
-    for (const item of this.database.mapPackages()) if (!seen.has(item.relativePath.toLowerCase())) this.database.removeMapPackageRecord(item.id);
+    for (const item of this.database.mapPackages()) if (!seen.has(item.relativePath.toLowerCase())) { this.database.removeMapPackageRecord(item.id); this.pmtilesArchives.delete(item.id); this.pmtilesDetails.delete(item.id); }
     return this.state();
   }
 
@@ -240,8 +273,17 @@ export class MapService {
     return this.paths.resolve(item.relativePath);
   }
 
-  tile(packageId: string, z: number, x: number, y: number): { bytes: Uint8Array; mime: string } | null {
-    const item = this.database.mapPackage(packageId); if (!item || item.format !== 'mbtiles') return null;
+  async tile(packageId: string, z: number, x: number, y: number): Promise<{ bytes: Uint8Array; mime: string } | null> {
+    const item = this.database.mapPackage(packageId); if (!item) return null;
+    if (item.format === 'pmtiles') {
+      const details = this.pmtilesDetails.get(item.id) ?? await this.pmtilesInfo(item.id, this.packagePath(item.id)); this.pmtilesDetails.set(item.id, details);
+      const archive = this.archive(item.id, this.packagePath(item.id)); const tile = await archive.getZxy(z, x, y); if (!tile) return null;
+      const header = await archive.getHeader();
+      const mime = header.tileType === TileType.Mvt || header.tileType === TileType.Mlt ? 'application/x-protobuf'
+        : header.tileType === TileType.Png ? 'image/png' : header.tileType === TileType.Jpeg ? 'image/jpeg'
+          : header.tileType === TileType.Webp ? 'image/webp' : header.tileType === TileType.Avif ? 'image/avif' : 'application/octet-stream';
+      return { bytes: new Uint8Array(tile.data), mime };
+    }
     const db = new DatabaseSync(this.packagePath(packageId), { readOnly: true });
     try {
       const row = db.prepare('SELECT tile_data FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?').get(z, x, (2 ** z - 1) - y) as { tile_data: Uint8Array } | undefined;

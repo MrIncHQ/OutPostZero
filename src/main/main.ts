@@ -347,12 +347,12 @@ app.whenReady().then(() => {
     try { return net.fetch(pathToFileURL(noteService.attachmentPath(attachmentId)).toString(), { headers: request.headers }); }
     catch { return new Response('Not found', { status: 404 }); }
   });
-  protocol.handle('outpost-map', (request) => {
+  protocol.handle('outpost-map', async (request) => {
     const url = new URL(request.url); const parts = url.pathname.split('/').filter(Boolean);
     try {
       if (url.hostname === 'package' && parts[0]) return rangedFileResponse(mapService.packagePath(parts[0]), request);
       if (url.hostname === 'tile' && parts.length === 4) {
-        const tile = mapService.tile(parts[0], Number(parts[1]), Number(parts[2]), Number(parts[3]));
+        const tile = await mapService.tile(parts[0], Number(parts[1]), Number(parts[2]), Number(parts[3]));
         return tile ? new Response(Uint8Array.from(tile.bytes).buffer, { headers: { 'Content-Type': tile.mime, 'Content-Encoding': tile.mime === 'application/x-protobuf' && tile.bytes[0] === 0x1f ? 'gzip' : 'identity' } }) : new Response('Not found', { status: 404 });
       }
     } catch { return new Response('Not found', { status: 404 }); }

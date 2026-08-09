@@ -47,7 +47,7 @@ test('maps import raster MBTiles, serve flipped tiles, manage places, and exchan
   try {
     const source = path.join(sourceRoot, 'county.mbtiles'); createMbtiles(source);
     const imported = await app.maps.importPackages([source]); assert.equal(imported.state.packages.length, 1); assert.equal(imported.state.packages[0].tileType, 'raster'); assert.deepEqual(imported.state.packages[0].bounds, [-10, -10, 10, 10]);
-    const tile = app.maps.tile(imported.state.packages[0].id, 0, 0, 0); assert.equal(tile?.mime, 'image/png'); assert.equal(tile?.bytes[0], 0x89);
+    const tile = await app.maps.tile(imported.state.packages[0].id, 0, 0, 0); assert.equal(tile?.mime, 'image/png'); assert.equal(tile?.bytes[0], 0x89);
     const place = app.maps.savePlace({ name: 'Water cache', latitude: 35.12, longitude: -97.44, note: 'Near the north fence', favorite: true });
     assert.match(app.maps.gpx(), /Water cache/); assert.equal(app.database.searchMapPlaces('"fence"*')[0].id, place.id);
     const gpx = path.join(sourceRoot, 'points.gpx'); fs.writeFileSync(gpx, '<gpx><wpt lat="36.5" lon="-98.2"><name>Rally Point</name></wpt></gpx>');
