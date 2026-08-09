@@ -271,6 +271,14 @@ export interface MapDownloadStatus {
   message: string;
 }
 
+export interface MapLocationResult {
+  id: string;
+  displayName: string;
+  latitude: number;
+  longitude: number;
+  bounds?: [number, number, number, number];
+}
+
 export interface PhaseFiveOperationResult<T> {
   ok: boolean;
   message: string;
@@ -436,6 +444,7 @@ export interface OutpostBridge {
   exportNote(noteId: string): Promise<{ ok: boolean; message: string }>;
   getMaps(): Promise<MapsState>;
   importMapPackages(): Promise<PhaseFiveOperationResult<MapsState>>;
+  searchMapLocations(query: string): Promise<MapLocationResult[]>;
   downloadMap(request: MapDownloadRequest): Promise<PhaseFiveOperationResult<MapsState>>;
   getMapDownloadStatus(): Promise<MapDownloadStatus>;
   cancelMapDownload(): Promise<MapDownloadStatus>;

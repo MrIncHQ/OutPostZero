@@ -22,6 +22,7 @@
 - Notes and copied attachments stay beneath portable roots. Attachment IDs are validated in the main process, Markdown is rendered without raw HTML execution, and deletions are scoped to the selected note record and attachment directory.
 - Offline map imports accept only validated PMTiles/MBTiles files chosen through a native dialog. Symbolic links are not scanned, custom protocol byte ranges are bounded, and MBTiles SQL is fixed and read-only.
 - Map downloads are always user-initiated. The downloader contacts only the documented `build.protomaps.com` daily PMTiles source, selects a bounded region, writes temporary data beneath portable `Downloads/Maps`, verifies the completed archive with the pinned Protomaps helper, and only then moves it into `Content/Maps`. Cancellation and application shutdown remove incomplete temporary output.
+- Place searches are submitted only when the user presses Search, never as autocomplete. The default OpenStreetMap Nominatim endpoint is rate-limited to one request per second, results are cached beneath `Cache/Maps`, queries identify Outpost Zero through a stable User-Agent, and `Config/map-search.json` can switch the HTTPS endpoint without an application update. The user must explicitly select a result or confirm coordinates before downloading.
 - Saved map places and tool input remain local. Tools do not use dynamic code evaluation; scientific expressions are handled by a restricted parser.
 - Outpost Zero creates no services, scheduled tasks, firewall rules, registry configuration, or permanent environment changes.
 

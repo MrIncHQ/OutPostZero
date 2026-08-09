@@ -3,7 +3,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { MapDownloadRequest, MapDownloadStatus, MapPackage, MapPlace, MapPlaceInput, MapsState, PhaseFiveOperationResult } from '../shared/contracts';
+import type { MapDownloadRequest, MapDownloadStatus, MapLocationResult, MapPackage, MapPlace, MapPlaceInput, MapsState, PhaseFiveOperationResult } from '../shared/contracts';
 import { DatabaseService } from './database-service';
 import { PortablePathService } from './portable-path';
 
@@ -24,6 +24,7 @@ export class MapService {
   private readonly now: () => Date;
   private activeDownload: ChildProcessWithoutNullStreams | null = null;
   private downloadAbort: AbortController | null = null;
+  private lastLocationRequestAt = 0;
   private currentDownload: MapDownloadStatus = { state: 'idle', percent: 0, downloadedBytes: 0, estimatedBytes: 0, elapsedSeconds: 0, message: 'No map download is active.' };
 
   constructor(private readonly database: DatabaseService, private readonly paths: PortablePathService, options: MapServiceOptions = {}) {
@@ -89,6 +90,42 @@ export class MapService {
     }
     const state = await this.reconcile();
     return { ok: true, message: imported ? `Imported ${imported} offline map package${imported === 1 ? '' : 's'}.` : 'No supported map packages were selected.', state };
+  }
+
+  private locationEndpoint(): string {
+    const configPath = this.paths.resolve('Config/map-search.json'); let endpoint = 'https://nominatim.openstreetmap.org/search';
+    if (fs.existsSync(configPath)) {
+      try { const configured = (JSON.parse(fs.readFileSync(configPath, 'utf8')) as { endpoint?: unknown }).endpoint; if (typeof configured === 'string') endpoint = configured; }
+      catch { throw new Error('Config/map-search.json is not valid JSON.'); }
+    }
+    const parsed = new URL(endpoint); if (parsed.protocol !== 'https:') throw new Error('The configured map search endpoint must use HTTPS.');
+    return parsed.toString();
+  }
+
+  async searchLocations(query: string): Promise<MapLocationResult[]> {
+    const normalized = query.trim().replace(/\s+/g, ' '); if (normalized.length < 2 || normalized.length > 120) throw new Error('Enter a place name between 2 and 120 characters.');
+    const cacheDirectory = this.paths.ensureDirectory('Cache/Maps'); const cachePath = path.join(cacheDirectory, 'location-search.json');
+    let cache: Record<string, { savedAt: string; results: MapLocationResult[] }> = {};
+    try { if (fs.existsSync(cachePath)) cache = JSON.parse(fs.readFileSync(cachePath, 'utf8')) as typeof cache; } catch { cache = {}; }
+    const key = normalized.toLocaleLowerCase('en-US'); const cached = cache[key];
+    if (cached && Date.now() - Date.parse(cached.savedAt) < 30 * 24 * 60 * 60 * 1000) return cached.results;
+    const delay = Math.max(0, 1000 - (Date.now() - this.lastLocationRequestAt)); if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    const url = new URL(this.locationEndpoint()); url.searchParams.set('q', normalized); url.searchParams.set('format', 'jsonv2'); url.searchParams.set('limit', '5'); url.searchParams.set('addressdetails', '0');
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15_000); this.lastLocationRequestAt = Date.now();
+    try {
+      const response = await this.fetchImpl(url, { headers: { 'User-Agent': 'Outpost-Zero/0.8.2 (+https://github.com/MrIncHQ/OutPostZero)', Accept: 'application/json' }, signal: controller.signal });
+      if (!response.ok) throw new Error(`Place search returned HTTP ${response.status}.`);
+      const raw = await response.json() as Array<{ place_id?: unknown; display_name?: unknown; lat?: unknown; lon?: unknown; boundingbox?: unknown }>;
+      const results = raw.slice(0, 5).flatMap((item): MapLocationResult[] => {
+        const latitude = Number(item.lat); const longitude = Number(item.lon); if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || typeof item.display_name !== 'string') return [];
+        const box = Array.isArray(item.boundingbox) ? item.boundingbox.map(Number) : []; const bounds = box.length === 4 && box.every(Number.isFinite) ? [box[2], box[0], box[3], box[1]] as [number, number, number, number] : undefined;
+        return [{ id: String(item.place_id ?? crypto.createHash('sha256').update(`${latitude},${longitude},${item.display_name}`).digest('hex').slice(0, 16)), displayName: item.display_name.slice(0, 240), latitude, longitude, bounds }];
+      });
+      cache[key] = { savedAt: new Date().toISOString(), results };
+      const entries = Object.entries(cache).sort((a, b) => Date.parse(b[1].savedAt) - Date.parse(a[1].savedAt)).slice(0, 100); const temporary = `${cachePath}.tmp`;
+      fs.writeFileSync(temporary, JSON.stringify(Object.fromEntries(entries), null, 2), 'utf8'); fs.renameSync(temporary, cachePath);
+      return results;
+    } finally { clearTimeout(timeout); }
   }
 
   downloadStatus(): MapDownloadStatus { return { ...this.currentDownload }; }

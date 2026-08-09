@@ -274,6 +274,10 @@ ipcMain.handle('outpost:import-map-packages', async () => {
   const selection = await dialog.showOpenDialog({ title: 'Add an offline map package', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Offline maps', extensions: ['pmtiles', 'mbtiles'] }] });
   return selection.canceled ? { ok: true, message: 'Import cancelled.', state: mapService.state() } : mapService.importPackages(selection.filePaths);
 });
+ipcMain.handle('outpost:search-map-locations', (_event, query: unknown) => {
+  if (typeof query !== 'string') throw new Error('Map location search is invalid.');
+  return mapService.searchLocations(query);
+});
 ipcMain.handle('outpost:download-map', (_event, request: unknown) => {
   if (!request || typeof request !== 'object') throw new Error('Map download request is invalid.');
   return mapService.downloadMap(request as Parameters<MapService['downloadMap']>[0]);

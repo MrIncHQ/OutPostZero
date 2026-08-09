@@ -91,7 +91,7 @@
 - [x] Text encoders/decoders, cryptographic hashes, JSON formatting, and Morse conversion
 - [x] IPv4 subnet, coordinate, date/time, regex, diff, password, and periodic-reference tools
 - [x] User-selected PMTiles and raster/vector MBTiles packages
-- [x] In-app Protomaps region downloads with radius/detail selection, size estimates, progress, cancellation, verification, and automatic installation
+- [x] In-app place search plus explicit location confirmation and Protomaps region downloads with radius/detail selection, size estimates, progress, cancellation, verification, automatic installation, and immediate map opening
 - [x] Fully offline MapLibre viewer with pan, zoom, scale, and coordinate display
 - [x] Saved places, custom markers, map notes, and favorites
 - [x] Distance and bearing measurements

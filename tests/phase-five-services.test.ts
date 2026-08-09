@@ -67,6 +67,18 @@ test('map downloads reject unsafe or oversized regions before starting a helper'
   } finally { app.database.close(); fs.rmSync(app.root, { recursive: true, force: true }); }
 });
 
+test('location search returns the exact selected coordinates and caches repeat queries', async () => {
+  const app = runtime(); let requests = 0;
+  const maps = new MapService(app.database, app.paths, { fetchImpl: async (input) => {
+    requests += 1; const url = new URL(String(input)); assert.equal(url.hostname, 'nominatim.openstreetmap.org'); assert.equal(url.searchParams.get('q'), 'Springfield, Missouri');
+    return new Response(JSON.stringify([{ place_id: 123, display_name: 'Springfield, Greene County, Missouri, United States', lat: '37.20896', lon: '-93.29230', boundingbox: ['37.05', '37.35', '-93.45', '-93.10'] }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  } });
+  try {
+    const first = await maps.searchLocations('Springfield, Missouri'); assert.equal(first.length, 1); assert.equal(first[0].latitude, 37.20896); assert.equal(first[0].longitude, -93.29230); assert.deepEqual(first[0].bounds, [-93.45, 37.05, -93.10, 37.35]);
+    const second = await maps.searchLocations('  springfield,   missouri '); assert.deepEqual(second, first); assert.equal(requests, 1);
+  } finally { app.database.close(); fs.rmSync(app.root, { recursive: true, force: true }); }
+});
+
 test('expanded search returns documents, notes, and saved map places with deep-link data', async () => {
   const app = runtime();
   try {

@@ -44,6 +44,7 @@ const bridge: OutpostBridge = {
   exportNote: (noteId) => ipcRenderer.invoke('outpost:export-note', noteId),
   getMaps: () => ipcRenderer.invoke('outpost:get-maps'),
   importMapPackages: () => ipcRenderer.invoke('outpost:import-map-packages'),
+  searchMapLocations: (query) => ipcRenderer.invoke('outpost:search-map-locations', query),
   downloadMap: (request) => ipcRenderer.invoke('outpost:download-map', request),
   getMapDownloadStatus: () => ipcRenderer.invoke('outpost:get-map-download-status'),
   cancelMapDownload: () => ipcRenderer.invoke('outpost:cancel-map-download'),
