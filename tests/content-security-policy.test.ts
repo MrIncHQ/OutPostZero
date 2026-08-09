@@ -16,6 +16,11 @@ test('renderer CSP permits loopback Kiwix and the internal portable document rea
   assert.doesNotMatch(policy, /frame-src[^;]*'self'/);
 });
 
+test('offline map protocol permits cross-origin range fetches from the packaged renderer', () => {
+  const main = fs.readFileSync('src/main/main.ts', 'utf8');
+  assert.match(main, /scheme: 'outpost-map'[\s\S]*?supportFetchAPI: true, corsEnabled: true/);
+});
+
 test('applies the renderer policy only to Outpost Zero files', () => {
   const headers = responseHeadersForUrl('file:///portable/resources/app.asar/index.html', { Existing: ['kept'] });
   assert.deepEqual(headers.Existing, ['kept']);

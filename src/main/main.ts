@@ -21,7 +21,7 @@ import type { BootstrapData, ModuleOperationResult, ModuleSummary, PortableStatu
 protocol.registerSchemesAsPrivileged([
   { scheme: 'outpost-doc', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
   { scheme: 'outpost-attachment', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
-  { scheme: 'outpost-map', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+  { scheme: 'outpost-map', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
 ]);
 
 const root = findPortableRoot([path.dirname(process.execPath), process.cwd(), __dirname]);
