@@ -6,7 +6,7 @@ import test from 'node:test';
 import { MODULE_PACKAGE_PUBLIC_KEY } from '../src/main/builtin-module-package';
 import { DatabaseService } from '../src/main/database-service';
 import { KIWIX_PACKAGE } from '../src/main/kiwix-package';
-import { KiwixService, parseKiwixCatalog, parseKiwixMetalink, validateKiwixPackagePath, verifyKiwixPackage } from '../src/main/kiwix-service';
+import { KiwixService, parseKiwixCatalog, parseKiwixCatalogFeed, parseKiwixMetalink, parseKiwixNavigation, validateKiwixPackagePath, verifyKiwixPackage } from '../src/main/kiwix-service';
 import { PortablePathService } from '../src/main/portable-path';
 
 const archivePath = path.resolve('VendorCache', 'kiwix-tools_win-x86_64-3.8.1.zip');
@@ -63,17 +63,21 @@ test('scans only ZIM files beneath the portable content root', () => {
 });
 
 test('parses current OPDS catalog and Metalink download metadata safely', () => {
-  const catalog = `<?xml version="1.0"?><feed><entry>
+  const catalog = `<?xml version="1.0"?><feed><totalResults>72</totalResults><startIndex>48</startIndex><itemsPerPage>24</itemsPerPage><entry>
     <id>urn:uuid:catalog-entry-1234</id><title>Wikipedia English</title><summary>Current reference</summary>
-    <language>eng</language><flavour>mini</flavour><category>wikipedia</category><dc:issued>2026-08-01T00:00:00Z</dc:issued>
+    <name>wikipedia_en_all</name><language>eng</language><flavour>mini</flavour><category>wikipedia</category><articleCount>7000000</articleCount><mediaCount>1500</mediaCount><dc:issued>2026-08-01T00:00:00Z</dc:issued>
     <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim"
       href="https://lb.download.kiwix.org/zim/wikipedia/wikipedia_en_mini_2026-08.zim.meta4" length="12345" />
   </entry><entry><id>unsafe-entry</id><link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="http://127.0.0.1/file.zim.meta4" length="10" /></entry></feed>`;
   const records = parseKiwixCatalog(catalog);
   assert.equal(records.length, 1);
   assert.equal(records[0].flavour, 'mini');
+  assert.equal(records[0].archiveName, 'wikipedia_en_all');
+  assert.equal(records[0].articleCount, 7_000_000);
   assert.equal(records[0].downloadBytes, 12_345);
   assert.equal(records[0].fileName, 'wikipedia_en_mini_2026-08.zim');
+  const feed = parseKiwixCatalogFeed(catalog);
+  assert.deepEqual({ total: feed.totalResults, start: feed.startIndex, page: feed.itemsPerPage }, { total: 72, start: 48, page: 24 });
 
   const metalink = `<metalink><file name="wikipedia_en_mini_2026-08.zim"><size>12345</size>
     <hash type="sha-256">${'ab'.repeat(32)}</hash></file></metalink>`;
@@ -81,6 +85,41 @@ test('parses current OPDS catalog and Metalink download metadata safely', () => 
   assert.equal(metadata.sha256, 'AB'.repeat(32));
   assert.equal(metadata.downloadUrl, 'https://lb.download.kiwix.org/zim/wikipedia/wikipedia_en_mini_2026-08.zim');
   assert.throws(() => parseKiwixMetalink(metalink, 'https://example.com/file.zim.meta4'), /source is not allowed/);
+});
+
+test('parses all official language and category choices from catalog navigation', () => {
+  const languages = parseKiwixNavigation(`<feed><entry><title>English</title><dc:language>eng</dc:language><thr:count>1200</thr:count></entry><entry><title>Español</title><dc:language>spa</dc:language><thr:count>340</thr:count></entry></feed>`, 'language');
+  const categories = parseKiwixNavigation(`<feed><entry><title>wikipedia</title></entry><entry><title>stack_exchange</title></entry></feed>`, 'category');
+  assert.deepEqual(languages, [{ id: 'eng', label: 'English', count: 1200 }, { id: 'spa', label: 'Español', count: 340 }]);
+  assert.deepEqual(categories.map((entry) => entry.id), ['stack_exchange', 'wikipedia']);
+});
+
+test('loads live catalog choices and applies category, language, search, and pagination filters', async () => {
+  const runtime = makeRuntime();
+  const requested: string[] = [];
+  const fetchFixture: typeof fetch = async (input) => {
+    const url = String(input);
+    requested.push(url);
+    if (url.endsWith('/languages')) return new Response(`<feed><entry><title>English</title><dc:language>eng</dc:language><thr:count>10</thr:count></entry></feed>`);
+    if (url.endsWith('/categories')) return new Response(`<feed><entry><title>wikipedia</title></entry></feed>`);
+    return new Response(`<feed><totalResults>0</totalResults><startIndex>48</startIndex><itemsPerPage>48</itemsPerPage></feed>`);
+  };
+  const service = new KiwixService(runtime.database, runtime.paths, fetchFixture);
+  try {
+    const options = await service.fetchCatalogOptions();
+    assert.equal(options.ok, true, options.message);
+    const result = await service.fetchCatalog('medicine', 'eng', 'wikipedia', 48);
+    assert.equal(result.ok, true, result.message);
+    const request = new URL(requested.find((url) => url.includes('/entries'))!);
+    assert.equal(request.searchParams.get('q'), 'medicine');
+    assert.equal(request.searchParams.get('lang'), 'eng');
+    assert.equal(request.searchParams.get('category'), 'wikipedia');
+    assert.equal(request.searchParams.get('start'), '48');
+  } finally {
+    await service.shutdown();
+    runtime.database.close();
+    fs.rmSync(runtime.root, { recursive: true, force: true });
+  }
 });
 
 test('resumes a catalog download, verifies SHA-256, and only then installs the ZIM', async () => {

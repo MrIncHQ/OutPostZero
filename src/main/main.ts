@@ -146,9 +146,10 @@ ipcMain.handle('outpost:uninstall-module', (_event, value: unknown) => moduleAct
 ipcMain.handle('outpost:get-library-status', () => kiwixService.status());
 ipcMain.handle('outpost:scan-library', () => kiwixService.status());
 ipcMain.handle('outpost:install-kiwix-sample', () => kiwixService.installSample());
-ipcMain.handle('outpost:fetch-kiwix-catalog', (_event, query: unknown, language: unknown) => {
-  if (typeof query !== 'string' || typeof language !== 'string') throw new Error('Catalog filters must be text.');
-  return kiwixService.fetchCatalog(query, language);
+ipcMain.handle('outpost:get-kiwix-catalog-options', () => kiwixService.fetchCatalogOptions());
+ipcMain.handle('outpost:fetch-kiwix-catalog', (_event, query: unknown, language: unknown, category: unknown, startIndex: unknown) => {
+  if (typeof query !== 'string' || typeof language !== 'string' || typeof category !== 'string' || typeof startIndex !== 'number') throw new Error('Catalog filters are invalid.');
+  return kiwixService.fetchCatalog(query, language, category, startIndex);
 });
 ipcMain.handle('outpost:download-kiwix-content', (_event, entryId: unknown) => {
   if (typeof entryId !== 'string') throw new Error('Catalog entry identifier is invalid.');

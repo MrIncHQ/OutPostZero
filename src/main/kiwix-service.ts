@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { spawn, type ChildProcess } from 'node:child_process';
-import type { KiwixCatalogEntry, KiwixCatalogResult, KiwixDownloadStatus, LibraryOperationResult, ModuleSummary, OfflineLibraryStatus, ZimContentSummary } from '../shared/contracts';
+import type { KiwixCatalogEntry, KiwixCatalogOption, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LibraryOperationResult, ModuleSummary, OfflineLibraryStatus, ZimContentSummary } from '../shared/contracts';
 import { MODULE_PACKAGE_PUBLIC_KEY } from './builtin-module-package';
 import { DatabaseService } from './database-service';
 import { KIWIX_PACKAGE } from './kiwix-package';
@@ -33,6 +33,7 @@ interface ActiveKiwix { child: ChildProcess; pid: number; port: number; startedA
 type FetchLike = typeof globalThis.fetch;
 interface CatalogRecord extends KiwixCatalogEntry { meta4Url: string }
 interface MetalinkRecord { fileName: string; size: number; sha256: string; downloadUrl: string }
+interface ParsedCatalog { entries: Array<Omit<CatalogRecord, 'installed'>>; totalResults: number; startIndex: number; itemsPerPage: number }
 
 function decodeXml(value: string): string {
   return value.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
@@ -54,7 +55,25 @@ function safeZimFileName(value: string): string {
   return decoded;
 }
 
-export function parseKiwixCatalog(xml: string): Array<Omit<CatalogRecord, 'installed'>> {
+function positiveInteger(value: string): number {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+export function parseKiwixNavigation(xml: string, kind: 'language' | 'category'): KiwixCatalogOption[] {
+  const options: KiwixCatalogOption[] = [];
+  for (const match of xml.matchAll(/<entry\b[^>]*>([\s\S]*?)<\/entry>/gi)) {
+    const block = match[1];
+    const id = kind === 'language' ? xmlText(block, 'language') : xmlText(block, 'title');
+    const label = xmlText(block, 'title');
+    if ((kind === 'language' ? /^[a-z]{3}$/i : /^[A-Za-z0-9_-]{1,64}$/).test(id) && label) {
+      options.push({ id, label, count: positiveInteger(xmlText(block, 'count')) });
+    }
+  }
+  return options.sort((left, right) => left.label.localeCompare(right.label));
+}
+
+export function parseKiwixCatalogFeed(xml: string): ParsedCatalog {
   const records: Array<Omit<CatalogRecord, 'installed'>> = [];
   for (const match of xml.matchAll(/<entry\b[^>]*>([\s\S]*?)<\/entry>/gi)) {
     try {
@@ -71,6 +90,7 @@ export function parseKiwixCatalog(xml: string): Array<Omit<CatalogRecord, 'insta
       if (!/^[A-Za-z0-9-]{8,64}$/.test(id) || !Number.isSafeInteger(downloadBytes) || downloadBytes <= 0) continue;
       records.push({
         id,
+        archiveName: xmlText(block, 'name') || id,
         title: xmlText(block, 'title') || xmlText(block, 'name'),
         summary: xmlText(block, 'summary'),
         language: xmlText(block, 'language'),
@@ -80,11 +100,20 @@ export function parseKiwixCatalog(xml: string): Array<Omit<CatalogRecord, 'insta
         downloadBytes,
         fileName: safeZimFileName(path.basename(url.pathname, '.meta4')),
         meta4Url: url.toString(),
+        articleCount: positiveInteger(xmlText(block, 'articleCount')),
+        mediaCount: positiveInteger(xmlText(block, 'mediaCount')),
       });
     } catch { /* Ignore malformed catalog entries without losing valid results. */ }
   }
-  return records;
+  return {
+    entries: records,
+    totalResults: positiveInteger(xmlText(xml, 'totalResults')) || records.length,
+    startIndex: positiveInteger(xmlText(xml, 'startIndex')),
+    itemsPerPage: positiveInteger(xmlText(xml, 'itemsPerPage')) || records.length,
+  };
 }
+
+export function parseKiwixCatalog(xml: string): Array<Omit<CatalogRecord, 'installed'>> { return parseKiwixCatalogFeed(xml).entries; }
 
 export function parseKiwixMetalink(xml: string, sourceUrl: string): MetalinkRecord {
   const fileTag = xml.match(/<file\b[^>]*>/i)?.[0];
@@ -214,6 +243,7 @@ export class KiwixService {
   private lastError: string | null = null;
   private catalog = new Map<string, CatalogRecord>();
   private catalogFetchedAt: string | null = null;
+  private catalogOptions: KiwixCatalogOptionsResult | null = null;
   private downloadAbort: AbortController | null = null;
   private currentDownload: KiwixDownloadStatus = { state: 'idle', downloadedBytes: 0, totalBytes: 0, message: 'No Kiwix download is active.' };
 
@@ -276,26 +306,50 @@ export class KiwixService {
 
   private result(ok: boolean, message: string): LibraryOperationResult { return { ok, message, status: this.status() }; }
 
-  async fetchCatalog(query = 'wikipedia', language = 'eng'): Promise<KiwixCatalogResult> {
+  async fetchCatalogOptions(): Promise<KiwixCatalogOptionsResult> {
+    if (this.catalogOptions?.ok) return this.catalogOptions;
     try {
-      const cleanQuery = query.trim().slice(0, 80) || 'wikipedia';
+      const [languageResponse, categoryResponse] = await Promise.all([
+        this.fetchImpl('https://library.kiwix.org/catalog/v2/languages', { signal: AbortSignal.timeout(30_000), cache: 'no-store', headers: { Accept: 'application/atom+xml', 'User-Agent': 'Outpost-Zero-Kiwix' } }),
+        this.fetchImpl('https://library.kiwix.org/catalog/v2/categories', { signal: AbortSignal.timeout(30_000), cache: 'no-store', headers: { Accept: 'application/atom+xml', 'User-Agent': 'Outpost-Zero-Kiwix' } }),
+      ]);
+      if (!languageResponse.ok || !categoryResponse.ok) throw new Error(`Kiwix catalog navigation returned HTTP ${languageResponse.ok ? categoryResponse.status : languageResponse.status}.`);
+      const [languageXml, categoryXml] = await Promise.all([languageResponse.text(), categoryResponse.text()]);
+      const languages = parseKiwixNavigation(languageXml, 'language');
+      const categories = parseKiwixNavigation(categoryXml, 'category');
+      if (!languages.length || !categories.length) throw new Error('Kiwix catalog navigation is empty.');
+      this.catalogOptions = { ok: true, message: `${languages.length} languages and ${categories.length} content categories available.`, languages, categories };
+    } catch (error) {
+      this.catalogOptions = { ok: false, message: error instanceof Error ? error.message : 'Could not load Kiwix catalog choices.', languages: [], categories: [] };
+    }
+    return this.catalogOptions;
+  }
+
+  async fetchCatalog(query = '', language = 'eng', category = 'wikipedia', startIndex = 0): Promise<KiwixCatalogResult> {
+    try {
+      const cleanQuery = query.trim().slice(0, 80);
       const cleanLanguage = /^[a-z]{3}$/i.test(language.trim()) ? language.trim().toLowerCase() : 'eng';
+      const cleanCategory = /^[A-Za-z0-9_-]{1,64}$/.test(category.trim()) ? category.trim() : 'wikipedia';
+      const cleanStart = Number.isSafeInteger(startIndex) ? Math.max(0, startIndex) : 0;
       const endpoint = new URL('https://library.kiwix.org/catalog/v2/entries');
-      endpoint.searchParams.set('count', '24');
+      endpoint.searchParams.set('count', '48');
+      endpoint.searchParams.set('start', String(cleanStart));
       endpoint.searchParams.set('lang', cleanLanguage);
-      endpoint.searchParams.set('q', cleanQuery);
+      endpoint.searchParams.set('category', cleanCategory);
+      if (cleanQuery) endpoint.searchParams.set('q', cleanQuery);
       const response = await this.fetchImpl(endpoint, { signal: AbortSignal.timeout(30_000), cache: 'no-store', headers: { Accept: 'application/atom+xml', 'User-Agent': 'Outpost-Zero-Kiwix' } });
       if (!response.ok) throw new Error(`Kiwix catalog returned HTTP ${response.status}.`);
-      const records = parseKiwixCatalog(await response.text());
+      const parsed = parseKiwixCatalogFeed(await response.text());
+      const records = parsed.entries;
       const installed = new Set(this.scan().map((item) => item.fileName.toLowerCase()));
       this.catalog.clear();
       for (const record of records) this.catalog.set(record.id, { ...record, installed: installed.has(record.fileName.toLowerCase()) });
       this.catalogFetchedAt = new Date().toISOString();
       let freeBytes: number | null = null;
       try { const disk = fs.statfsSync(this.paths.root); freeBytes = disk.bavail * disk.bsize; } catch { /* Drive capacity can be unavailable. */ }
-      return { ok: true, message: records.length ? `${records.length} current Kiwix catalog entries found.` : 'No current Kiwix entries match these filters.', fetchedAt: this.catalogFetchedAt, entries: [...this.catalog.values()].map(({ meta4Url: _, ...entry }) => entry), freeBytes };
+      return { ok: true, message: records.length ? `${parsed.totalResults} current Kiwix editions match these choices.` : 'No current Kiwix editions match these choices.', fetchedAt: this.catalogFetchedAt, entries: [...this.catalog.values()].map(({ meta4Url: _, ...entry }) => entry), freeBytes, totalResults: parsed.totalResults, startIndex: parsed.startIndex, itemsPerPage: parsed.itemsPerPage };
     } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : 'Could not load the Kiwix catalog.', fetchedAt: this.catalogFetchedAt, entries: [], freeBytes: null };
+      return { ok: false, message: error instanceof Error ? error.message : 'Could not load the Kiwix catalog.', fetchedAt: this.catalogFetchedAt, entries: [], freeBytes: null, totalResults: 0, startIndex: 0, itemsPerPage: 48 };
     }
   }
 

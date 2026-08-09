@@ -76,6 +76,7 @@ export interface LibraryOperationResult {
 
 export interface KiwixCatalogEntry {
   id: string;
+  archiveName: string;
   title: string;
   summary: string;
   language: string;
@@ -85,6 +86,21 @@ export interface KiwixCatalogEntry {
   downloadBytes: number;
   fileName: string;
   installed: boolean;
+  articleCount: number;
+  mediaCount: number;
+}
+
+export interface KiwixCatalogOption {
+  id: string;
+  label: string;
+  count: number;
+}
+
+export interface KiwixCatalogOptionsResult {
+  ok: boolean;
+  message: string;
+  languages: KiwixCatalogOption[];
+  categories: KiwixCatalogOption[];
 }
 
 export interface KiwixCatalogResult {
@@ -93,6 +109,9 @@ export interface KiwixCatalogResult {
   fetchedAt: string | null;
   entries: KiwixCatalogEntry[];
   freeBytes: number | null;
+  totalResults: number;
+  startIndex: number;
+  itemsPerPage: number;
 }
 
 export interface KiwixDownloadStatus {
@@ -174,7 +193,8 @@ export interface OutpostBridge {
   getLibraryStatus(): Promise<OfflineLibraryStatus>;
   scanLibrary(): Promise<OfflineLibraryStatus>;
   installKiwixSample(): Promise<LibraryOperationResult>;
-  fetchKiwixCatalog(query: string, language: string): Promise<KiwixCatalogResult>;
+  getKiwixCatalogOptions(): Promise<KiwixCatalogOptionsResult>;
+  fetchKiwixCatalog(query: string, language: string, category: string, startIndex: number): Promise<KiwixCatalogResult>;
   downloadKiwixContent(entryId: string): Promise<LibraryOperationResult>;
   getKiwixDownloadStatus(): Promise<KiwixDownloadStatus>;
   cancelKiwixDownload(): Promise<KiwixDownloadStatus>;

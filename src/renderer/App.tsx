@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import type { BootstrapData, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary } from '../shared/contracts';
+import type { BootstrapData, KiwixCatalogEntry, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary } from '../shared/contracts';
 
 type ViewId = 'home' | 'search' | 'library' | 'documents' | 'maps' | 'learning' | 'notes' |
   'media' | 'relay' | 'tools' | 'modules' | 'downloads' | 'storage' | 'settings' | 'updates';
@@ -35,6 +35,20 @@ function formatBytes(bytes: number | null): string {
     unit += 1;
   }
   return `${value.toFixed(unit > 2 ? 1 : unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function editionLabel(flavour: string): string {
+  if (flavour.toLowerCase() === 'mini') return 'Mini';
+  if (flavour.toLowerCase() === 'nopic') return 'Nopic';
+  if (flavour.toLowerCase() === 'maxi') return 'Maxi';
+  return flavour ? flavour.replace(/[_-]+/g, ' ') : 'Standard';
+}
+
+function editionDescription(flavour: string): string {
+  if (flavour.toLowerCase() === 'mini') return 'Introductions and infoboxes; smallest package.';
+  if (flavour.toLowerCase() === 'nopic') return 'Fuller article text without images.';
+  if (flavour.toLowerCase() === 'maxi') return 'Fullest standard edition with images.';
+  return 'The standard edition published for this archive.';
 }
 
 function Onboarding({ onComplete }: { onComplete: (profile: LocalProfile) => void }) {
@@ -133,10 +147,14 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
   const [busy, setBusy] = useState<'install' | 'sample' | 'scan' | 'start' | 'stop' | 'catalog' | 'download' | null>(null);
   const [message, setMessage] = useState('');
   const [catalog, setCatalog] = useState<KiwixCatalogResult>();
-  const [catalogQuery, setCatalogQuery] = useState('wikipedia');
+  const [catalogOptions, setCatalogOptions] = useState<KiwixCatalogOptionsResult>();
+  const [catalogQuery, setCatalogQuery] = useState('');
   const [catalogLanguage, setCatalogLanguage] = useState('eng');
+  const [catalogCategory, setCatalogCategory] = useState('wikipedia');
+  const [selectedEditions, setSelectedEditions] = useState<Record<string, string>>({});
   const [download, setDownload] = useState<KiwixDownloadStatus>();
   useEffect(() => { void window.outpost.getLibraryStatus().then(setLibrary); }, []);
+  useEffect(() => { void window.outpost.getKiwixCatalogOptions().then(setCatalogOptions); }, []);
   useEffect(() => {
     let disposed = false;
     const refresh = () => void window.outpost.getKiwixDownloadStatus().then((status) => { if (!disposed) setDownload(status); });
@@ -144,6 +162,25 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
     const timer = window.setInterval(refresh, 750);
     return () => { disposed = true; window.clearInterval(timer); };
   }, []);
+  const archiveGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; title: string; summary: string; variants: KiwixCatalogEntry[] }>();
+    for (const entry of catalog?.entries ?? []) {
+      const key = entry.archiveName;
+      const group = groups.get(key) ?? { key, title: entry.title, summary: entry.summary, variants: [] };
+      group.variants.push(entry);
+      groups.set(key, group);
+    }
+    return [...groups.values()].map((group) => ({ ...group, variants: group.variants.sort((left, right) => left.downloadBytes - right.downloadBytes) }));
+  }, [catalog]);
+  useEffect(() => {
+    setSelectedEditions((current) => {
+      const next = { ...current };
+      for (const group of archiveGroups) {
+        if (!group.variants.some((entry) => entry.id === next[group.key])) next[group.key] = group.variants[0].id;
+      }
+      return next;
+    });
+  }, [archiveGroups]);
 
   async function moduleAction(action: 'install' | 'start' | 'stop') {
     setBusy(action);
@@ -183,11 +220,11 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
     setBusy(null);
   }
 
-  async function searchCatalog() {
+  async function searchCatalog(startIndex = 0) {
     setBusy('catalog');
     setMessage('');
     try {
-      const result = await window.outpost.fetchKiwixCatalog(catalogQuery, catalogLanguage);
+      const result = await window.outpost.fetchKiwixCatalog(catalogQuery, catalogLanguage, catalogCategory, startIndex);
       setCatalog(result);
       setMessage(result.message);
     } catch (reason) {
@@ -205,7 +242,7 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
       setLibrary(result.status);
       setMessage(result.message);
       setDownload(await window.outpost.getKiwixDownloadStatus());
-      if (result.ok) setCatalog(await window.outpost.fetchKiwixCatalog(catalogQuery, catalogLanguage));
+      if (result.ok) setCatalog(await window.outpost.fetchKiwixCatalog(catalogQuery, catalogLanguage, catalogCategory, catalog?.startIndex ?? 0));
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : 'Kiwix download failed.');
     } finally {
@@ -247,10 +284,12 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
           <span>Nothing downloads until you choose it.</span>
         </div>
         <form className="catalog-filters" onSubmit={(event) => { event.preventDefault(); void searchCatalog(); }}>
-          <label>CONTENT<input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} maxLength={80} placeholder="Wikipedia, WikiMed, Wiktionary..." /></label>
-          <label>LANGUAGE<select value={catalogLanguage} onChange={(event) => setCatalogLanguage(event.target.value)}><option value="eng">English</option><option value="spa">Spanish</option><option value="fra">French</option><option value="deu">German</option><option value="por">Portuguese</option><option value="ara">Arabic</option></select></label>
+          <label>CATEGORY<select value={catalogCategory} onChange={(event) => setCatalogCategory(event.target.value)} disabled={!catalogOptions?.ok}>{catalogOptions?.categories.map((option) => <option key={option.id} value={option.id}>{option.label.replace(/_/g, ' ')}</option>) ?? <option value="wikipedia">wikipedia</option>}</select></label>
+          <label>LANGUAGE<select value={catalogLanguage} onChange={(event) => setCatalogLanguage(event.target.value)} disabled={!catalogOptions?.ok}>{catalogOptions?.languages.map((option) => <option key={option.id} value={option.id}>{option.label} ({option.count})</option>) ?? <option value="eng">English</option>}</select></label>
+          <label>OPTIONAL SEARCH<input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} maxLength={80} placeholder="All matching archives" /></label>
           <button className="secondary-button" type="submit" disabled={busy !== null}>{busy === 'catalog' ? 'CHECKING...' : 'CHECK CURRENT CATALOG'}</button>
         </form>
+        {catalogOptions && !catalogOptions.ok && <p className="catalog-option-error">Live catalog choices are unavailable: {catalogOptions.message}</p>}
         {download && ['downloading', 'verifying', 'cancelled', 'error'].includes(download.state) && (
           <div className={`download-progress download-${download.state}`}>
             <div><b>{download.title ?? 'Kiwix content'}</b><span>{download.message}</span></div>
@@ -259,14 +298,22 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
             {download.state === 'downloading' && <button type="button" onClick={() => void cancelDownload()}>PAUSE</button>}
           </div>
         )}
-        {catalog?.entries.length ? <div className="catalog-list">{catalog.entries.map((entry) => {
-          const freeAfter = catalog.freeBytes === null ? null : catalog.freeBytes - entry.downloadBytes;
-          return <article key={entry.id}>
-            <div className="catalog-title"><span><b>{entry.title}</b><small>{entry.summary || entry.fileName}</small></span><i>{entry.flavour || 'standard'}</i></div>
-            <dl><div><dt>Language</dt><dd>{entry.language.toUpperCase()}</dd></div><div><dt>Release</dt><dd>{entry.releaseDate.slice(0, 10)}</dd></div><div><dt>Download</dt><dd>{formatBytes(entry.downloadBytes)}</dd></div><div><dt>Free after</dt><dd className={freeAfter !== null && freeAfter < 0 ? 'low-space' : ''}>{formatBytes(freeAfter)}</dd></div></dl>
-            <button className={entry.installed ? 'installed-button' : 'secondary-button'} disabled={entry.installed || busy !== null} onClick={() => void downloadEntry(entry.id)}>{entry.installed ? 'INSTALLED' : download?.entryId === entry.id && download.state === 'cancelled' ? 'RESUME DOWNLOAD' : 'DOWNLOAD TO OUTPOST ZERO'}</button>
+        {archiveGroups.length ? <div className="catalog-list">{archiveGroups.map((group) => {
+          const selected = group.variants.find((entry) => entry.id === selectedEditions[group.key]) ?? group.variants[0];
+          const freeAfter = catalog?.freeBytes === null ? null : (catalog?.freeBytes ?? 0) - selected.downloadBytes;
+          return <article key={group.key}>
+            <div className="catalog-title"><span><b>{group.title}</b><small>{group.summary || selected.fileName}</small></span><i>{selected.category.replace(/_/g, ' ')}</i></div>
+            <fieldset className="edition-choices"><legend>CHOOSE AN EDITION</legend>{group.variants.map((entry) => <label className={selected.id === entry.id ? 'selected' : ''} key={entry.id}>
+              <input type="radio" name={`edition-${group.key}`} value={entry.id} checked={selected.id === entry.id} onChange={() => setSelectedEditions((current) => ({ ...current, [group.key]: entry.id }))} />
+              <span><b>{editionLabel(entry.flavour)}</b><small>{editionDescription(entry.flavour)}</small></span>
+              <strong>{formatBytes(entry.downloadBytes)}</strong>
+              {entry.installed && <i>INSTALLED</i>}
+            </label>)}</fieldset>
+            <dl><div><dt>Language</dt><dd>{selected.language.toUpperCase()}</dd></div><div><dt>Release</dt><dd>{selected.releaseDate.slice(0, 10)}</dd></div><div><dt>Articles</dt><dd>{selected.articleCount ? selected.articleCount.toLocaleString() : 'Not listed'}</dd></div><div><dt>Free after</dt><dd className={freeAfter !== null && freeAfter < 0 ? 'low-space' : ''}>{formatBytes(freeAfter)}</dd></div></dl>
+            <button className={selected.installed ? 'installed-button' : 'secondary-button'} disabled={selected.installed || busy !== null || (freeAfter !== null && freeAfter < 0)} onClick={() => void downloadEntry(selected.id)}>{selected.installed ? 'INSTALLED' : download?.entryId === selected.id && download.state === 'cancelled' ? 'RESUME DOWNLOAD' : `DOWNLOAD ${editionLabel(selected.flavour).toUpperCase()} · ${formatBytes(selected.downloadBytes)}`}</button>
           </article>;
         })}</div> : catalog?.ok && <p className="catalog-empty">No matching archives were returned. Try a broader content name or another language.</p>}
+        {catalog?.ok && catalog.totalResults > catalog.itemsPerPage && <div className="catalog-pagination"><button disabled={busy !== null || catalog.startIndex === 0} onClick={() => void searchCatalog(Math.max(0, catalog.startIndex - catalog.itemsPerPage))}>PREVIOUS</button><span>{catalog.startIndex + 1}–{Math.min(catalog.totalResults, catalog.startIndex + catalog.entries.length)} OF {catalog.totalResults} EDITIONS</span><button disabled={busy !== null || catalog.startIndex + catalog.itemsPerPage >= catalog.totalResults} onClick={() => void searchCatalog(catalog.startIndex + catalog.itemsPerPage)}>NEXT</button></div>}
       </section>
       {library.running && library.serverUrl && <div className="kiwix-frame-shell"><div><span>LOCAL KIWIX</span><code>{library.serverUrl}</code></div><iframe title="Offline Kiwix library" src={library.serverUrl} sandbox="allow-scripts allow-forms allow-same-origin" /></div>}
     </section>
