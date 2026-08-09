@@ -1925,6 +1925,33 @@ Implement:
 - accessibility
 - packaging
 - documentation
+- update and release hardening
+- responsive-layout polish
+- final portable-drive validation
+
+## Phase 10 — Offline Medication Reference
+
+Add a dedicated Medication Lookup page designed to remain useful without internet access or an installed browser.
+
+Implement:
+
+- optional portable FDA drug-label and drug-listing dataset packages
+- search by generic name, brand name, active ingredient, purpose, and manufacturer
+- official uses, warnings, contraindications, interactions, storage guidance, and source provenance
+- pill identification filters for imprint, shape, color, and scored markings only after confirming an authoritative dataset with redistribution rights
+- explicit exact, possible, ambiguous, and unknown match states
+- visible dataset publication and portable-update dates
+- signed, user-initiated dataset updates
+- local favorites and personal reference notes
+- no diagnosis, prescribing, or guarantee that an unknown pill is safe to take
+- a blocking, unchecked reference-only acknowledgment before first use
+- local acknowledgment records tied to the accepted disclaimer and dataset versions
+- required re-acceptance after material disclaimer or dataset changes
+- persistent safety warnings on drug results and pill-identification screens
+
+The acknowledgment must state in plain language that the information is an offline reference, may be incomplete or outdated, does not provide diagnosis or prescribing advice, cannot guarantee pill identity, and must not be used as permission to take an unknown medication. The lookup interface remains inaccessible until the user affirmatively checks the acknowledgment and continues. Acceptance stays local to the portable drive and must be requested again when the disclaimer or underlying medication dataset materially changes.
+
+Before implementation, verify dataset licensing, redistribution rights, coverage, size, update cadence, and whether any proposed pill-identification source has been discontinued or replaced. Medication data must be treated as high-stakes reference material and tested for provenance, offline availability, ambiguous results, acknowledgment enforcement, and update integrity. Qualified legal and medical reviewers must approve the final disclaimer, emergency guidance, terminology, and user flow before release; the acknowledgment is not a substitute for reliable data or safe behavior.
 
 ---
 
