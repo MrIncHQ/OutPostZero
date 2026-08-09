@@ -74,6 +74,37 @@ export interface LibraryOperationResult {
   status: OfflineLibraryStatus;
 }
 
+export interface KiwixCatalogEntry {
+  id: string;
+  title: string;
+  summary: string;
+  language: string;
+  flavour: string;
+  category: string;
+  releaseDate: string;
+  downloadBytes: number;
+  fileName: string;
+  installed: boolean;
+}
+
+export interface KiwixCatalogResult {
+  ok: boolean;
+  message: string;
+  fetchedAt: string | null;
+  entries: KiwixCatalogEntry[];
+  freeBytes: number | null;
+}
+
+export interface KiwixDownloadStatus {
+  state: 'idle' | 'downloading' | 'verifying' | 'complete' | 'cancelled' | 'error';
+  entryId?: string;
+  title?: string;
+  fileName?: string;
+  downloadedBytes: number;
+  totalBytes: number;
+  message: string;
+}
+
 export interface HardwareDiagnostics {
   cpuModel: string;
   logicalCores: number;
@@ -143,6 +174,10 @@ export interface OutpostBridge {
   getLibraryStatus(): Promise<OfflineLibraryStatus>;
   scanLibrary(): Promise<OfflineLibraryStatus>;
   installKiwixSample(): Promise<LibraryOperationResult>;
+  fetchKiwixCatalog(query: string, language: string): Promise<KiwixCatalogResult>;
+  downloadKiwixContent(entryId: string): Promise<LibraryOperationResult>;
+  getKiwixDownloadStatus(): Promise<KiwixDownloadStatus>;
+  cancelKiwixDownload(): Promise<KiwixDownloadStatus>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   downloadUpdate(): Promise<UpdateDownloadResult>;
   applyUpdate(): Promise<UpdateApplyResult>;

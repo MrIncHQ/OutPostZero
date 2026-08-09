@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import type { BootstrapData, LocalProfile, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary } from '../shared/contracts';
+import type { BootstrapData, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary } from '../shared/contracts';
 
 type ViewId = 'home' | 'search' | 'library' | 'documents' | 'maps' | 'learning' | 'notes' |
   'media' | 'relay' | 'tools' | 'modules' | 'downloads' | 'storage' | 'settings' | 'updates';
@@ -130,9 +130,20 @@ function SearchView() {
 
 function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => void }) {
   const [library, setLibrary] = useState<OfflineLibraryStatus>();
-  const [busy, setBusy] = useState<'install' | 'sample' | 'scan' | 'start' | 'stop' | null>(null);
+  const [busy, setBusy] = useState<'install' | 'sample' | 'scan' | 'start' | 'stop' | 'catalog' | 'download' | null>(null);
   const [message, setMessage] = useState('');
+  const [catalog, setCatalog] = useState<KiwixCatalogResult>();
+  const [catalogQuery, setCatalogQuery] = useState('wikipedia');
+  const [catalogLanguage, setCatalogLanguage] = useState('eng');
+  const [download, setDownload] = useState<KiwixDownloadStatus>();
   useEffect(() => { void window.outpost.getLibraryStatus().then(setLibrary); }, []);
+  useEffect(() => {
+    let disposed = false;
+    const refresh = () => void window.outpost.getKiwixDownloadStatus().then((status) => { if (!disposed) setDownload(status); });
+    refresh();
+    const timer = window.setInterval(refresh, 750);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, []);
 
   async function moduleAction(action: 'install' | 'start' | 'stop') {
     setBusy(action);
@@ -172,6 +183,40 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
     setBusy(null);
   }
 
+  async function searchCatalog() {
+    setBusy('catalog');
+    setMessage('');
+    try {
+      const result = await window.outpost.fetchKiwixCatalog(catalogQuery, catalogLanguage);
+      setCatalog(result);
+      setMessage(result.message);
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : 'Kiwix catalog lookup failed.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function downloadEntry(entryId: string) {
+    setBusy('download');
+    setMessage('');
+    try {
+      const result = await window.outpost.downloadKiwixContent(entryId);
+      setLibrary(result.status);
+      setMessage(result.message);
+      setDownload(await window.outpost.getKiwixDownloadStatus());
+      if (result.ok) setCatalog(await window.outpost.fetchKiwixCatalog(catalogQuery, catalogLanguage));
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : 'Kiwix download failed.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function cancelDownload() {
+    setDownload(await window.outpost.cancelKiwixDownload());
+  }
+
   if (!library) return <section className="page-panel"><p className="section-label">OFFLINE LIBRARY</p><h2>Scanning portable knowledge...</h2></section>;
   return (
     <section className="page-panel library-panel">
@@ -196,6 +241,33 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
         {library.content.map((item) => <div key={item.id}><span><b>{item.name}</b><small>{item.relativePath}</small></span><strong>{formatBytes(item.size)}</strong></div>)}
         {library.content.length === 0 && <p>No ZIM files found. Add your own file to Content/ZIM or download the small test library.</p>}
       </div>
+      <section className="kiwix-catalog">
+        <div className="catalog-heading">
+          <div><p className="section-label">ONLINE CONTENT CATALOG</p><h3>Choose the exact archive</h3></div>
+          <span>Nothing downloads until you choose it.</span>
+        </div>
+        <form className="catalog-filters" onSubmit={(event) => { event.preventDefault(); void searchCatalog(); }}>
+          <label>CONTENT<input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} maxLength={80} placeholder="Wikipedia, WikiMed, Wiktionary..." /></label>
+          <label>LANGUAGE<select value={catalogLanguage} onChange={(event) => setCatalogLanguage(event.target.value)}><option value="eng">English</option><option value="spa">Spanish</option><option value="fra">French</option><option value="deu">German</option><option value="por">Portuguese</option><option value="ara">Arabic</option></select></label>
+          <button className="secondary-button" type="submit" disabled={busy !== null}>{busy === 'catalog' ? 'CHECKING...' : 'CHECK CURRENT CATALOG'}</button>
+        </form>
+        {download && ['downloading', 'verifying', 'cancelled', 'error'].includes(download.state) && (
+          <div className={`download-progress download-${download.state}`}>
+            <div><b>{download.title ?? 'Kiwix content'}</b><span>{download.message}</span></div>
+            <strong>{download.totalBytes ? `${Math.min(100, download.downloadedBytes / download.totalBytes * 100).toFixed(1)}%` : 'PREPARING'}</strong>
+            <progress max={Math.max(1, download.totalBytes)} value={download.downloadedBytes} />
+            {download.state === 'downloading' && <button type="button" onClick={() => void cancelDownload()}>PAUSE</button>}
+          </div>
+        )}
+        {catalog?.entries.length ? <div className="catalog-list">{catalog.entries.map((entry) => {
+          const freeAfter = catalog.freeBytes === null ? null : catalog.freeBytes - entry.downloadBytes;
+          return <article key={entry.id}>
+            <div className="catalog-title"><span><b>{entry.title}</b><small>{entry.summary || entry.fileName}</small></span><i>{entry.flavour || 'standard'}</i></div>
+            <dl><div><dt>Language</dt><dd>{entry.language.toUpperCase()}</dd></div><div><dt>Release</dt><dd>{entry.releaseDate.slice(0, 10)}</dd></div><div><dt>Download</dt><dd>{formatBytes(entry.downloadBytes)}</dd></div><div><dt>Free after</dt><dd className={freeAfter !== null && freeAfter < 0 ? 'low-space' : ''}>{formatBytes(freeAfter)}</dd></div></dl>
+            <button className={entry.installed ? 'installed-button' : 'secondary-button'} disabled={entry.installed || busy !== null} onClick={() => void downloadEntry(entry.id)}>{entry.installed ? 'INSTALLED' : download?.entryId === entry.id && download.state === 'cancelled' ? 'RESUME DOWNLOAD' : 'DOWNLOAD TO OUTPOST ZERO'}</button>
+          </article>;
+        })}</div> : catalog?.ok && <p className="catalog-empty">No matching archives were returned. Try a broader content name or another language.</p>}
+      </section>
       {library.running && library.serverUrl && <div className="kiwix-frame-shell"><div><span>LOCAL KIWIX</span><code>{library.serverUrl}</code></div><iframe title="Offline Kiwix library" src={library.serverUrl} sandbox="allow-scripts allow-forms allow-same-origin" /></div>}
     </section>
   );

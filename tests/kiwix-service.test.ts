@@ -6,7 +6,7 @@ import test from 'node:test';
 import { MODULE_PACKAGE_PUBLIC_KEY } from '../src/main/builtin-module-package';
 import { DatabaseService } from '../src/main/database-service';
 import { KIWIX_PACKAGE } from '../src/main/kiwix-package';
-import { KiwixService, validateKiwixPackagePath, verifyKiwixPackage } from '../src/main/kiwix-service';
+import { KiwixService, parseKiwixCatalog, parseKiwixMetalink, validateKiwixPackagePath, verifyKiwixPackage } from '../src/main/kiwix-service';
 import { PortablePathService } from '../src/main/portable-path';
 
 const archivePath = path.resolve('VendorCache', 'kiwix-tools_win-x86_64-3.8.1.zip');
@@ -57,6 +57,94 @@ test('scans only ZIM files beneath the portable content root', () => {
       'Content/ZIM/reference_en_2026-08.zim',
     ]);
   } finally {
+    runtime.database.close();
+    fs.rmSync(runtime.root, { recursive: true, force: true });
+  }
+});
+
+test('parses current OPDS catalog and Metalink download metadata safely', () => {
+  const catalog = `<?xml version="1.0"?><feed><entry>
+    <id>urn:uuid:catalog-entry-1234</id><title>Wikipedia English</title><summary>Current reference</summary>
+    <language>eng</language><flavour>mini</flavour><category>wikipedia</category><dc:issued>2026-08-01T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim"
+      href="https://lb.download.kiwix.org/zim/wikipedia/wikipedia_en_mini_2026-08.zim.meta4" length="12345" />
+  </entry><entry><id>unsafe-entry</id><link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="http://127.0.0.1/file.zim.meta4" length="10" /></entry></feed>`;
+  const records = parseKiwixCatalog(catalog);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].flavour, 'mini');
+  assert.equal(records[0].downloadBytes, 12_345);
+  assert.equal(records[0].fileName, 'wikipedia_en_mini_2026-08.zim');
+
+  const metalink = `<metalink><file name="wikipedia_en_mini_2026-08.zim"><size>12345</size>
+    <hash type="sha-256">${'ab'.repeat(32)}</hash></file></metalink>`;
+  const metadata = parseKiwixMetalink(metalink, records[0].meta4Url);
+  assert.equal(metadata.sha256, 'AB'.repeat(32));
+  assert.equal(metadata.downloadUrl, 'https://lb.download.kiwix.org/zim/wikipedia/wikipedia_en_mini_2026-08.zim');
+  assert.throws(() => parseKiwixMetalink(metalink, 'https://example.com/file.zim.meta4'), /source is not allowed/);
+});
+
+test('resumes a catalog download, verifies SHA-256, and only then installs the ZIM', async () => {
+  const runtime = makeRuntime();
+  const content = Buffer.from('verified portable zim content');
+  const sha256 = (await import('node:crypto')).createHash('sha256').update(content).digest('hex');
+  const fileName = 'reference_en_2026-08.zim';
+  const metaUrl = `https://lb.download.kiwix.org/zim/reference/${fileName}.meta4`;
+  const catalogXml = `<feed><entry><id>urn:uuid:reference-entry-123</id><title>Reference Test</title><summary>Fixture</summary><language>eng</language><flavour>mini</flavour><category>reference</category><updated>2026-08-01T00:00:00Z</updated><link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="${metaUrl}" length="${content.length}" /></entry></feed>`;
+  const metalinkXml = `<metalink><file name="${fileName}"><size>${content.length}</size><hash type="sha-256">${sha256}</hash></file></metalink>`;
+  let resumedAt = -1;
+  const fetchFixture: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes('/catalog/v2/entries')) return new Response(catalogXml);
+    if (url.endsWith('.meta4')) return new Response(metalinkXml);
+    const range = new Headers(init?.headers).get('Range');
+    resumedAt = range ? Number(range.match(/bytes=(\d+)-/)?.[1]) : 0;
+    return new Response(content.subarray(resumedAt), { status: resumedAt ? 206 : 200 });
+  };
+  const service = new KiwixService(runtime.database, runtime.paths, fetchFixture);
+  try {
+    const catalog = await service.fetchCatalog('reference', 'eng');
+    assert.equal(catalog.ok, true, catalog.message);
+    const partialRoot = runtime.paths.ensureDirectory('Downloads/Kiwix');
+    fs.writeFileSync(path.join(partialRoot, `${fileName}.part`), content.subarray(0, 8));
+    const result = await service.downloadCatalogEntry('reference-entry-123');
+    assert.equal(result.ok, true, result.message);
+    assert.equal(resumedAt, 8);
+    assert.deepEqual(fs.readFileSync(runtime.paths.resolve(`Content/ZIM/${fileName}`)), content);
+    assert.equal(fs.existsSync(path.join(partialRoot, `${fileName}.part`)), false);
+    assert.equal(service.downloadStatus().state, 'complete');
+  } finally {
+    await service.shutdown();
+    runtime.database.close();
+    fs.rmSync(runtime.root, { recursive: true, force: true });
+  }
+});
+
+test('keeps a same-named user ZIM when installing verified catalog content', async () => {
+  const runtime = makeRuntime();
+  const userContent = Buffer.from('user supplied content');
+  const verifiedContent = Buffer.from('official verified content');
+  const sha256 = (await import('node:crypto')).createHash('sha256').update(verifiedContent).digest('hex');
+  const fileName = 'same-name.zim';
+  const metaUrl = `https://lb.download.kiwix.org/zim/custom/${fileName}.meta4`;
+  const catalogXml = `<feed><entry><id>urn:uuid:same-name-entry-123</id><title>Same Name</title><language>eng</language><link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="${metaUrl}" length="${verifiedContent.length}" /></entry></feed>`;
+  const metalinkXml = `<metalink><file name="${fileName}"><size>${verifiedContent.length}</size><hash type="sha-256">${sha256}</hash></file></metalink>`;
+  const fetchFixture: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.includes('/catalog/v2/entries')) return new Response(catalogXml);
+    if (url.endsWith('.meta4')) return new Response(metalinkXml);
+    return new Response(verifiedContent);
+  };
+  const service = new KiwixService(runtime.database, runtime.paths, fetchFixture);
+  try {
+    const original = runtime.paths.resolve(`Content/ZIM/${fileName}`);
+    fs.writeFileSync(original, userContent);
+    await service.fetchCatalog('same name', 'eng');
+    const result = await service.downloadCatalogEntry('same-name-entry-123');
+    assert.equal(result.ok, true, result.message);
+    assert.deepEqual(fs.readFileSync(original), userContent);
+    assert.deepEqual(fs.readFileSync(runtime.paths.resolve(`Content/ZIM/same-name-verified-${sha256.slice(0, 8)}.zim`)), verifiedContent);
+  } finally {
+    await service.shutdown();
     runtime.database.close();
     fs.rmSync(runtime.root, { recursive: true, force: true });
   }

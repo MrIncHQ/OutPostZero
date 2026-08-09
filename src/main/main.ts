@@ -146,10 +146,20 @@ ipcMain.handle('outpost:uninstall-module', (_event, value: unknown) => moduleAct
 ipcMain.handle('outpost:get-library-status', () => kiwixService.status());
 ipcMain.handle('outpost:scan-library', () => kiwixService.status());
 ipcMain.handle('outpost:install-kiwix-sample', () => kiwixService.installSample());
+ipcMain.handle('outpost:fetch-kiwix-catalog', (_event, query: unknown, language: unknown) => {
+  if (typeof query !== 'string' || typeof language !== 'string') throw new Error('Catalog filters must be text.');
+  return kiwixService.fetchCatalog(query, language);
+});
+ipcMain.handle('outpost:download-kiwix-content', (_event, entryId: unknown) => {
+  if (typeof entryId !== 'string') throw new Error('Catalog entry identifier is invalid.');
+  return kiwixService.downloadCatalogEntry(entryId);
+});
+ipcMain.handle('outpost:get-kiwix-download-status', () => kiwixService.downloadStatus());
+ipcMain.handle('outpost:cancel-kiwix-download', () => kiwixService.cancelDownload());
 ipcMain.handle('outpost:check-updates', () => updateService.check());
 ipcMain.handle('outpost:download-update', () => updateService.download());
 ipcMain.handle('outpost:apply-update', async () => {
-  await Promise.all([moduleService.stopAll(), kiwixService.stop(true)]);
+  await Promise.all([moduleService.stopAll(), kiwixService.shutdown()]);
   await databaseService.createRotatingBackup();
   const result = await updateService.apply(process.pid);
   if (result.status === 'launching') {
@@ -161,7 +171,7 @@ ipcMain.handle('outpost:apply-update', async () => {
   return result;
 });
 ipcMain.handle('outpost:prepare-removal', async () => {
-  await Promise.all([moduleService.stopAll(), kiwixService.stop(true)]);
+  await Promise.all([moduleService.stopAll(), kiwixService.shutdown()]);
   await session.defaultSession.clearCache();
   await databaseService.createRotatingBackup();
   databaseService.close();
@@ -187,7 +197,7 @@ app.on('before-quit', (event) => {
   if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess()) && !shutdownInProgress) {
     event.preventDefault();
     shutdownInProgress = true;
-    void Promise.all([moduleService.stopAll(), kiwixService.stop(true)]).finally(() => app.quit());
+    void Promise.all([moduleService.stopAll(), kiwixService.shutdown()]).finally(() => app.quit());
     return;
   }
   databaseService.close();

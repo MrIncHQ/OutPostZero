@@ -2,10 +2,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { spawn, type ChildProcess } from 'node:child_process';
-import type { LibraryOperationResult, ModuleSummary, OfflineLibraryStatus, ZimContentSummary } from '../shared/contracts';
+import type { KiwixCatalogEntry, KiwixCatalogResult, KiwixDownloadStatus, LibraryOperationResult, ModuleSummary, OfflineLibraryStatus, ZimContentSummary } from '../shared/contracts';
 import { MODULE_PACKAGE_PUBLIC_KEY } from './builtin-module-package';
 import { DatabaseService } from './database-service';
 import { KIWIX_PACKAGE } from './kiwix-package';
@@ -31,6 +31,77 @@ interface KiwixManifest {
 }
 interface ActiveKiwix { child: ChildProcess; pid: number; port: number; startedAt: string; stopping: boolean }
 type FetchLike = typeof globalThis.fetch;
+interface CatalogRecord extends KiwixCatalogEntry { meta4Url: string }
+interface MetalinkRecord { fileName: string; size: number; sha256: string; downloadUrl: string }
+
+function decodeXml(value: string): string {
+  return value.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
+
+function xmlText(block: string, tag: string): string {
+  const match = block.match(new RegExp(`<(?:[\\w-]+:)?${tag}\\b[^>]*>([\\s\\S]*?)<\\/(?:[\\w-]+:)?${tag}>`, 'i'));
+  return match ? decodeXml(match[1].trim().replace(/<[^>]+>/g, '')) : '';
+}
+
+function xmlAttribute(tag: string, name: string): string {
+  const match = tag.match(new RegExp(`\\b${name}="([^"]*)"`, 'i'));
+  return match ? decodeXml(match[1]) : '';
+}
+
+function safeZimFileName(value: string): string {
+  const decoded = decodeURIComponent(value);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.zim$/i.test(decoded)) throw new Error('Kiwix catalog returned an unsafe ZIM filename.');
+  return decoded;
+}
+
+export function parseKiwixCatalog(xml: string): Array<Omit<CatalogRecord, 'installed'>> {
+  const records: Array<Omit<CatalogRecord, 'installed'>> = [];
+  for (const match of xml.matchAll(/<entry\b[^>]*>([\s\S]*?)<\/entry>/gi)) {
+    try {
+      const block = match[1];
+      const link = [...block.matchAll(/<link\b[^>]*\/?>/gi)].map((candidate) => candidate[0])
+        .find((candidate) => xmlAttribute(candidate, 'rel') === 'http://opds-spec.org/acquisition/open-access'
+          && xmlAttribute(candidate, 'type') === 'application/x-zim');
+      if (!link) continue;
+      const meta4Url = xmlAttribute(link, 'href');
+      const url = new URL(meta4Url);
+      if (url.protocol !== 'https:' || url.hostname !== 'lb.download.kiwix.org' || !url.pathname.endsWith('.zim.meta4')) continue;
+      const downloadBytes = Number(xmlAttribute(link, 'length'));
+      const id = xmlText(block, 'id').replace(/^urn:uuid:/i, '');
+      if (!/^[A-Za-z0-9-]{8,64}$/.test(id) || !Number.isSafeInteger(downloadBytes) || downloadBytes <= 0) continue;
+      records.push({
+        id,
+        title: xmlText(block, 'title') || xmlText(block, 'name'),
+        summary: xmlText(block, 'summary'),
+        language: xmlText(block, 'language'),
+        flavour: xmlText(block, 'flavour'),
+        category: xmlText(block, 'category'),
+        releaseDate: xmlText(block, 'issued') || xmlText(block, 'updated'),
+        downloadBytes,
+        fileName: safeZimFileName(path.basename(url.pathname, '.meta4')),
+        meta4Url: url.toString(),
+      });
+    } catch { /* Ignore malformed catalog entries without losing valid results. */ }
+  }
+  return records;
+}
+
+export function parseKiwixMetalink(xml: string, sourceUrl: string): MetalinkRecord {
+  const fileTag = xml.match(/<file\b[^>]*>/i)?.[0];
+  const size = Number(xmlText(xml, 'size'));
+  const shaTag = [...xml.matchAll(/<hash\b[^>]*>[\s\S]*?<\/hash>/gi)].map((candidate) => candidate[0])
+    .find((candidate) => xmlAttribute(candidate, 'type').toLowerCase() === 'sha-256');
+  const sha256 = shaTag ? shaTag.replace(/<[^>]+>/g, '').trim().toUpperCase() : '';
+  if (!fileTag || !Number.isSafeInteger(size) || size <= 0 || !/^[A-F0-9]{64}$/.test(sha256)) {
+    throw new Error('Kiwix download metadata is incomplete.');
+  }
+  const metaUrl = new URL(sourceUrl);
+  if (metaUrl.protocol !== 'https:' || metaUrl.hostname !== 'lb.download.kiwix.org' || !metaUrl.pathname.endsWith('.meta4')) {
+    throw new Error('Kiwix download metadata source is not allowed.');
+  }
+  metaUrl.pathname = metaUrl.pathname.slice(0, -'.meta4'.length);
+  return { fileName: safeZimFileName(xmlAttribute(fileTag, 'name')), size, sha256, downloadUrl: metaUrl.toString() };
+}
 
 function hashBuffer(content: Buffer): string {
   return crypto.createHash('sha256').update(content).digest('hex').toUpperCase();
@@ -141,6 +212,10 @@ async function availablePort(): Promise<number> {
 export class KiwixService {
   private active: ActiveKiwix | null = null;
   private lastError: string | null = null;
+  private catalog = new Map<string, CatalogRecord>();
+  private catalogFetchedAt: string | null = null;
+  private downloadAbort: AbortController | null = null;
+  private currentDownload: KiwixDownloadStatus = { state: 'idle', downloadedBytes: 0, totalBytes: 0, message: 'No Kiwix download is active.' };
 
   constructor(
     private readonly database: DatabaseService,
@@ -200,6 +275,117 @@ export class KiwixService {
   }
 
   private result(ok: boolean, message: string): LibraryOperationResult { return { ok, message, status: this.status() }; }
+
+  async fetchCatalog(query = 'wikipedia', language = 'eng'): Promise<KiwixCatalogResult> {
+    try {
+      const cleanQuery = query.trim().slice(0, 80) || 'wikipedia';
+      const cleanLanguage = /^[a-z]{3}$/i.test(language.trim()) ? language.trim().toLowerCase() : 'eng';
+      const endpoint = new URL('https://library.kiwix.org/catalog/v2/entries');
+      endpoint.searchParams.set('count', '24');
+      endpoint.searchParams.set('lang', cleanLanguage);
+      endpoint.searchParams.set('q', cleanQuery);
+      const response = await this.fetchImpl(endpoint, { signal: AbortSignal.timeout(30_000), cache: 'no-store', headers: { Accept: 'application/atom+xml', 'User-Agent': 'Outpost-Zero-Kiwix' } });
+      if (!response.ok) throw new Error(`Kiwix catalog returned HTTP ${response.status}.`);
+      const records = parseKiwixCatalog(await response.text());
+      const installed = new Set(this.scan().map((item) => item.fileName.toLowerCase()));
+      this.catalog.clear();
+      for (const record of records) this.catalog.set(record.id, { ...record, installed: installed.has(record.fileName.toLowerCase()) });
+      this.catalogFetchedAt = new Date().toISOString();
+      let freeBytes: number | null = null;
+      try { const disk = fs.statfsSync(this.paths.root); freeBytes = disk.bavail * disk.bsize; } catch { /* Drive capacity can be unavailable. */ }
+      return { ok: true, message: records.length ? `${records.length} current Kiwix catalog entries found.` : 'No current Kiwix entries match these filters.', fetchedAt: this.catalogFetchedAt, entries: [...this.catalog.values()].map(({ meta4Url: _, ...entry }) => entry), freeBytes };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Could not load the Kiwix catalog.', fetchedAt: this.catalogFetchedAt, entries: [], freeBytes: null };
+    }
+  }
+
+  downloadStatus(): KiwixDownloadStatus { return { ...this.currentDownload }; }
+
+  cancelDownload(): KiwixDownloadStatus {
+    if (this.downloadAbort) {
+      this.currentDownload = { ...this.currentDownload, state: 'cancelled', message: 'Download paused. Its partial file was kept for resume.' };
+      this.downloadAbort.abort();
+    }
+    return this.downloadStatus();
+  }
+
+  async downloadCatalogEntry(entryId: string): Promise<LibraryOperationResult> {
+    const entry = this.catalog.get(entryId);
+    if (!entry) return this.result(false, 'Refresh the Kiwix catalog and choose an available archive.');
+    if (this.downloadAbort) return this.result(false, 'Another Kiwix download is already active.');
+    const controller = new AbortController();
+    this.downloadAbort = controller;
+    this.currentDownload = { state: 'downloading', entryId, title: entry.title, fileName: entry.fileName, downloadedBytes: 0, totalBytes: entry.downloadBytes, message: 'Loading verified download metadata...' };
+    try {
+      const metadataResponse = await this.fetchImpl(entry.meta4Url, { signal: controller.signal, cache: 'no-store', headers: { Accept: 'application/metalink4+xml', 'User-Agent': 'Outpost-Zero-Kiwix' } });
+      if (!metadataResponse.ok) throw new Error(`Kiwix metadata returned HTTP ${metadataResponse.status}.`);
+      const metadata = parseKiwixMetalink(await metadataResponse.text(), entry.meta4Url);
+      if (metadata.fileName !== entry.fileName) throw new Error('Kiwix catalog filename does not match its download metadata.');
+      let destination = this.paths.resolve(`Content/ZIM/${metadata.fileName}`);
+      if (fs.existsSync(destination) && fs.statSync(destination).size === metadata.size && await hashFile(destination) === metadata.sha256) {
+        entry.installed = true;
+        this.currentDownload = { ...this.currentDownload, state: 'complete', downloadedBytes: metadata.size, totalBytes: metadata.size, message: `${entry.title} is already installed and verified.` };
+        return this.result(true, this.currentDownload.message);
+      }
+      if (fs.existsSync(destination)) {
+        const stem = path.basename(metadata.fileName, '.zim');
+        destination = this.paths.resolve(`Content/ZIM/${stem}-verified-${metadata.sha256.slice(0, 8).toLowerCase()}.zim`);
+        if (fs.existsSync(destination) && fs.statSync(destination).size === metadata.size && await hashFile(destination) === metadata.sha256) {
+          entry.installed = true;
+          this.currentDownload = { ...this.currentDownload, state: 'complete', downloadedBytes: metadata.size, totalBytes: metadata.size, message: `${entry.title} is already installed and verified. The same-named user file was kept.` };
+          return this.result(true, this.currentDownload.message);
+        }
+      }
+      const stagingRoot = this.paths.ensureDirectory('Downloads/Kiwix');
+      const partial = path.join(stagingRoot, `${metadata.fileName}.part`);
+      let offset = fs.existsSync(partial) ? fs.statSync(partial).size : 0;
+      if (offset > metadata.size) { fs.rmSync(partial, { force: true }); offset = 0; }
+      try {
+        const disk = fs.statfsSync(this.paths.root);
+        if (disk.bavail * disk.bsize < metadata.size - offset + 64 * 1024 * 1024) throw new Error(`Not enough free space. This download needs ${metadata.size - offset} more bytes plus verification space.`);
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('Not enough free space')) throw error;
+      }
+      const headers: Record<string, string> = { 'User-Agent': 'Outpost-Zero-Kiwix' };
+      if (offset > 0) headers.Range = `bytes=${offset}-`;
+      let response = await this.fetchImpl(metadata.downloadUrl, { signal: controller.signal, cache: 'no-store', headers });
+      if (offset > 0 && response.status !== 206) {
+        await response.body?.cancel();
+        offset = 0;
+        response = await this.fetchImpl(metadata.downloadUrl, { signal: controller.signal, cache: 'no-store', headers: { 'User-Agent': 'Outpost-Zero-Kiwix' } });
+      }
+      if (!response.ok || !response.body) throw new Error(`Kiwix download returned HTTP ${response.status}.`);
+      this.currentDownload = { ...this.currentDownload, downloadedBytes: offset, totalBytes: metadata.size, message: offset ? 'Resuming download on this drive...' : 'Downloading to this drive...' };
+      let downloaded = offset;
+      const progress = new Transform({ transform: (chunk: Buffer, _encoding, callback) => {
+        downloaded += chunk.length;
+        this.currentDownload = { ...this.currentDownload, downloadedBytes: downloaded };
+        callback(null, chunk);
+      } });
+      await pipeline(Readable.fromWeb(response.body as never), progress, fs.createWriteStream(partial, { flags: offset ? 'a' : 'w' }));
+      if (downloaded !== metadata.size) throw new Error(`Kiwix download size mismatch: expected ${metadata.size}, received ${downloaded}.`);
+      this.currentDownload = { ...this.currentDownload, state: 'verifying', downloadedBytes: downloaded, message: 'Verifying SHA-256 checksum...' };
+      if (await hashFile(partial) !== metadata.sha256) throw new Error('Kiwix download failed SHA-256 verification. The partial file was kept for retry.');
+      const wasRunning = Boolean(this.active);
+      if (wasRunning) await this.stop(true);
+      if (fs.existsSync(destination)) throw new Error('A different file appeared at the verified download destination. It was not overwritten.');
+      fs.renameSync(partial, destination);
+      entry.installed = true;
+      if (wasRunning) await this.start();
+      this.currentDownload = { ...this.currentDownload, state: 'complete', downloadedBytes: metadata.size, totalBytes: metadata.size, message: `${entry.title} downloaded, verified, and added to the offline library.` };
+      return this.result(true, this.currentDownload.message);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        this.currentDownload = { ...this.currentDownload, state: 'cancelled', message: 'Download paused. Choose it again to resume.' };
+        return this.result(false, this.currentDownload.message);
+      }
+      const message = error instanceof Error ? error.message : 'Kiwix content download failed.';
+      this.currentDownload = { ...this.currentDownload, state: 'error', message };
+      return this.result(false, message);
+    } finally {
+      if (this.downloadAbort === controller) this.downloadAbort = null;
+    }
+  }
 
   private async download(file: DownloadFile, destination: string): Promise<void> {
     fs.mkdirSync(path.dirname(destination), { recursive: true });
@@ -355,6 +541,11 @@ export class KiwixService {
     if (this.active === entry) this.active = null;
     if (!quiet) this.lastError = null;
     return { ok: true, message: quiet ? '' : 'Offline Library Engine stopped.' };
+  }
+
+  async shutdown(): Promise<void> {
+    this.cancelDownload();
+    await this.stop(true);
   }
 
   async uninstall(): Promise<{ ok: boolean; message: string }> {

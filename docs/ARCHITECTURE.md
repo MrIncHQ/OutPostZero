@@ -14,7 +14,7 @@ Outpost Zero is a portable Electron application. The Electron main process is th
 - `UpdateService` verifies the pinned Ed25519 signature on GitHub manifests, rejects non-runtime paths, downloads changed files into portable staging, verifies SHA-256 hashes, and launches the external swap helper.
 - `PortableUpdater.ps1` waits for the app to exit, backs up runtime files, replaces only the verified allowlist, rolls back on any failure, and restarts the portable launcher.
 - `ModuleService` verifies signed module packages, stages and atomically activates engine files, performs loopback health checks, tracks child processes, rolls back unhealthy replacements, and keeps shared module data separate from uninstallable engines.
-- `KiwixService` verifies a signed, SHA-256-pinned upstream engine descriptor, downloads the official Windows archive, validates extraction, scans `Content/ZIM`, and owns a loopback-only `kiwix-serve` child process.
+- `KiwixService` verifies a signed, SHA-256-pinned upstream engine descriptor, downloads the official Windows archive, validates extraction, scans `Content/ZIM`, and owns a loopback-only `kiwix-serve` child process. It also reads the official OPDS catalog, resolves official Metalink metadata, resumes portable-drive downloads, verifies SHA-256, and promotes content only after verification.
 - The renderer has context isolation enabled, Node integration disabled, sandboxing enabled, and a restrictive content security policy.
 
 The built-in Portable Process Test proves the generic lifecycle. Kiwix uses the same engine/content separation while exposing its local viewer inside the Library interface.

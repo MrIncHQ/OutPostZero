@@ -15,6 +15,7 @@
 - Module packages use a separate pinned Ed25519 key. The private module-signing key remains under ignored `ModuleSigning/`. Package files are checksum-verified in staging, runtime commands are allowlisted, and the first process module binds only to `127.0.0.1`.
 - Module engines and shared data have separate ownership boundaries. Uninstall removes only `Modules/Installed/<module-id>`; data and logs remain unless a future explicit user choice removes them.
 - The Kiwix descriptor pins the official archive size and SHA-256 hash inside a signed package manifest. ZIP paths are checked before extraction, extracted files are checked individually, and `kiwix-serve` starts with argument arrays, `--address=127.0.0.1`, and `--blockexternal`.
+- Kiwix catalog access accepts acquisition metadata only from the official HTTPS catalog and load-balancer hosts. Large ZIM files remain as partial files under `Downloads/Kiwix` until the official Metalink size and SHA-256 checksum pass; a same-named user ZIM is preserved rather than overwritten.
 - Outpost Zero creates no services, scheduled tasks, firewall rules, registry configuration, or permanent environment changes.
 
 Imported content and peer networking are not implemented yet and must receive dedicated threat modeling before release. The current module process test is intentionally loopback-only and contains no user content.
