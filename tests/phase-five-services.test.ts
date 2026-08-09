@@ -56,6 +56,17 @@ test('maps import raster MBTiles, serve flipped tiles, manage places, and exchan
   } finally { app.database.close(); fs.rmSync(app.root, { recursive: true, force: true }); fs.rmSync(sourceRoot, { recursive: true, force: true }); }
 });
 
+test('map downloads reject unsafe or oversized regions before starting a helper', async () => {
+  const app = runtime();
+  try {
+    const invalidCenter = await app.maps.downloadMap({ title: 'Invalid', latitude: 95, longitude: 0, radiusKilometers: 100, maxZoom: 12 });
+    assert.equal(invalidCenter.ok, false); assert.match(invalidCenter.message, /coordinates are invalid/);
+    const dateLine = await app.maps.downloadMap({ title: 'Crossing', latitude: 0, longitude: 179, radiusKilometers: 800, maxZoom: 8 });
+    assert.equal(dateLine.ok, false); assert.match(dateLine.message, /date line/);
+    assert.equal(app.maps.state().packages.length, 0);
+  } finally { app.database.close(); fs.rmSync(app.root, { recursive: true, force: true }); }
+});
+
 test('expanded search returns documents, notes, and saved map places with deep-link data', async () => {
   const app = runtime();
   try {

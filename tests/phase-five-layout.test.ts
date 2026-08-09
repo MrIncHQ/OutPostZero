@@ -25,6 +25,14 @@ test('Notes exposes autosave, Markdown, templates, attachments, and export', () 
 });
 
 test('Maps and tools expose the core offline controls', () => {
-  for (const feature of ['PMTiles', 'outpost-map://tile', 'COPY COORDINATES', 'MEASURE', 'IMPORT GPX', 'EXPORT GPX', 'SAVE THIS PLACE']) assert.match(maps, new RegExp(feature));
+  for (const feature of ['PMTiles', 'outpost-map://tile', 'COPY COORDINATES', 'MEASURE', 'IMPORT GPX', 'EXPORT GPX', 'SAVE THIS PLACE', 'DOWNLOAD MAP', 'DOWNLOAD THIS REGION', 'ROUGH SIZE ESTIMATE', 'CANCEL DOWNLOAD']) assert.match(maps, new RegExp(feature));
   for (const feature of ['SCIENTIFIC CALCULATOR', 'UNIT CONVERTER', 'SHA-256', 'IPV4 SUBNET', 'COORDINATE CONVERTER', 'REGEX TESTER', 'PASSWORD GENERATOR']) assert.match(tools, new RegExp(feature));
+});
+
+test('Windows packaging includes the pinned offline map extractor and its license', () => {
+  const packageFile = fs.readFileSync('package.json', 'utf8');
+  assert.match(packageFile, /vendor\/pmtiles\/pmtiles\.exe/);
+  assert.match(packageFile, /vendor\/pmtiles\/LICENSE/);
+  assert.equal(fs.existsSync('vendor/pmtiles/pmtiles.exe'), true);
+  assert.equal(fs.existsSync('vendor/pmtiles/LICENSE'), true);
 });

@@ -49,7 +49,8 @@ const moduleService = new ModuleService(databaseService, portablePaths);
 const kiwixService = new KiwixService(databaseService, portablePaths);
 const documentService = new DocumentService(databaseService, portablePaths);
 const noteService = new NoteService(databaseService, portablePaths);
-const mapService = new MapService(databaseService, portablePaths);
+const mapHelperPath = app.isPackaged ? path.join(process.resourcesPath, 'pmtiles', 'pmtiles.exe') : path.join(app.getAppPath(), 'vendor', 'pmtiles', 'pmtiles.exe');
+const mapService = new MapService(databaseService, portablePaths, { helperPath: mapHelperPath });
 const unifiedSearchService = new UnifiedSearchService(databaseService, documentService);
 let isPrepared = false;
 let shutdownInProgress = false;
@@ -273,6 +274,12 @@ ipcMain.handle('outpost:import-map-packages', async () => {
   const selection = await dialog.showOpenDialog({ title: 'Add an offline map package', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Offline maps', extensions: ['pmtiles', 'mbtiles'] }] });
   return selection.canceled ? { ok: true, message: 'Import cancelled.', state: mapService.state() } : mapService.importPackages(selection.filePaths);
 });
+ipcMain.handle('outpost:download-map', (_event, request: unknown) => {
+  if (!request || typeof request !== 'object') throw new Error('Map download request is invalid.');
+  return mapService.downloadMap(request as Parameters<MapService['downloadMap']>[0]);
+});
+ipcMain.handle('outpost:get-map-download-status', () => mapService.downloadStatus());
+ipcMain.handle('outpost:cancel-map-download', () => mapService.cancelDownload());
 ipcMain.handle('outpost:remove-map-package', (_event, packageId: unknown) => {
   if (typeof packageId !== 'string') throw new Error('Map package identifier is invalid.');
   return mapService.removePackage(packageId);
@@ -301,7 +308,7 @@ ipcMain.handle('outpost:search-outpost', (_event, query: unknown) => {
 ipcMain.handle('outpost:check-updates', () => updateService.check());
 ipcMain.handle('outpost:download-update', () => updateService.download());
 ipcMain.handle('outpost:apply-update', async () => {
-  await Promise.all([moduleService.stopAll(), kiwixService.shutdown()]);
+  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown()]);
   await databaseService.createRotatingBackup();
   const result = await updateService.apply(process.pid);
   if (result.status === 'launching') {
@@ -313,7 +320,7 @@ ipcMain.handle('outpost:apply-update', async () => {
   return result;
 });
 ipcMain.handle('outpost:prepare-removal', async () => {
-  await Promise.all([moduleService.stopAll(), kiwixService.shutdown()]);
+  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown()]);
   await session.defaultSession.clearCache();
   await databaseService.createRotatingBackup();
   databaseService.close();
@@ -357,10 +364,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', (event) => {
-  if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess()) && !shutdownInProgress) {
+  if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess() || mapService.hasActiveDownload()) && !shutdownInProgress) {
     event.preventDefault();
     shutdownInProgress = true;
-    void Promise.all([moduleService.stopAll(), kiwixService.shutdown()]).finally(() => app.quit());
+    void Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown()]).finally(() => app.quit());
     return;
   }
   databaseService.close();

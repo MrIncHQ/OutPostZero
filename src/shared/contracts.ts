@@ -252,6 +252,25 @@ export interface MapsState {
   places: MapPlace[];
 }
 
+export interface MapDownloadRequest {
+  title: string;
+  latitude: number;
+  longitude: number;
+  radiusKilometers: number;
+  maxZoom: 8 | 12 | 15;
+}
+
+export interface MapDownloadStatus {
+  state: 'idle' | 'resolving' | 'downloading' | 'verifying' | 'complete' | 'cancelled' | 'error';
+  title?: string;
+  sourceDate?: string;
+  percent: number;
+  downloadedBytes: number;
+  estimatedBytes: number;
+  elapsedSeconds: number;
+  message: string;
+}
+
 export interface PhaseFiveOperationResult<T> {
   ok: boolean;
   message: string;
@@ -417,6 +436,9 @@ export interface OutpostBridge {
   exportNote(noteId: string): Promise<{ ok: boolean; message: string }>;
   getMaps(): Promise<MapsState>;
   importMapPackages(): Promise<PhaseFiveOperationResult<MapsState>>;
+  downloadMap(request: MapDownloadRequest): Promise<PhaseFiveOperationResult<MapsState>>;
+  getMapDownloadStatus(): Promise<MapDownloadStatus>;
+  cancelMapDownload(): Promise<MapDownloadStatus>;
   removeMapPackage(packageId: string): Promise<PhaseFiveOperationResult<MapsState>>;
   saveMapPlace(place: MapPlaceInput): Promise<MapPlace>;
   deleteMapPlace(placeId: string): Promise<MapsState>;

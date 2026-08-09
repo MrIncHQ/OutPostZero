@@ -2,13 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { PMTiles, Protocol, TileType } from 'pmtiles';
-import type { MapPackage, MapPlaceInput, MapsState } from '../shared/contracts';
+import type { MapDownloadRequest, MapDownloadStatus, MapPackage, MapPlaceInput, MapsState } from '../shared/contracts';
 
 const protocol = new Protocol({ metadata: true });
 let protocolInstalled = false;
 if (!protocolInstalled) { maplibregl.addProtocol('pmtiles', protocol.tile); protocolInstalled = true; }
 
 function formatBytes(bytes: number): string { return bytes < 1024 ** 3 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${(bytes / 1024 ** 3).toFixed(1)} GB`; }
+function estimatedMapBytes(radiusKilometers: number, latitude: number, maxZoom: number): number {
+  const latitudeDelta = radiusKilometers / 111.32; const longitudeDelta = radiusKilometers / (111.32 * Math.max(.08, Math.cos(latitude * Math.PI / 180)));
+  const longitudeFraction = Math.min(360, longitudeDelta * 2) / 360;
+  const latitudeFraction = Math.abs(Math.sin(Math.min(85, latitude + latitudeDelta) * Math.PI / 180) - Math.sin(Math.max(-85, latitude - latitudeDelta) * Math.PI / 180)) / 2;
+  return Math.ceil(60 * 1024 * 1024 + 120 * 1024 ** 3 * longitudeFraction * latitudeFraction * 2 ** (maxZoom - 15));
+}
 function radians(value: number): number { return value * Math.PI / 180; }
 function measurement(a: [number, number], b: [number, number]): { distance: string; bearing: string } {
   const radius = 6371; const dLat = radians(b[1] - a[1]); const dLon = radians(b[0] - a[0]);
@@ -26,9 +32,17 @@ export function MapsView({ requestedPlaceId, onRequestHandled }: { requestedPlac
   const [measureMode, setMeasureMode] = useState(false); const measureModeRef = useRef(false); const measureStart = useRef<[number, number] | undefined>(undefined); const [measureResult, setMeasureResult] = useState('');
   const [place, setPlace] = useState<MapPlaceInput>({ name: '', latitude: 39.8283, longitude: -98.5795, note: '', favorite: false });
   const [message, setMessage] = useState(''); const [confirmPackage, setConfirmPackage] = useState<MapPackage>();
+  const [showDownloader, setShowDownloader] = useState(false);
+  const [downloadRequest, setDownloadRequest] = useState<MapDownloadRequest>({ title: 'My offline map', latitude: 39.8283, longitude: -98.5795, radiusKilometers: 100, maxZoom: 12 });
+  const [downloadStatus, setDownloadStatus] = useState<MapDownloadStatus>({ state: 'idle', percent: 0, downloadedBytes: 0, estimatedBytes: 0, elapsedSeconds: 0, message: 'Choose an area to download.' });
 
   async function refresh() { const next = await window.outpost.getMaps(); setState(next); return next; }
   useEffect(() => { void refresh(); }, []);
+  useEffect(() => {
+    if (!['resolving', 'downloading', 'verifying'].includes(downloadStatus.state)) return;
+    const timer = window.setInterval(() => { void window.outpost.getMapDownloadStatus().then(setDownloadStatus); }, 500);
+    return () => window.clearInterval(timer);
+  }, [downloadStatus.state]);
   useEffect(() => {
     if (!container.current || mapRef.current) return;
     const map = new maplibregl.Map({ container: container.current, style: { version: 8, sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#101713' } }] }, center: cursor, zoom, attributionControl: false });
@@ -91,13 +105,31 @@ export function MapsView({ requestedPlaceId, onRequestHandled }: { requestedPlac
   async function savePlace() { const saved = await window.outpost.saveMapPlace(place); const next = await refresh(); setPlace(saved); setState(next); setMessage(`${saved.name} saved on this drive.`); }
   async function deletePlace() { if (!place.id) return; setState(await window.outpost.deleteMapPlace(place.id)); setPlace({ name: '', latitude: cursor[1], longitude: cursor[0], note: '', favorite: false }); }
   async function importMaps() { const result = await window.outpost.importMapPackages(); setState(result.state); setMessage(result.message); }
+  async function downloadMap() {
+    setDownloadStatus({ state: 'resolving', title: downloadRequest.title, percent: 0, downloadedBytes: 0, estimatedBytes: estimatedMapBytes(downloadRequest.radiusKilometers, downloadRequest.latitude, downloadRequest.maxZoom), elapsedSeconds: 0, message: 'Finding the newest map build...' });
+    const result = await window.outpost.downloadMap(downloadRequest); setState(result.state); setMessage(result.message); setDownloadStatus(await window.outpost.getMapDownloadStatus());
+  }
   async function removePackage() { if (!confirmPackage) return; const result = await window.outpost.removeMapPackage(confirmPackage.id); setState(result.state); if (selectedPackage?.id === confirmPackage.id) setSelectedPackage(undefined); setConfirmPackage(undefined); setMessage(result.message); }
   async function importGpx() { const result = await window.outpost.importGpx(); setState(result.state); setMessage(result.message); }
 
   return <section className="page-panel maps-panel">
-    <div className="page-heading"><div><p className="section-label">OFFLINE MAPS</p><h2>{selectedPackage?.title ?? 'Portable map workspace'}</h2></div><div className="map-heading-actions"><button className="secondary-button" onClick={() => void importGpx()}>IMPORT GPX</button><button className="secondary-button" onClick={() => void window.outpost.exportGpx().then((result) => setMessage(result.message))}>EXPORT GPX</button><button className="primary-button" onClick={() => void importMaps()}>+ ADD MAP PACKAGE</button></div></div>
+    <div className="page-heading"><div><p className="section-label">OFFLINE MAPS</p><h2>{selectedPackage?.title ?? 'Portable map workspace'}</h2></div><div className="map-heading-actions"><button className="secondary-button" onClick={() => void importGpx()}>IMPORT GPX</button><button className="secondary-button" onClick={() => void window.outpost.exportGpx().then((result) => setMessage(result.message))}>EXPORT GPX</button><button className="primary-button" onClick={() => { setShowDownloader(true); setDownloadRequest((current) => ({ ...current, latitude: cursor[1], longitude: cursor[0] })); }}>DOWNLOAD MAP</button><button className="secondary-button" onClick={() => void importMaps()}>IMPORT MAP FILE</button></div></div>
     {message && <div className="module-result">{message}</div>}{confirmPackage && <div className="download-confirm library-remove-confirm"><div><b>Remove {confirmPackage.title}?</b><p>The selected map package will be deleted. Saved places remain.</p></div><div><button className="secondary-button" onClick={() => setConfirmPackage(undefined)}>KEEP IT</button><button className="danger-button" onClick={() => void removePackage()}>REMOVE MAP</button></div></div>}
-    <div className="map-workspace"><aside className="map-sidebar"><section><p>MAP PACKAGES</p>{state?.packages.map((item) => <div className={selectedPackage?.id === item.id ? 'map-package active' : 'map-package'} key={item.id}><button onClick={() => void loadPackage(item)}><b>{item.title}</b><small>{item.format.toUpperCase()} · {formatBytes(item.size)}</small></button><button onClick={() => setConfirmPackage(item)}>×</button></div>)}{!state?.packages.length && <small>Add a user-selected PMTiles or raster MBTiles archive. Map data is never downloaded automatically.</small>}</section><section><p>SAVED PLACES</p>{state?.places.map((saved) => <button className="saved-place" key={saved.id} onClick={() => { setPlace(saved); mapRef.current?.flyTo({ center: [saved.longitude, saved.latitude], zoom: 13 }); }}><b>{saved.favorite ? '★ ' : ''}{saved.name}</b><small>{saved.latitude.toFixed(5)}, {saved.longitude.toFixed(5)}</small></button>)}</section></aside>
+    {showDownloader && <section className="map-downloader">
+      <div className="map-download-heading"><div><p className="section-label">DOWNLOAD FOR OFFLINE USE</p><h3>Choose one area and its detail</h3><p>Only this region downloads. It is saved directly on this drive and opens later without internet.</p></div><button className="secondary-button" disabled={['resolving', 'downloading', 'verifying'].includes(downloadStatus.state)} onClick={() => setShowDownloader(false)}>CLOSE</button></div>
+      <div className="map-download-form">
+        <label>MAP NAME<input value={downloadRequest.title} maxLength={100} onChange={(event) => setDownloadRequest({ ...downloadRequest, title: event.target.value })} /></label>
+        <label>CENTER LATITUDE<input type="number" min="-85" max="85" step="any" value={downloadRequest.latitude} onChange={(event) => setDownloadRequest({ ...downloadRequest, latitude: Number(event.target.value) })} /></label>
+        <label>CENTER LONGITUDE<input type="number" min="-180" max="180" step="any" value={downloadRequest.longitude} onChange={(event) => setDownloadRequest({ ...downloadRequest, longitude: Number(event.target.value) })} /></label>
+        <label>AREA AROUND CENTER<select value={downloadRequest.radiusKilometers} onChange={(event) => setDownloadRequest({ ...downloadRequest, radiusKilometers: Number(event.target.value) })}><option value={25}>25 km - town</option><option value={100}>100 km - local area</option><option value={300}>300 km - regional</option><option value={800}>800 km - multi-state</option></select></label>
+        <label>DETAIL LEVEL<select value={downloadRequest.maxZoom} onChange={(event) => setDownloadRequest({ ...downloadRequest, maxZoom: Number(event.target.value) as 8 | 12 | 15 })}><option value={8}>Overview - cities and main roads</option><option value={12}>Road detail - recommended</option><option value={15}>Street detail - largest</option></select></label>
+        <button className="secondary-button" onClick={() => setDownloadRequest({ ...downloadRequest, latitude: cursor[1], longitude: cursor[0] })}>USE MAP CURSOR</button>
+      </div>
+      <div className="map-download-summary"><span>ROUGH SIZE ESTIMATE</span><strong>{formatBytes(estimatedMapBytes(downloadRequest.radiusKilometers, downloadRequest.latitude, downloadRequest.maxZoom))}</strong><small>Actual size varies with map density. Higher detail can take substantially longer.</small></div>
+      {downloadStatus.state !== 'idle' && <div className="map-download-progress"><div><b>{downloadStatus.message}</b><strong>{downloadStatus.percent.toFixed(1)}%</strong></div><div className="progress-track"><span style={{ width: `${downloadStatus.percent}%` }} /></div><small>{formatBytes(downloadStatus.downloadedBytes)} written · {downloadStatus.elapsedSeconds}s elapsed{downloadStatus.sourceDate ? ` · map data ${downloadStatus.sourceDate}` : ''}</small></div>}
+      <div className="map-download-actions">{['resolving', 'downloading', 'verifying'].includes(downloadStatus.state) ? <button className="danger-button" onClick={() => void window.outpost.cancelMapDownload().then(setDownloadStatus)}>CANCEL DOWNLOAD</button> : <button className="primary-button" onClick={() => void downloadMap()}>DOWNLOAD THIS REGION</button>}<p>Map data: © OpenStreetMap contributors · packaged with the official Protomaps PMTiles extractor.</p></div>
+    </section>}
+    <div className="map-workspace"><aside className="map-sidebar"><section><p>MAP PACKAGES</p>{state?.packages.map((item) => <div className={selectedPackage?.id === item.id ? 'map-package active' : 'map-package'} key={item.id}><button onClick={() => void loadPackage(item)}><b>{item.title}</b><small>{item.format.toUpperCase()} · {formatBytes(item.size)}</small></button><button onClick={() => setConfirmPackage(item)}>×</button></div>)}{!state?.packages.length && <small>Download a region here or import an existing PMTiles or MBTiles archive. Nothing downloads until you choose it.</small>}</section><section><p>SAVED PLACES</p>{state?.places.map((saved) => <button className="saved-place" key={saved.id} onClick={() => { setPlace(saved); mapRef.current?.flyTo({ center: [saved.longitude, saved.latitude], zoom: 13 }); }}><b>{saved.favorite ? '★ ' : ''}{saved.name}</b><small>{saved.latitude.toFixed(5)}, {saved.longitude.toFixed(5)}</small></button>)}</section></aside>
       <div className="map-main"><div className="map-toolbar"><span>{cursor[1].toFixed(6)}, {cursor[0].toFixed(6)} · ZOOM {zoom.toFixed(1)}</span><button onClick={() => void navigator.clipboard.writeText(`${cursor[1].toFixed(6)}, ${cursor[0].toFixed(6)}`)}>COPY COORDINATES</button><button className={measureMode ? 'active' : ''} onClick={() => { const next = !measureMode; setMeasureMode(next); measureModeRef.current = next; measureStart.current = undefined; setMeasureResult(next ? 'Select the starting point.' : ''); }}>{measureMode ? 'STOP MEASURING' : 'MEASURE'}</button>{measureResult && <strong>{measureResult}</strong>}</div><div ref={container} className="map-canvas" /></div>
       <aside className="place-editor"><p className="section-label">PLACE / MARKER</p><label>NAME<input value={place.name} onChange={(event) => setPlace({ ...place, name: event.target.value })} /></label><div><label>LATITUDE<input type="number" step="any" value={place.latitude} onChange={(event) => setPlace({ ...place, latitude: Number(event.target.value) })} /></label><label>LONGITUDE<input type="number" step="any" value={place.longitude} onChange={(event) => setPlace({ ...place, longitude: Number(event.target.value) })} /></label></div><label>MAP NOTE<textarea value={place.note} onChange={(event) => setPlace({ ...place, note: event.target.value })} /></label><label className="place-favorite"><input type="checkbox" checked={place.favorite} onChange={(event) => setPlace({ ...place, favorite: event.target.checked })} /> FAVORITE PLACE</label><button className="primary-button" onClick={() => void savePlace()}>{place.id ? 'SAVE CHANGES' : 'SAVE THIS PLACE'}</button>{place.id && <button className="danger-button" onClick={() => void deletePlace()}>DELETE PLACE</button>}<button className="secondary-button" onClick={() => setPlace({ name: '', latitude: cursor[1], longitude: cursor[0], note: '', favorite: false })}>NEW MARKER AT CURSOR</button></aside>
     </div>

@@ -1,17 +1,36 @@
 import crypto from 'node:crypto';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { MapPackage, MapPlace, MapPlaceInput, MapsState, PhaseFiveOperationResult } from '../shared/contracts';
+import type { MapDownloadRequest, MapDownloadStatus, MapPackage, MapPlace, MapPlaceInput, MapsState, PhaseFiveOperationResult } from '../shared/contracts';
 import { DatabaseService } from './database-service';
 import { PortablePathService } from './portable-path';
 
 function titleFor(fileName: string): string { return path.basename(fileName, path.extname(fileName)).replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim(); }
 function safeName(fileName: string): string { const ext = path.extname(fileName).toLowerCase(); return `${path.basename(fileName, ext).replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').slice(0, 120) || 'map'}${ext}`; }
 function xml(value: string): string { return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;'); }
+function dateStamp(date: Date): string { return date.toISOString().slice(0, 10).replace(/-/g, ''); }
+
+interface MapServiceOptions {
+  helperPath?: string;
+  fetchImpl?: typeof fetch;
+  now?: () => Date;
+}
 
 export class MapService {
-  constructor(private readonly database: DatabaseService, private readonly paths: PortablePathService) {}
+  private readonly helperPath?: string;
+  private readonly fetchImpl: typeof fetch;
+  private readonly now: () => Date;
+  private activeDownload: ChildProcessWithoutNullStreams | null = null;
+  private downloadAbort: AbortController | null = null;
+  private currentDownload: MapDownloadStatus = { state: 'idle', percent: 0, downloadedBytes: 0, estimatedBytes: 0, elapsedSeconds: 0, message: 'No map download is active.' };
+
+  constructor(private readonly database: DatabaseService, private readonly paths: PortablePathService, options: MapServiceOptions = {}) {
+    this.helperPath = options.helperPath;
+    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.now = options.now ?? (() => new Date());
+  }
 
   state(): MapsState { return { packages: this.database.mapPackages().map((item) => item.format === 'mbtiles' ? { ...item, ...this.mbtilesInfo(this.paths.resolve(item.relativePath)) } : item), places: this.database.mapPlaces() }; }
 
@@ -70,6 +89,112 @@ export class MapService {
     }
     const state = await this.reconcile();
     return { ok: true, message: imported ? `Imported ${imported} offline map package${imported === 1 ? '' : 's'}.` : 'No supported map packages were selected.', state };
+  }
+
+  downloadStatus(): MapDownloadStatus { return { ...this.currentDownload }; }
+
+  hasActiveDownload(): boolean { return Boolean(this.activeDownload || this.downloadAbort); }
+
+  async shutdown(): Promise<void> {
+    const child = this.activeDownload; this.cancelDownload();
+    if (!child || child.exitCode !== null) return;
+    await new Promise<void>((resolve) => { const timer = setTimeout(resolve, 3000); child.once('exit', () => { clearTimeout(timer); resolve(); }); });
+  }
+
+  cancelDownload(): MapDownloadStatus {
+    if (!this.activeDownload && !this.downloadAbort) return this.downloadStatus();
+    this.currentDownload = { ...this.currentDownload, state: 'cancelled', message: 'Map download cancelled. The incomplete temporary file will be removed.' };
+    this.downloadAbort?.abort(); this.activeDownload?.kill();
+    return this.downloadStatus();
+  }
+
+  private boundsFor(request: MapDownloadRequest): [number, number, number, number] {
+    if (!Number.isFinite(request.latitude) || request.latitude < -85 || request.latitude > 85 || !Number.isFinite(request.longitude) || request.longitude < -180 || request.longitude > 180) throw new Error('Map center coordinates are invalid.');
+    if (!Number.isFinite(request.radiusKilometers) || request.radiusKilometers < 5 || request.radiusKilometers > 1000) throw new Error('Map radius must be between 5 and 1,000 kilometers.');
+    if (![8, 12, 15].includes(request.maxZoom)) throw new Error('Map detail selection is invalid.');
+    const latitudeDelta = request.radiusKilometers / 111.32;
+    const longitudeDelta = request.radiusKilometers / (111.32 * Math.max(0.08, Math.cos(request.latitude * Math.PI / 180)));
+    if (request.longitude - longitudeDelta < -180 || request.longitude + longitudeDelta > 180) throw new Error('This region crosses the international date line. Choose a closer center or smaller radius.');
+    return [request.longitude - longitudeDelta, Math.max(-85.051129, request.latitude - latitudeDelta), request.longitude + longitudeDelta, Math.min(85.051129, request.latitude + latitudeDelta)];
+  }
+
+  private estimateBytes(bounds: [number, number, number, number], maxZoom: number): number {
+    const longitudeFraction = (bounds[2] - bounds[0]) / 360;
+    const latitudeFraction = Math.abs(Math.sin(bounds[3] * Math.PI / 180) - Math.sin(bounds[1] * Math.PI / 180)) / 2;
+    const detailFraction = 2 ** (maxZoom - 15);
+    return Math.ceil(60 * 1024 * 1024 + 120 * 1024 ** 3 * longitudeFraction * latitudeFraction * detailFraction);
+  }
+
+  private async latestBuild(signal: AbortSignal): Promise<{ url: string; date: string }> {
+    const today = this.now();
+    for (let offset = 0; offset < 8; offset += 1) {
+      const candidate = new Date(today); candidate.setUTCDate(candidate.getUTCDate() - offset);
+      const date = dateStamp(candidate); const url = `https://build.protomaps.com/${date}.pmtiles`;
+      try {
+        const response = await this.fetchImpl(url, { method: 'HEAD', headers: { 'User-Agent': 'Outpost-Zero-Maps/0.8' }, redirect: 'follow', signal });
+        if (response.ok) return { url, date };
+      } catch { /* Try the prior retained daily build. */ }
+    }
+    throw new Error('No current Protomaps daily build could be reached. Check the internet connection and try again.');
+  }
+
+  private runHelper(args: string[], onOutput?: (text: string) => void): Promise<void> {
+    if (!this.helperPath || !fs.existsSync(this.helperPath)) return Promise.reject(new Error('The packaged PMTiles download helper is missing. Update or repair Outpost Zero.'));
+    return new Promise((resolve, reject) => {
+      const child = spawn(this.helperPath!, args, { cwd: this.paths.root, shell: false, windowsHide: true });
+      this.activeDownload = child;
+      let errorText = '';
+      const output = (chunk: Buffer) => { const text = chunk.toString(); errorText = `${errorText}${text}`.slice(-4000); onOutput?.(text); };
+      child.stdout.on('data', output); child.stderr.on('data', output);
+      child.once('error', reject);
+      child.once('exit', (code) => {
+        if (this.activeDownload === child) this.activeDownload = null;
+        if (code === 0) resolve();
+        else reject(new Error(this.currentDownload.state === 'cancelled' ? 'Map download cancelled.' : errorText.replace(/\x1b\[[0-9;]*m/g, '').trim().split(/\r?\n/).at(-1) || `PMTiles helper exited with code ${code}.`));
+      });
+    });
+  }
+
+  async downloadMap(request: MapDownloadRequest): Promise<PhaseFiveOperationResult<MapsState>> {
+    if (this.activeDownload || this.downloadAbort) return { ok: false, message: 'Another map download is already active.', state: this.state() };
+    const controller = new AbortController(); this.downloadAbort = controller;
+    const started = Date.now(); let temporary = ''; let timer: NodeJS.Timeout | undefined;
+    try {
+      if (typeof request.title !== 'string') throw new Error('Map name is invalid.');
+      const title = request.title.trim().replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').slice(0, 100) || 'Offline map';
+      const bounds = this.boundsFor(request); const estimatedBytes = this.estimateBytes(bounds, request.maxZoom);
+      const temporaryRoot = this.paths.ensureDirectory('Downloads/Maps'); temporary = path.join(temporaryRoot, `${crypto.randomUUID()}.pmtiles.partial`);
+      this.currentDownload = { state: 'resolving', title, percent: 0, downloadedBytes: 0, estimatedBytes, elapsedSeconds: 0, message: 'Finding the newest available OpenStreetMap build...' };
+      const disk = fs.statfsSync(this.paths.root); const freeBytes = disk.bavail * disk.bsize;
+      if (freeBytes < estimatedBytes + 256 * 1024 * 1024) throw new Error(`Not enough free space for this estimated ${Math.ceil(estimatedBytes / 1024 / 1024)} MB region plus working space.`);
+      const build = await this.latestBuild(controller.signal); this.currentDownload = { ...this.currentDownload, state: 'downloading', sourceDate: build.date, message: 'Downloading only the selected region to this drive...' };
+      timer = setInterval(() => {
+        const downloadedBytes = fs.existsSync(temporary) ? fs.statSync(temporary).size : 0;
+        this.currentDownload = { ...this.currentDownload, downloadedBytes, elapsedSeconds: Math.floor((Date.now() - started) / 1000) };
+      }, 500);
+      const updateProgress = (text: string) => {
+        const matches = [...text.replace(/\x1b\[[0-9;]*m/g, '').matchAll(/(\d+(?:\.\d+)?)\s*%/g)];
+        const parsed = Number(matches.at(-1)?.[1]);
+        if (Number.isFinite(parsed)) this.currentDownload = { ...this.currentDownload, percent: Math.max(this.currentDownload.percent, Math.min(99, parsed)) };
+      };
+      await this.runHelper(['extract', build.url, temporary, `--bbox=${bounds.join(',')}`, `--maxzoom=${request.maxZoom}`, '--download-threads=4', '--overfetch=0.05'], updateProgress);
+      this.currentDownload = { ...this.currentDownload, state: 'verifying', percent: 100, downloadedBytes: fs.statSync(temporary).size, message: 'Verifying the downloaded PMTiles archive...' };
+      await this.runHelper(['verify', temporary]); this.validatePackage(temporary, 'pmtiles');
+      const mapRoot = this.paths.ensureDirectory('Content/Maps'); let destination = path.join(mapRoot, safeName(`${title}.pmtiles`));
+      if (fs.existsSync(destination)) destination = path.join(mapRoot, `${path.basename(destination, '.pmtiles')}-${crypto.randomBytes(4).toString('hex')}.pmtiles`);
+      fs.renameSync(temporary, destination); const state = await this.reconcile();
+      this.currentDownload = { ...this.currentDownload, state: 'complete', percent: 100, downloadedBytes: fs.statSync(destination).size, elapsedSeconds: Math.floor((Date.now() - started) / 1000), message: `${title} downloaded, verified, and added to Maps.` };
+      return { ok: true, message: this.currentDownload.message, state };
+    } catch (error) {
+      const cancelled = this.currentDownload.state === 'cancelled'; const message = cancelled ? 'Map download cancelled.' : error instanceof Error ? error.message : 'Map download failed.';
+      this.currentDownload = { ...this.currentDownload, state: cancelled ? 'cancelled' : 'error', elapsedSeconds: Math.floor((Date.now() - started) / 1000), message };
+      return { ok: false, message, state: this.state() };
+    } finally {
+      if (timer) clearInterval(timer);
+      this.activeDownload = null;
+      if (this.downloadAbort === controller) this.downloadAbort = null;
+      if (temporary && fs.existsSync(temporary)) fs.rmSync(temporary, { force: true });
+    }
   }
 
   packagePath(packageId: string): string {

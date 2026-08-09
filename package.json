@@ -1,6 +1,6 @@
 {
   "name": "outpost-zero",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "description": "Portable offline knowledge, tools, and communication platform",
   "main": "dist/main/main/main.js",
@@ -76,6 +76,14 @@
       {
         "from": "portable/UpdaterBootstrap.ps1",
         "to": "resources/UpdaterBootstrap.ps1"
+      },
+      {
+        "from": "vendor/pmtiles/pmtiles.exe",
+        "to": "resources/pmtiles/pmtiles.exe"
+      },
+      {
+        "from": "vendor/pmtiles/LICENSE",
+        "to": "resources/pmtiles/LICENSE"
       }
     ],
     "win": {
