@@ -19,6 +19,9 @@
 - Document imports copy only explicitly selected supported files into portable content roots. Recursive scans ignore symbolic links, document IDs are validated, and every reader path is resolved beneath the marked portable root.
 - The internal `outpost-doc:` protocol is restricted to known database records. Document page text, bookmarks, notes, and annotations remain in the portable SQLite database; annotations never modify source files.
 - PDF text extraction uses bundled application code and PDF viewing uses Electron's bundled Chromium runtime. Documents never require or launch a host-installed browser.
+- Notes and copied attachments stay beneath portable roots. Attachment IDs are validated in the main process, Markdown is rendered without raw HTML execution, and deletions are scoped to the selected note record and attachment directory.
+- Offline map imports accept only validated PMTiles/MBTiles files chosen through a native dialog. Symbolic links are not scanned, custom protocol byte ranges are bounded, MBTiles SQL is fixed and read-only, and no online basemap is contacted.
+- Saved map places and tool input remain local. Tools do not use dynamic code evaluation; scientific expressions are handled by a restricted parser.
 - Outpost Zero creates no services, scheduled tasks, firewall rules, registry configuration, or permanent environment changes.
 
 Peer networking is not implemented yet and must receive dedicated threat modeling before release. The current module process test is intentionally loopback-only and contains no user content.

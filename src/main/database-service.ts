@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { backup, DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
-import type { DocumentAnnotation, DocumentAnnotationInput, DocumentBookmark, DocumentNote, DocumentNoteInput, DocumentSearchResult, DocumentSummary, UpdateStatus } from '../shared/contracts';
+import type { DocumentAnnotation, DocumentAnnotationInput, DocumentBookmark, DocumentNote, DocumentNoteInput, DocumentSearchResult, DocumentSummary, MapPackage, MapPlace, NoteAttachment, PortableNote, UpdateStatus } from '../shared/contracts';
 import { PortablePathService } from './portable-path';
 
 interface Migration {
@@ -123,6 +123,39 @@ const MIGRATIONS: Migration[] = [
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       ) STRICT`,
+    ],
+  },
+  {
+    version: 5,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS portable_notes (
+        id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, folder TEXT NOT NULL DEFAULT '',
+        pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)), favorite INTEGER NOT NULL DEFAULT 0 CHECK (favorite IN (0, 1)),
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      ) STRICT`,
+      `CREATE TABLE IF NOT EXISTS portable_note_tags (
+        note_id TEXT NOT NULL REFERENCES portable_notes(id) ON DELETE CASCADE, tag TEXT NOT NULL,
+        PRIMARY KEY (note_id, tag)
+      ) STRICT`,
+      `CREATE TABLE IF NOT EXISTS portable_note_attachments (
+        id TEXT PRIMARY KEY NOT NULL, note_id TEXT NOT NULL REFERENCES portable_notes(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL, relative_path TEXT NOT NULL UNIQUE, size INTEGER NOT NULL CHECK (size >= 0), created_at TEXT NOT NULL
+      ) STRICT`,
+      `CREATE VIRTUAL TABLE IF NOT EXISTS portable_notes_fts USING fts5(
+        note_id UNINDEXED, title, body, folder, tags, tokenize = 'unicode61'
+      )`,
+      `CREATE TABLE IF NOT EXISTS map_packages (
+        id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, file_name TEXT NOT NULL, relative_path TEXT NOT NULL UNIQUE,
+        format TEXT NOT NULL CHECK (format IN ('pmtiles', 'mbtiles')), size INTEGER NOT NULL CHECK (size >= 0), added_at TEXT NOT NULL
+      ) STRICT`,
+      `CREATE TABLE IF NOT EXISTS map_places (
+        id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, latitude REAL NOT NULL CHECK (latitude BETWEEN -90 AND 90),
+        longitude REAL NOT NULL CHECK (longitude BETWEEN -180 AND 180), note TEXT NOT NULL DEFAULT '',
+        favorite INTEGER NOT NULL DEFAULT 0 CHECK (favorite IN (0, 1)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      ) STRICT`,
+      `CREATE VIRTUAL TABLE IF NOT EXISTS map_places_fts USING fts5(
+        place_id UNINDEXED, name, note, tokenize = 'unicode61'
+      )`,
     ],
   },
 ];
@@ -389,6 +422,129 @@ export class DatabaseService {
 
   removeDocumentAnnotation(documentId: string, annotationId: string): void {
     this.database.prepare('DELETE FROM document_annotations WHERE id = ? AND document_id = ?').run(annotationId, documentId);
+  }
+
+  notes(): PortableNote[] {
+    return (this.database.prepare('SELECT * FROM portable_notes ORDER BY pinned DESC, updated_at DESC').all() as Array<Record<string, unknown>>)
+      .map((row) => this.mapNote(row));
+  }
+
+  note(noteId: string): PortableNote | null {
+    const row = this.database.prepare('SELECT * FROM portable_notes WHERE id = ?').get(noteId) as Record<string, unknown> | undefined;
+    return row ? this.mapNote(row) : null;
+  }
+
+  private mapNote(row: Record<string, unknown>): PortableNote {
+    const id = String(row.id);
+    const tags = (this.database.prepare('SELECT tag FROM portable_note_tags WHERE note_id = ? ORDER BY tag').all(id) as Array<{ tag: string }>).map((item) => item.tag);
+    const attachments = (this.database.prepare('SELECT * FROM portable_note_attachments WHERE note_id = ? ORDER BY created_at').all(id) as Array<Record<string, unknown>>).map((item): NoteAttachment => ({
+      id: String(item.id), fileName: String(item.file_name), relativePath: String(item.relative_path), size: Number(item.size),
+      createdAt: String(item.created_at), readerUrl: `outpost-attachment://file/${String(item.id)}/${encodeURIComponent(String(item.file_name))}`,
+    }));
+    return { id, title: String(row.title), body: String(row.body), folder: String(row.folder), pinned: Number(row.pinned) === 1,
+      favorite: Number(row.favorite) === 1, createdAt: String(row.created_at), updatedAt: String(row.updated_at), tags, attachments };
+  }
+
+  saveNoteRecord(note: Omit<PortableNote, 'attachments'>): PortableNote {
+    const tags = [...new Set(note.tags)];
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      this.database.prepare(`INSERT INTO portable_notes (id, title, body, folder, pinned, favorite, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title = excluded.title, body = excluded.body,
+        folder = excluded.folder, pinned = excluded.pinned, favorite = excluded.favorite, updated_at = excluded.updated_at`)
+        .run(note.id, note.title, note.body, note.folder, note.pinned ? 1 : 0, note.favorite ? 1 : 0, note.createdAt, note.updatedAt);
+      this.database.prepare('DELETE FROM portable_note_tags WHERE note_id = ?').run(note.id);
+      const insertTag = this.database.prepare('INSERT INTO portable_note_tags (note_id, tag) VALUES (?, ?)');
+      for (const tag of tags) insertTag.run(note.id, tag);
+      this.database.prepare('DELETE FROM portable_notes_fts WHERE note_id = ?').run(note.id);
+      this.database.prepare('INSERT INTO portable_notes_fts (note_id, title, body, folder, tags) VALUES (?, ?, ?, ?, ?)')
+        .run(note.id, note.title, note.body, note.folder, tags.join(' '));
+      this.database.exec('COMMIT');
+    } catch (error) { this.database.exec('ROLLBACK'); throw error; }
+    return this.note(note.id)!;
+  }
+
+  deleteNoteRecord(noteId: string): void {
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      this.database.prepare('DELETE FROM portable_notes_fts WHERE note_id = ?').run(noteId);
+      this.database.prepare('DELETE FROM portable_notes WHERE id = ?').run(noteId);
+      this.database.exec('COMMIT');
+    } catch (error) { this.database.exec('ROLLBACK'); throw error; }
+  }
+
+  addNoteAttachment(noteId: string, attachment: Omit<NoteAttachment, 'readerUrl'>): void {
+    this.database.prepare('INSERT INTO portable_note_attachments (id, note_id, file_name, relative_path, size, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(attachment.id, noteId, attachment.fileName, attachment.relativePath, attachment.size, attachment.createdAt);
+  }
+
+  noteAttachment(attachmentId: string): (Omit<NoteAttachment, 'readerUrl'> & { noteId: string }) | null {
+    const row = this.database.prepare('SELECT * FROM portable_note_attachments WHERE id = ?').get(attachmentId) as Record<string, unknown> | undefined;
+    return row ? { id: String(row.id), noteId: String(row.note_id), fileName: String(row.file_name), relativePath: String(row.relative_path), size: Number(row.size), createdAt: String(row.created_at) } : null;
+  }
+
+  removeNoteAttachmentRecord(noteId: string, attachmentId: string): void {
+    this.database.prepare('DELETE FROM portable_note_attachments WHERE id = ? AND note_id = ?').run(attachmentId, noteId);
+  }
+
+  searchNotes(ftsQuery: string, limit = 40): Array<{ id: string; title: string; excerpt: string; context: string }> {
+    return (this.database.prepare(`SELECT f.note_id AS id, n.title, snippet(portable_notes_fts, 2, '[', ']', ' ... ', 24) AS excerpt,
+      CASE WHEN n.folder = '' THEN 'NOTES' ELSE 'NOTES / ' || n.folder END AS context
+      FROM portable_notes_fts f JOIN portable_notes n ON n.id = f.note_id
+      WHERE portable_notes_fts MATCH ? ORDER BY bm25(portable_notes_fts) LIMIT ?`).all(ftsQuery, limit) as Array<{ id: string; title: string; excerpt: string; context: string }>);
+  }
+
+  mapPackages(): MapPackage[] {
+    return (this.database.prepare('SELECT * FROM map_packages ORDER BY added_at DESC').all() as Array<Record<string, unknown>>).map((row) => ({
+      id: String(row.id), title: String(row.title), fileName: String(row.file_name), relativePath: String(row.relative_path),
+      format: row.format as MapPackage['format'], size: Number(row.size), addedAt: String(row.added_at),
+      readerUrl: `outpost-map://package/${String(row.id)}/${encodeURIComponent(String(row.file_name))}`,
+    }));
+  }
+
+  mapPackage(packageId: string): MapPackage | null {
+    return this.mapPackages().find((item) => item.id === packageId) ?? null;
+  }
+
+  upsertMapPackage(item: Omit<MapPackage, 'readerUrl'>): void {
+    this.database.prepare(`INSERT INTO map_packages (id, title, file_name, relative_path, format, size, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(relative_path) DO UPDATE SET title = excluded.title, file_name = excluded.file_name, format = excluded.format, size = excluded.size`)
+      .run(item.id, item.title, item.fileName, item.relativePath, item.format, item.size, item.addedAt);
+  }
+
+  removeMapPackageRecord(packageId: string): void { this.database.prepare('DELETE FROM map_packages WHERE id = ?').run(packageId); }
+
+  mapPlaces(): MapPlace[] {
+    return (this.database.prepare('SELECT * FROM map_places ORDER BY favorite DESC, updated_at DESC').all() as Array<Record<string, unknown>>).map((row) => ({
+      id: String(row.id), name: String(row.name), latitude: Number(row.latitude), longitude: Number(row.longitude), note: String(row.note),
+      favorite: Number(row.favorite) === 1, createdAt: String(row.created_at), updatedAt: String(row.updated_at),
+    }));
+  }
+
+  saveMapPlaceRecord(place: MapPlace): MapPlace {
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      this.database.prepare(`INSERT INTO map_places (id, name, latitude, longitude, note, favorite, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, latitude = excluded.latitude,
+        longitude = excluded.longitude, note = excluded.note, favorite = excluded.favorite, updated_at = excluded.updated_at`)
+        .run(place.id, place.name, place.latitude, place.longitude, place.note, place.favorite ? 1 : 0, place.createdAt, place.updatedAt);
+      this.database.prepare('DELETE FROM map_places_fts WHERE place_id = ?').run(place.id);
+      this.database.prepare('INSERT INTO map_places_fts (place_id, name, note) VALUES (?, ?, ?)').run(place.id, place.name, place.note);
+      this.database.exec('COMMIT');
+    } catch (error) { this.database.exec('ROLLBACK'); throw error; }
+    return this.mapPlaces().find((item) => item.id === place.id)!;
+  }
+
+  deleteMapPlaceRecord(placeId: string): void {
+    this.database.exec('BEGIN IMMEDIATE');
+    try { this.database.prepare('DELETE FROM map_places_fts WHERE place_id = ?').run(placeId); this.database.prepare('DELETE FROM map_places WHERE id = ?').run(placeId); this.database.exec('COMMIT'); }
+    catch (error) { this.database.exec('ROLLBACK'); throw error; }
+  }
+
+  searchMapPlaces(ftsQuery: string, limit = 40): Array<{ id: string; title: string; excerpt: string; latitude: number; longitude: number }> {
+    return (this.database.prepare(`SELECT f.place_id AS id, p.name AS title, snippet(map_places_fts, 2, '[', ']', ' ... ', 20) AS excerpt,
+      p.latitude, p.longitude FROM map_places_fts f JOIN map_places p ON p.id = f.place_id
+      WHERE map_places_fts MATCH ? ORDER BY bm25(map_places_fts) LIMIT ?`).all(ftsQuery, limit) as Array<{ id: string; title: string; excerpt: string; latitude: number; longitude: number }>);
   }
 
   async createRotatingBackup(keep = 3): Promise<string> {

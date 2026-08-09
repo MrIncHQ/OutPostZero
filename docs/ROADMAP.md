@@ -81,6 +81,26 @@
 - [x] Portable large-download staging, pause/resume, live progress, free-space projection, and SHA-256 verification
 - [ ] Catalog content updates, enable/disable controls, and explicit removal
 
+## Phase 5 - Notes, tools, maps, and expanded search
+
+- [x] Portable Markdown notes with autosave
+- [x] Note folders, tags, pins, favorites, and reusable templates
+- [x] Local note attachments with preview, confirmed removal, and Markdown export
+- [x] Note full-text indexing and Home search deep links
+- [x] Integrated scientific calculator and measurement converter
+- [x] Text encoders/decoders, cryptographic hashes, JSON formatting, and Morse conversion
+- [x] IPv4 subnet, coordinate, date/time, regex, diff, password, and periodic-reference tools
+- [x] User-selected PMTiles and raster/vector MBTiles packages
+- [x] Fully offline MapLibre viewer with pan, zoom, scale, and coordinate display
+- [x] Saved places, custom markers, map notes, and favorites
+- [x] Distance and bearing measurements
+- [x] GPX waypoint/track-point import and saved-place export
+- [x] Expanded Home search across documents, notes, and saved map places
+- [x] Responsive Notes, Tools, and Maps layouts
+- [ ] Custom user-authored map layers
+- [ ] QR generation and image-based QR scanning
+- [ ] File checksum picker and CSV/XML specialized viewers
+
 ## Phase 10 - Offline medication reference
 
 - [ ] Add a dedicated Medication Lookup page that works without internet or an installed browser

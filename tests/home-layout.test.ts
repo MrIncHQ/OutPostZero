@@ -8,9 +8,9 @@ const styles = fs.readFileSync('src/renderer/styles.css', 'utf8');
 test('Home searches directly without a separate Search navigation item', () => {
   assert.doesNotMatch(app, /label:\s*'Search'/);
   assert.doesNotMatch(app, /function SearchView/);
-  assert.match(app, /function HomeView[\s\S]*window\.outpost\.searchDocuments\(query\)/);
+  assert.match(app, /function HomeView[\s\S]*window\.outpost\.searchOutpost\(query\)/);
   assert.match(app, /className="search-block home-search"/);
-  assert.match(app, /onOpenDocument\(result\.documentId, result\.page\)/);
+  assert.match(app, /onOpenResult\(result\)/);
 });
 
 test('Home is action-focused and system summaries live in Settings', () => {

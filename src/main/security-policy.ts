@@ -1,4 +1,4 @@
-export const RENDERER_CONTENT_SECURITY_POLICY = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: outpost-doc:; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:5173; frame-src http://127.0.0.1:* outpost-doc:";
+export const RENDERER_CONTENT_SECURITY_POLICY = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: outpost-doc: outpost-attachment: outpost-map:; connect-src 'self' outpost-map: outpost-attachment: http://127.0.0.1:* ws://127.0.0.1:5173; frame-src http://127.0.0.1:* outpost-doc: outpost-attachment:; worker-src 'self' blob:";
 
 export function responseHeadersForUrl(url: string, responseHeaders: Record<string, string[]> = {}): Record<string, string[]> {
   if (!url.startsWith('file:')) return { ...responseHeaders };

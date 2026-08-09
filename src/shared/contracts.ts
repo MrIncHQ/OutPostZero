@@ -173,6 +173,102 @@ export interface DocumentAnnotationInput {
   text: string;
 }
 
+export interface NoteAttachment {
+  id: string;
+  fileName: string;
+  relativePath: string;
+  size: number;
+  createdAt: string;
+  readerUrl: string;
+}
+
+export interface PortableNote {
+  id: string;
+  title: string;
+  body: string;
+  folder: string;
+  pinned: boolean;
+  favorite: boolean;
+  createdAt: string;
+  updatedAt: string;
+  tags: string[];
+  attachments: NoteAttachment[];
+}
+
+export interface NoteInput {
+  id?: string;
+  title: string;
+  body: string;
+  folder: string;
+  pinned: boolean;
+  favorite: boolean;
+  tags: string[];
+}
+
+export interface NotesState {
+  notes: PortableNote[];
+  folders: string[];
+  tags: string[];
+}
+
+export interface MapPackage {
+  id: string;
+  title: string;
+  fileName: string;
+  relativePath: string;
+  format: 'pmtiles' | 'mbtiles';
+  size: number;
+  addedAt: string;
+  readerUrl: string;
+  tileType?: 'raster' | 'vector' | 'unknown';
+  sourceLayers?: string[];
+  minZoom?: number;
+  maxZoom?: number;
+  bounds?: [number, number, number, number];
+}
+
+export interface MapPlace {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  note: string;
+  favorite: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MapPlaceInput {
+  id?: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  note: string;
+  favorite: boolean;
+}
+
+export interface MapsState {
+  packages: MapPackage[];
+  places: MapPlace[];
+}
+
+export interface PhaseFiveOperationResult<T> {
+  ok: boolean;
+  message: string;
+  state: T;
+}
+
+export interface UnifiedSearchResult {
+  source: 'document' | 'note' | 'map';
+  id: string;
+  title: string;
+  excerpt: string;
+  context: string;
+  page?: number;
+  latitude?: number;
+  longitude?: number;
+}
+
 export interface KiwixCatalogEntry {
   id: string;
   archiveName: string;
@@ -313,6 +409,20 @@ export interface OutpostBridge {
   removeDocumentNote(documentId: string, noteId: string): Promise<DocumentDetails>;
   saveDocumentAnnotation(documentId: string, annotation: DocumentAnnotationInput): Promise<DocumentDetails>;
   removeDocumentAnnotation(documentId: string, annotationId: string): Promise<DocumentDetails>;
+  getNotes(): Promise<NotesState>;
+  saveNote(note: NoteInput): Promise<PortableNote>;
+  deleteNote(noteId: string): Promise<NotesState>;
+  importNoteAttachments(noteId: string): Promise<PortableNote>;
+  removeNoteAttachment(noteId: string, attachmentId: string): Promise<PortableNote>;
+  exportNote(noteId: string): Promise<{ ok: boolean; message: string }>;
+  getMaps(): Promise<MapsState>;
+  importMapPackages(): Promise<PhaseFiveOperationResult<MapsState>>;
+  removeMapPackage(packageId: string): Promise<PhaseFiveOperationResult<MapsState>>;
+  saveMapPlace(place: MapPlaceInput): Promise<MapPlace>;
+  deleteMapPlace(placeId: string): Promise<MapsState>;
+  importGpx(): Promise<PhaseFiveOperationResult<MapsState>>;
+  exportGpx(): Promise<{ ok: boolean; message: string }>;
+  searchOutpost(query: string): Promise<UnifiedSearchResult[]>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   downloadUpdate(): Promise<UpdateDownloadResult>;
   applyUpdate(): Promise<UpdateApplyResult>;

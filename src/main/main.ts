@@ -12,10 +12,17 @@ import { UpdateService } from './portable-update-service';
 import { ModuleService } from './module-service';
 import { KiwixService } from './kiwix-service';
 import { DocumentService } from './document-service';
+import { NoteService } from './note-service';
+import { MapService } from './map-service';
+import { UnifiedSearchService } from './unified-search-service';
 import { responseHeadersForUrl } from './security-policy';
 import type { BootstrapData, ModuleOperationResult, ModuleSummary, PortableStatus } from '../shared/contracts';
 
-protocol.registerSchemesAsPrivileged([{ scheme: 'outpost-doc', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'outpost-doc', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+  { scheme: 'outpost-attachment', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+  { scheme: 'outpost-map', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+]);
 
 const root = findPortableRoot([path.dirname(process.execPath), process.cwd(), __dirname]);
 const portablePaths = new PortablePathService(root);
@@ -41,6 +48,9 @@ const updateService = new UpdateService(databaseService, app.getVersion(), porta
 const moduleService = new ModuleService(databaseService, portablePaths);
 const kiwixService = new KiwixService(databaseService, portablePaths);
 const documentService = new DocumentService(databaseService, portablePaths);
+const noteService = new NoteService(databaseService, portablePaths);
+const mapService = new MapService(databaseService, portablePaths);
+const unifiedSearchService = new UnifiedSearchService(databaseService, documentService);
 let isPrepared = false;
 let shutdownInProgress = false;
 
@@ -98,6 +108,18 @@ function createWindow(): void {
   const devServerUrl = process.env.OUTPOST_ZERO_DEV_SERVER_URL;
   if (devServerUrl) void window.loadURL(devServerUrl);
   else void window.loadFile(path.join(__dirname, '../../renderer/index.html'));
+}
+
+function rangedFileResponse(filePath: string, request: Request): Response | Promise<Response> {
+  const range = request.headers.get('range');
+  if (!range) return net.fetch(pathToFileURL(filePath).toString());
+  const match = /^bytes=(\d+)-(\d+)$/.exec(range);
+  if (!match) return new Response('Invalid range', { status: 416 });
+  const size = fs.statSync(filePath).size; const start = Number(match[1]); const end = Math.min(Number(match[2]), size - 1);
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || start >= size || end - start + 1 > 32 * 1024 * 1024) return new Response('Invalid range', { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
+  const bytes = Buffer.alloc(end - start + 1); const descriptor = fs.openSync(filePath, 'r');
+  try { fs.readSync(descriptor, bytes, 0, bytes.length, start); } finally { fs.closeSync(descriptor); }
+  return new Response(Uint8Array.from(bytes).buffer, { status: 206, headers: { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': String(bytes.length), 'Content-Type': 'application/octet-stream' } });
 }
 
 ipcMain.handle('outpost:get-bootstrap', async (): Promise<BootstrapData> => ({
@@ -220,6 +242,62 @@ ipcMain.handle('outpost:remove-document-annotation', (_event, documentId: unknow
   if (typeof documentId !== 'string' || typeof annotationId !== 'string') throw new Error('Annotation identifier is invalid.');
   return documentService.removeAnnotation(documentId, annotationId);
 });
+ipcMain.handle('outpost:get-notes', () => noteService.state());
+ipcMain.handle('outpost:save-note', (_event, note: unknown) => {
+  if (!note || typeof note !== 'object') throw new Error('Note is invalid.');
+  return noteService.save(note as Parameters<NoteService['save']>[0]);
+});
+ipcMain.handle('outpost:delete-note', (_event, noteId: unknown) => {
+  if (typeof noteId !== 'string') throw new Error('Note identifier is invalid.');
+  return noteService.delete(noteId);
+});
+ipcMain.handle('outpost:import-note-attachments', async (_event, noteId: unknown) => {
+  if (typeof noteId !== 'string') throw new Error('Note identifier is invalid.');
+  noteService.require(noteId);
+  const selection = await dialog.showOpenDialog({ title: 'Attach files to this note', properties: ['openFile', 'multiSelections'] });
+  return selection.canceled ? noteService.require(noteId) : noteService.importAttachments(noteId, selection.filePaths);
+});
+ipcMain.handle('outpost:remove-note-attachment', (_event, noteId: unknown, attachmentId: unknown) => {
+  if (typeof noteId !== 'string' || typeof attachmentId !== 'string') throw new Error('Attachment identifier is invalid.');
+  return noteService.removeAttachment(noteId, attachmentId);
+});
+ipcMain.handle('outpost:export-note', async (_event, noteId: unknown) => {
+  if (typeof noteId !== 'string') throw new Error('Note identifier is invalid.');
+  const exported = noteService.markdown(noteId);
+  const target = await dialog.showSaveDialog({ title: 'Export Markdown note', defaultPath: `${exported.note.title.replace(/[<>:"/\\|?*]/g, '_')}.md`, filters: [{ name: 'Markdown', extensions: ['md'] }] });
+  if (target.canceled || !target.filePath) return { ok: true, message: 'Export cancelled.' };
+  fs.writeFileSync(target.filePath, exported.content, 'utf8'); return { ok: true, message: 'Markdown note exported.' };
+});
+ipcMain.handle('outpost:get-maps', () => mapService.reconcile());
+ipcMain.handle('outpost:import-map-packages', async () => {
+  const selection = await dialog.showOpenDialog({ title: 'Add an offline map package', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Offline maps', extensions: ['pmtiles', 'mbtiles'] }] });
+  return selection.canceled ? { ok: true, message: 'Import cancelled.', state: mapService.state() } : mapService.importPackages(selection.filePaths);
+});
+ipcMain.handle('outpost:remove-map-package', (_event, packageId: unknown) => {
+  if (typeof packageId !== 'string') throw new Error('Map package identifier is invalid.');
+  return mapService.removePackage(packageId);
+});
+ipcMain.handle('outpost:save-map-place', (_event, place: unknown) => {
+  if (!place || typeof place !== 'object') throw new Error('Saved place is invalid.');
+  return mapService.savePlace(place as Parameters<MapService['savePlace']>[0]);
+});
+ipcMain.handle('outpost:delete-map-place', (_event, placeId: unknown) => {
+  if (typeof placeId !== 'string') throw new Error('Saved-place identifier is invalid.');
+  return mapService.deletePlace(placeId);
+});
+ipcMain.handle('outpost:import-gpx', async () => {
+  const selection = await dialog.showOpenDialog({ title: 'Import GPX waypoints', properties: ['openFile'], filters: [{ name: 'GPS Exchange Format', extensions: ['gpx'] }] });
+  return selection.canceled || !selection.filePaths[0] ? { ok: true, message: 'Import cancelled.', state: mapService.state() } : mapService.importGpx(selection.filePaths[0]);
+});
+ipcMain.handle('outpost:export-gpx', async () => {
+  const target = await dialog.showSaveDialog({ title: 'Export saved places', defaultPath: 'outpost-places.gpx', filters: [{ name: 'GPS Exchange Format', extensions: ['gpx'] }] });
+  if (target.canceled || !target.filePath) return { ok: true, message: 'Export cancelled.' };
+  fs.writeFileSync(target.filePath, mapService.gpx(), 'utf8'); return { ok: true, message: 'Saved places exported as GPX.' };
+});
+ipcMain.handle('outpost:search-outpost', (_event, query: unknown) => {
+  if (typeof query !== 'string' || query.length > 200) throw new Error('Search query is invalid.');
+  return unifiedSearchService.search(query);
+});
 ipcMain.handle('outpost:check-updates', () => updateService.check());
 ipcMain.handle('outpost:download-update', () => updateService.download());
 ipcMain.handle('outpost:apply-update', async () => {
@@ -251,6 +329,23 @@ app.whenReady().then(() => {
     if (url.hostname !== 'document' || !documentId) return new Response('Not found', { status: 404 });
     try { return net.fetch(pathToFileURL(documentService.filePath(documentId)).toString()); }
     catch { return new Response('Not found', { status: 404 }); }
+  });
+  protocol.handle('outpost-attachment', (request) => {
+    const url = new URL(request.url); const attachmentId = url.pathname.split('/').filter(Boolean)[0];
+    if (url.hostname !== 'file' || !attachmentId) return new Response('Not found', { status: 404 });
+    try { return net.fetch(pathToFileURL(noteService.attachmentPath(attachmentId)).toString(), { headers: request.headers }); }
+    catch { return new Response('Not found', { status: 404 }); }
+  });
+  protocol.handle('outpost-map', (request) => {
+    const url = new URL(request.url); const parts = url.pathname.split('/').filter(Boolean);
+    try {
+      if (url.hostname === 'package' && parts[0]) return rangedFileResponse(mapService.packagePath(parts[0]), request);
+      if (url.hostname === 'tile' && parts.length === 4) {
+        const tile = mapService.tile(parts[0], Number(parts[1]), Number(parts[2]), Number(parts[3]));
+        return tile ? new Response(Uint8Array.from(tile.bytes).buffer, { headers: { 'Content-Type': tile.mime, 'Content-Encoding': tile.mime === 'application/x-protobuf' && tile.bytes[0] === 0x1f ? 'gzip' : 'identity' } }) : new Response('Not found', { status: 404 });
+      }
+    } catch { return new Response('Not found', { status: 404 }); }
+    return new Response('Not found', { status: 404 });
   });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({

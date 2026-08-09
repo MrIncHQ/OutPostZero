@@ -13,6 +13,7 @@ const CATEGORIES: CategoryDefinition[] = [
   { id: 'knowledge', label: 'Knowledge', roots: ['Content/ZIM'] },
   { id: 'maps', label: 'Maps', roots: ['Content/Maps'] },
   { id: 'documents', label: 'Documents', roots: ['Content/PDFs', 'Content/Documents', 'Content/Books'] },
+  { id: 'notes', label: 'Note Attachments', roots: ['Content/Notes'] },
   { id: 'education', label: 'Education', roots: ['Content/Education'] },
   { id: 'ai', label: 'AI', roots: ['AI'] },
   { id: 'media', label: 'Media', roots: ['Content/Media'] },

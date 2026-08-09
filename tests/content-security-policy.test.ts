@@ -9,6 +9,9 @@ test('renderer CSP permits loopback Kiwix and the internal portable document rea
   assert.ok(policy, 'Content-Security-Policy meta tag is missing.');
   assert.match(policy, /frame-src http:\/\/127\.0\.0\.1:\*/);
   assert.match(policy, /frame-src[^;]*outpost-doc:/);
+  assert.match(policy, /connect-src[^;]*outpost-map:/);
+  assert.match(policy, /img-src[^;]*outpost-attachment:/);
+  assert.match(policy, /worker-src 'self' blob:/);
   assert.doesNotMatch(policy, /frame-src[^;]*https?:\/\/\*/);
   assert.doesNotMatch(policy, /frame-src[^;]*'self'/);
 });

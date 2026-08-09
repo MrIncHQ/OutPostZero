@@ -1,6 +1,10 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import type { BootstrapData, DocumentSearchResult, KiwixCatalogEntry, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary } from '../shared/contracts';
+import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import type { BootstrapData, KiwixCatalogEntry, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary, UnifiedSearchResult } from '../shared/contracts';
 import { DocumentsView } from './DocumentsView';
+
+const NotesView = lazy(() => import('./NotesView').then((module) => ({ default: module.NotesView })));
+const MapsView = lazy(() => import('./MapsView').then((module) => ({ default: module.MapsView })));
+const ToolsView = lazy(() => import('./ToolsView').then((module) => ({ default: module.ToolsView })));
 
 type ViewId = 'home' | 'library' | 'documents' | 'maps' | 'learning' | 'notes' |
   'media' | 'relay' | 'tools' | 'modules' | 'downloads' | 'storage' | 'settings' | 'updates';
@@ -16,12 +20,9 @@ const navigation: Array<{ id: ViewId; label: string }> = [
 ];
 
 const comingSoon: Partial<Record<ViewId, { title: string; description: string; milestone: string }>> = {
-  maps: { title: 'Maps without a connection', description: 'User-selected PMTiles and MBTiles packages will remain entirely on this drive.', milestone: 'PHASE 5' },
   learning: { title: 'Education center', description: 'Drive-contained lessons, courses, media, quizzes, and progress require no online account.', milestone: 'PHASE 7' },
-  notes: { title: 'Notes that travel with you', description: 'Markdown notes, folders, tags, attachments, and local full-text search will live on this drive.', milestone: 'PHASE 5' },
   media: { title: 'Portable media library', description: 'Video, audio, images, playlists, metadata, and collections are planned after the core library.', milestone: 'LATER PHASE' },
   relay: { title: 'Nearby Outposts', description: 'Encrypted LAN discovery, direct messages, identity verification, and file transfer are not enabled yet.', milestone: 'PHASE 6' },
-  tools: { title: 'Offline tools center', description: 'Calculators, conversion tools, checksums, formatters, and reference utilities will share one interface.', milestone: 'PHASE 5' },
   downloads: { title: 'Download manager', description: 'Queues, resume support, verification, and storage warnings activate with the first content module.', milestone: 'PHASE 4' },
 };
 
@@ -101,9 +102,9 @@ function Onboarding({ onComplete }: { onComplete: (profile: LocalProfile) => voi
   );
 }
 
-function HomeView({ data, go, onOpenDocument }: { data: BootstrapData; go: (view: ViewId) => void; onOpenDocument: (documentId: string, page: number) => void }) {
+function HomeView({ data, go, onOpenResult }: { data: BootstrapData; go: (view: ViewId) => void; onOpenResult: (result: UnifiedSearchResult) => void }) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<DocumentSearchResult[]>([]);
+  const [results, setResults] = useState<UnifiedSearchResult[]>([]);
   const [searched, setSearched] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -112,7 +113,7 @@ function HomeView({ data, go, onOpenDocument }: { data: BootstrapData; go: (view
     if (!query.trim()) return;
     setBusy(true);
     try {
-      setResults(await window.outpost.searchDocuments(query));
+      setResults(await window.outpost.searchOutpost(query));
       setSearched(true);
     } finally {
       setBusy(false);
@@ -127,14 +128,16 @@ function HomeView({ data, go, onOpenDocument }: { data: BootstrapData; go: (view
         <input value={query} onChange={(event) => setQuery(event.target.value)} autoFocus placeholder="Search inside your portable documents" />
         <button className="primary-button" disabled={busy || !query.trim()}>{busy ? 'SEARCHING...' : 'SEARCH'}</button>
       </form>
-      {results.length > 0 && <div className="universal-results">{results.map((result) => <button key={`${result.documentId}:${result.page}`} onClick={() => onOpenDocument(result.documentId, result.page)}>
-        <span><b>{result.title}</b><small>PAGE {result.page} · {result.format.toUpperCase()}</small></span><p>{result.excerpt}</p><i>OPEN →</i>
+      {results.length > 0 && <div className="universal-results">{results.map((result) => <button key={`${result.source}:${result.id}:${result.page ?? ''}`} onClick={() => onOpenResult(result)}>
+        <span><b>{result.title}</b><small>{result.source.toUpperCase()} · {result.context}</small></span><p>{result.excerpt}</p><i>OPEN →</i>
       </button>)}</div>}
       {searched && results.length === 0 && <div className="home-search-empty"><b>No results for “{query}”</b><span>Try another phrase or add documents to this drive.</span><button className="secondary-button" onClick={() => go('documents')}>OPEN DOCUMENTS</button></div>}
       {!searched && <div className="home-action-grid">
         <button className="home-action-card" onClick={() => go('documents')}><span className="home-action-number">01</span><div><p className="section-label">PORTABLE DOCUMENTS</p><h3>Search manuals, PDFs, and notes.</h3><p>Import documents, keep your place, and open search results to the exact page.</p></div><i>OPEN DOCUMENTS →</i></button>
         <button className="home-action-card" onClick={() => go('library')}><span className="home-action-number">02</span><div><p className="section-label">OFFLINE KNOWLEDGE</p><h3>Browse your Kiwix library.</h3><p>Read downloaded encyclopedias and reference archives without a connection.</p></div><i>OPEN LIBRARY →</i></button>
-        <button className="home-action-card compact" onClick={() => go('updates')}><span className="home-action-number">03</span><div><p className="section-label">OUTPOST STATUS</p><h3>Version {data.status.version}</h3><p>Updates remain manual and never overwrite your content.</p></div><i>CHECK UPDATES →</i></button>
+        <button className="home-action-card" onClick={() => go('notes')}><span className="home-action-number">03</span><div><p className="section-label">PORTABLE NOTES</p><h3>Write, organize, and carry plans.</h3><p>Markdown notes autosave locally with tags, folders, templates, and attachments.</p></div><i>OPEN NOTES →</i></button>
+        <button className="home-action-card" onClick={() => go('maps')}><span className="home-action-number">04</span><div><p className="section-label">OFFLINE MAPS</p><h3>Navigate your own map packages.</h3><p>Open PMTiles or MBTiles, mark places, measure routes, and carry GPX points.</p></div><i>OPEN MAPS →</i></button>
+        <button className="home-action-card compact" onClick={() => go('tools')}><span className="home-action-number">05</span><div><p className="section-label">TOOLS / STATUS</p><h3>Offline utilities · Version {data.status.version}</h3><p>Calculate, convert, encode, inspect, and reference without sending anything away.</p></div><i>OPEN TOOLS →</i></button>
       </div>}
     </section>
   );
@@ -586,7 +589,11 @@ export default function App() {
   const [view, setView] = useState<ViewId>('home');
   const [removalMessage, setRemovalMessage] = useState('');
   const [requestedDocument, setRequestedDocument] = useState<{ id: string; page: number }>();
+  const [requestedNote, setRequestedNote] = useState<string>();
+  const [requestedPlace, setRequestedPlace] = useState<string>();
   const clearRequestedDocument = useCallback(() => setRequestedDocument(undefined), []);
+  const clearRequestedNote = useCallback(() => setRequestedNote(undefined), []);
+  const clearRequestedPlace = useCallback(() => setRequestedPlace(undefined), []);
 
   useEffect(() => { void window.outpost.getBootstrap().then(setData); }, []);
   const title = useMemo(() => navigation.find((item) => item.id === view)?.label ?? (view === 'storage' ? 'Storage' : 'Settings'), [view]);
@@ -608,9 +615,16 @@ export default function App() {
     setRemovalMessage(result.message);
   }
   function renderView() {
-    if (view === 'home') return <HomeView data={activeData} go={setView} onOpenDocument={(id, page) => { setRequestedDocument({ id, page }); setView('documents'); }} />;
+    if (view === 'home') return <HomeView data={activeData} go={setView} onOpenResult={(result) => {
+      if (result.source === 'document') { setRequestedDocument({ id: result.id, page: result.page ?? 1 }); setView('documents'); }
+      else if (result.source === 'note') { setRequestedNote(result.id); setView('notes'); }
+      else { setRequestedPlace(result.id); setView('maps'); }
+    }} />;
     if (view === 'library') return <LibraryView onModules={(modules) => setData({ ...activeData, modules })} />;
     if (view === 'documents') return <DocumentsView requestedDocument={requestedDocument} onRequestHandled={clearRequestedDocument} />;
+    if (view === 'notes') return <Suspense fallback={<section className="page-panel"><h2>Opening Notes...</h2></section>}><NotesView requestedNoteId={requestedNote} onRequestHandled={clearRequestedNote} /></Suspense>;
+    if (view === 'maps') return <Suspense fallback={<section className="page-panel"><h2>Opening Maps...</h2></section>}><MapsView requestedPlaceId={requestedPlace} onRequestHandled={clearRequestedPlace} /></Suspense>;
+    if (view === 'tools') return <Suspense fallback={<section className="page-panel"><h2>Opening Tools...</h2></section>}><ToolsView /></Suspense>;
     if (view === 'storage') return <StorageView storage={activeData.storage} onRefresh={refreshStorage} />;
     if (view === 'modules') return <ModulesView modules={activeData.modules} onModules={(modules) => setData({ ...activeData, modules })} />;
     if (view === 'updates') return <UpdatesView data={activeData} />;
