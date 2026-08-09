@@ -18,8 +18,9 @@ OUTPOST ZERO - PORTABLE WINDOWS BUILD
    bookmarks, notes, and annotations work inside Outpost Zero without an
    installed browser or internet connection.
    Notes autosave Markdown on this drive and can carry local attachments.
-   Tools run entirely in the app. Maps can download a user-selected region
-   from the official Protomaps daily OpenStreetMap build, or import an existing
+   Tools run entirely in the app. Maps lets you search for and explicitly
+   confirm a location, then downloads only the chosen region from the official
+   Protomaps daily OpenStreetMap build. You can also import an existing
    PMTiles/MBTiles package. Saved places, measurements, and GPX files remain
    available offline.
 6. Before unplugging the drive, choose PREPARE DRIVE FOR REMOVAL in the app,
