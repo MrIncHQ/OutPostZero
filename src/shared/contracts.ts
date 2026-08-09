@@ -120,6 +120,7 @@ export interface KiwixDownloadStatus {
   title?: string;
   fileName?: string;
   downloadedBytes: number;
+  verifiedBytes?: number;
   totalBytes: number;
   message: string;
 }

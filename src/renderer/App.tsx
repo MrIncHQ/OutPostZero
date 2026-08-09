@@ -327,8 +327,8 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
         {download && ['downloading', 'verifying', 'cancelled', 'error'].includes(download.state) && (
           <div className={`download-progress download-${download.state}`}>
             <div><b>{download.title ?? 'Kiwix content'}</b><span>{download.message}</span></div>
-            <strong>{download.totalBytes ? `${Math.min(100, download.downloadedBytes / download.totalBytes * 100).toFixed(1)}%` : 'PREPARING'}</strong>
-            <progress max={Math.max(1, download.totalBytes)} value={download.downloadedBytes} />
+            <strong>{download.totalBytes ? `${download.state === 'verifying' ? 'VERIFYING ' : ''}${Math.min(100, (download.state === 'verifying' ? download.verifiedBytes ?? 0 : download.downloadedBytes) / download.totalBytes * 100).toFixed(1)}%` : 'PREPARING'}</strong>
+            <progress max={Math.max(1, download.totalBytes)} value={download.state === 'verifying' ? download.verifiedBytes ?? 0 : download.downloadedBytes} />
             {download.state === 'downloading' && <button type="button" onClick={() => void cancelDownload()}>PAUSE</button>}
           </div>
         )}

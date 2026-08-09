@@ -6,7 +6,7 @@ import test from 'node:test';
 import { MODULE_PACKAGE_PUBLIC_KEY } from '../src/main/builtin-module-package';
 import { DatabaseService } from '../src/main/database-service';
 import { KIWIX_PACKAGE } from '../src/main/kiwix-package';
-import { KiwixService, parseKiwixCatalog, parseKiwixCatalogFeed, parseKiwixMetalink, parseKiwixNavigation, validateKiwixPackagePath, verifyKiwixPackage } from '../src/main/kiwix-service';
+import { hashFile, KiwixService, parseKiwixCatalog, parseKiwixCatalogFeed, parseKiwixMetalink, parseKiwixNavigation, validateKiwixPackagePath, verifyKiwixPackage } from '../src/main/kiwix-service';
 import { PortablePathService } from '../src/main/portable-path';
 
 const archivePath = path.resolve('VendorCache', 'kiwix-tools_win-x86_64-3.8.1.zip');
@@ -40,6 +40,27 @@ test('rejects a forged Kiwix package signature', () => {
   signature[0] ^= 0xff;
   forged.signature = signature.toString('base64');
   assert.throws(() => verifyKiwixPackage(forged), /signature verification failed/);
+});
+
+test('reports SHA-256 verification progress from zero through the complete file', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'outpost-zero-hash-progress-'));
+  const filePath = path.join(root, 'progress.zim');
+  const content = Buffer.alloc(1024 * 1024, 42);
+  fs.writeFileSync(filePath, content);
+  const progress: number[] = [];
+  try {
+    const actual = await hashFile(filePath, (verifiedBytes, totalBytes) => {
+      assert.equal(totalBytes, content.length);
+      progress.push(verifiedBytes);
+    });
+    const expected = (await import('node:crypto')).createHash('sha256').update(content).digest('hex').toUpperCase();
+    assert.equal(actual, expected);
+    assert.equal(progress[0], 0);
+    assert.equal(progress.at(-1), content.length);
+    assert.ok(progress.every((value, index) => index === 0 || value >= progress[index - 1]));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('scans only ZIM files beneath the portable content root', () => {

@@ -136,9 +136,21 @@ function hashBuffer(content: Buffer): string {
   return crypto.createHash('sha256').update(content).digest('hex').toUpperCase();
 }
 
-async function hashFile(filePath: string): Promise<string> {
+export async function hashFile(filePath: string, onProgress?: (verifiedBytes: number, totalBytes: number) => void): Promise<string> {
   const hash = crypto.createHash('sha256');
-  for await (const chunk of fs.createReadStream(filePath)) hash.update(chunk as Buffer);
+  const totalBytes = fs.statSync(filePath).size;
+  let verifiedBytes = 0;
+  let lastReportedAt = 0;
+  onProgress?.(0, totalBytes);
+  for await (const chunk of fs.createReadStream(filePath)) {
+    hash.update(chunk as Buffer);
+    verifiedBytes += (chunk as Buffer).length;
+    const now = Date.now();
+    if (verifiedBytes === totalBytes || now - lastReportedAt >= 100) {
+      onProgress?.(verifiedBytes, totalBytes);
+      lastReportedAt = now;
+    }
+  }
   return hash.digest('hex').toUpperCase();
 }
 
@@ -418,8 +430,11 @@ export class KiwixService {
       } });
       await pipeline(Readable.fromWeb(response.body as never), progress, fs.createWriteStream(partial, { flags: offset ? 'a' : 'w' }));
       if (downloaded !== metadata.size) throw new Error(`Kiwix download size mismatch: expected ${metadata.size}, received ${downloaded}.`);
-      this.currentDownload = { ...this.currentDownload, state: 'verifying', downloadedBytes: downloaded, message: 'Verifying SHA-256 checksum...' };
-      if (await hashFile(partial) !== metadata.sha256) throw new Error('Kiwix download failed SHA-256 verification. The partial file was kept for retry.');
+      this.currentDownload = { ...this.currentDownload, state: 'verifying', downloadedBytes: downloaded, verifiedBytes: 0, message: 'Verifying SHA-256 checksum...' };
+      const verifiedHash = await hashFile(partial, (verifiedBytes) => {
+        this.currentDownload = { ...this.currentDownload, verifiedBytes };
+      });
+      if (verifiedHash !== metadata.sha256) throw new Error('Kiwix download failed SHA-256 verification. The partial file was kept for retry.');
       const wasRunning = Boolean(this.active);
       if (wasRunning) await this.stop(true);
       if (fs.existsSync(destination)) throw new Error('A different file appeared at the verified download destination. It was not overwritten.');
