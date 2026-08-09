@@ -64,5 +64,7 @@ After Phase 0 acceptance, build the first-run profile and local identity, SQLite
 - [x] Preserve Kiwix article response policies inside the embedded offline reader
 - [x] Confirmed removal of individual ZIM libraries with safe reader restart
 - [x] Reader-only My Library view with downloaded-file controls moved to Manage
+- [x] Fluid full-screen Library layout with responsive catalog and management grids
+- [x] App-wide fluid detail, status, settings, and update sections for wide displays
 - [x] Portable large-download staging, pause/resume, live progress, free-space projection, and SHA-256 verification
 - [ ] Catalog content updates, enable/disable controls, and explicit removal
