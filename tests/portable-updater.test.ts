@@ -140,11 +140,16 @@ test('portable updater supports a portable root at the root of a Windows drive',
     assert.deepEqual(fs.readFileSync(path.join(root, 'README.txt')), runtime);
     const installedPath = path.join(root, 'Data', 'State', 'installed-version.json');
     await waitForFile(installedPath);
-    const installed = JSON.parse(fs.readFileSync(installedPath, 'utf8').replace(/^\uFEFF/, ''));
+    let installedText = '';
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      try { installedText = fs.readFileSync(installedPath, 'utf8'); break; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EBUSY' || attempt === 9) throw error; await new Promise((resolve) => setTimeout(resolve, 100)); }
+    }
+    const installed = JSON.parse(installedText.replace(/^\uFEFF/, ''));
     assert.match(installed.rollbackPath, /^Updates\/Rollback\/0\.4\.0-/);
   } finally {
     spawnSync('subst.exe', [drive, '/D'], { encoding: 'utf8' });
-    fs.rmSync(backingRoot, { recursive: true, force: true });
+    fs.rmSync(backingRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
