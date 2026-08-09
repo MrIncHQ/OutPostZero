@@ -241,6 +241,9 @@ test('installs and runs the official Kiwix engine with an official small ZIM', {
     const response = await fetch(running.serverUrl!);
     assert.equal(response.status, 200);
     assert.match(await response.text(), /small zimfile|Kiwix/i);
+    const article = await fetch(new URL('/content/openzim-small', running.serverUrl!));
+    assert.equal(article.status, 200);
+    assert.match(await article.text(), /Test ZIM file/i);
     await service.stop();
     assert.equal(service.status().running, false);
 

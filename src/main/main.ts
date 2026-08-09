@@ -10,6 +10,7 @@ import { collectHardwareDiagnostics } from './hardware-service';
 import { UpdateService } from './portable-update-service';
 import { ModuleService } from './module-service';
 import { KiwixService } from './kiwix-service';
+import { responseHeadersForUrl } from './security-policy';
 import type { BootstrapData, ModuleOperationResult, ModuleSummary, PortableStatus } from '../shared/contracts';
 
 const root = findPortableRoot([path.dirname(process.execPath), process.cwd(), __dirname]);
@@ -184,10 +185,7 @@ ipcMain.handle('outpost:prepare-removal', async () => {
 app.whenReady().then(() => {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:5173; frame-src http://127.0.0.1:*"],
-      },
+      responseHeaders: responseHeadersForUrl(details.url, details.responseHeaders),
     });
   });
   createWindow();
