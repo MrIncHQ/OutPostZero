@@ -2,12 +2,12 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import type { BootstrapData, DocumentSearchResult, KiwixCatalogEntry, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary } from '../shared/contracts';
 import { DocumentsView } from './DocumentsView';
 
-type ViewId = 'home' | 'search' | 'library' | 'documents' | 'maps' | 'learning' | 'notes' |
+type ViewId = 'home' | 'library' | 'documents' | 'maps' | 'learning' | 'notes' |
   'media' | 'relay' | 'tools' | 'modules' | 'downloads' | 'storage' | 'settings' | 'updates';
 
 const navigation: Array<{ id: ViewId; label: string }> = [
-  { id: 'home', label: 'Home' }, { id: 'search', label: 'Search' },
-  { id: 'library', label: 'Library' }, { id: 'documents', label: 'Documents' },
+  { id: 'home', label: 'Home' }, { id: 'library', label: 'Library' },
+  { id: 'documents', label: 'Documents' },
   { id: 'maps', label: 'Maps' }, { id: 'learning', label: 'Learning' },
   { id: 'notes', label: 'Notes' }, { id: 'media', label: 'Media' },
   { id: 'relay', label: 'Local Relay' }, { id: 'tools', label: 'Tools' },
@@ -101,40 +101,7 @@ function Onboarding({ onComplete }: { onComplete: (profile: LocalProfile) => voi
   );
 }
 
-function HomeView({ data, go }: { data: BootstrapData; go: (view: ViewId) => void }) {
-  return (
-    <>
-      <section className="search-block interactive" onClick={() => go('search')}>
-        <span>⌕</span><div className="search-prompt">Search your outpost</div><kbd>OPEN SEARCH</kbd>
-      </section>
-      <div className="content-grid">
-        <button className="feature-card portable-card card-button" onClick={() => go('storage')}>
-          <p className="section-label">PORTABLE FOUNDATION</p>
-          <h2>Your drive is the system.</h2>
-          <p>All controlled application state is contained beneath the active portable root.</p>
-          <div className="path-display"><small>ACTIVE PORTABLE ROOT</small><code>{data.status.root}</code></div>
-          <div className="checks"><span>✓ Root marker verified</span><span>✓ Writable paths contained</span><span>✓ Clean shutdown tracking active</span></div>
-          <span className="card-action">INSPECT STORAGE →</span>
-        </button>
-        <button className="feature-card capacity-card card-button" onClick={() => go('storage')}>
-          <p className="section-label">DRIVE CAPACITY</p>
-          <div className="capacity-value">{formatBytes(data.storage.freeBytes)}</div>
-          <p>available of {formatBytes(data.storage.totalBytes)}</p>
-          <div className="meter"><span style={{ width: data.storage.totalBytes && data.storage.freeBytes ? `${Math.max(2, (1 - data.storage.freeBytes / data.storage.totalBytes) * 100)}%` : '2%' }} /></div>
-          <span className="card-action">VIEW BREAKDOWN →</span>
-        </button>
-        <button className="feature-card next-card card-button" onClick={() => go('modules')}>
-          <p className="section-label">MODULE CENTER</p>
-          <h3>{data.modules.length} optional components planned</h3>
-          <p>Review what can be added to this drive in upcoming milestones.</p>
-          <span className="card-action">OPEN MODULE CENTER →</span>
-        </button>
-      </div>
-    </>
-  );
-}
-
-function SearchView({ onOpenDocument }: { onOpenDocument: (documentId: string, page: number) => void }) {
+function HomeView({ data, go, onOpenDocument }: { data: BootstrapData; go: (view: ViewId) => void; onOpenDocument: (documentId: string, page: number) => void }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<DocumentSearchResult[]>([]);
   const [searched, setSearched] = useState(false);
@@ -153,19 +120,22 @@ function SearchView({ onOpenDocument }: { onOpenDocument: (documentId: string, p
   }
 
   return (
-    <section className="page-panel">
-      <p className="section-label">UNIVERSAL SEARCH</p>
-      <h2>Search everything on this drive.</h2>
-      <form className="search-block interactive" onSubmit={search}>
+    <section className="home-workspace">
+      <div className="home-intro"><p className="section-label">YOUR OFFLINE OUTPOST</p><h2>What do you need?</h2><p>Search the documents you carry, or open one of your offline libraries.</p></div>
+      <form className="search-block home-search" onSubmit={search}>
         <span>⌕</span>
-        <input value={query} onChange={(event) => setQuery(event.target.value)} autoFocus placeholder="Search documents, knowledge, notes, maps, and media" />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} autoFocus placeholder="Search inside your portable documents" />
         <button className="primary-button" disabled={busy || !query.trim()}>{busy ? 'SEARCHING...' : 'SEARCH'}</button>
       </form>
       {results.length > 0 && <div className="universal-results">{results.map((result) => <button key={`${result.documentId}:${result.page}`} onClick={() => onOpenDocument(result.documentId, result.page)}>
         <span><b>{result.title}</b><small>PAGE {result.page} · {result.format.toUpperCase()}</small></span><p>{result.excerpt}</p><i>OPEN →</i>
       </button>)}</div>}
-      {searched && results.length === 0 && <div className="empty-state"><b>No indexed results for “{query}”</b><p>Try another phrase or import documents into the Documents section.</p></div>}
-      {!searched && <div className="empty-state"><b>Search inside your portable documents</b><p>PDF and text content is indexed locally. Search works without an internet connection or installed browser.</p></div>}
+      {searched && results.length === 0 && <div className="home-search-empty"><b>No results for “{query}”</b><span>Try another phrase or add documents to this drive.</span><button className="secondary-button" onClick={() => go('documents')}>OPEN DOCUMENTS</button></div>}
+      {!searched && <div className="home-action-grid">
+        <button className="home-action-card" onClick={() => go('documents')}><span className="home-action-number">01</span><div><p className="section-label">PORTABLE DOCUMENTS</p><h3>Search manuals, PDFs, and notes.</h3><p>Import documents, keep your place, and open search results to the exact page.</p></div><i>OPEN DOCUMENTS →</i></button>
+        <button className="home-action-card" onClick={() => go('library')}><span className="home-action-number">02</span><div><p className="section-label">OFFLINE KNOWLEDGE</p><h3>Browse your Kiwix library.</h3><p>Read downloaded encyclopedias and reference archives without a connection.</p></div><i>OPEN LIBRARY →</i></button>
+        <button className="home-action-card compact" onClick={() => go('updates')}><span className="home-action-number">03</span><div><p className="section-label">OUTPOST STATUS</p><h3>Version {data.status.version}</h3><p>Updates remain manual and never overwrite your content.</p></div><i>CHECK UPDATES →</i></button>
+      </div>}
     </section>
   );
 }
@@ -493,6 +463,29 @@ function SettingsView({ data, onProfile, onHardware, go }: {
   return (
     <section className="page-panel">
       <p className="section-label">SETTINGS</p><h2>Local identity and system.</h2>
+      <div className="content-grid settings-system-grid">
+        <button className="feature-card portable-card card-button" onClick={() => go('storage')}>
+          <p className="section-label">PORTABLE FOUNDATION</p>
+          <h2>Your drive is the system.</h2>
+          <p>All controlled application state is contained beneath the active portable root.</p>
+          <div className="path-display"><small>ACTIVE PORTABLE ROOT</small><code>{data.status.root}</code></div>
+          <div className="checks"><span>✓ Root marker verified</span><span>✓ Writable paths contained</span><span>✓ Clean shutdown tracking active</span></div>
+          <span className="card-action">INSPECT STORAGE →</span>
+        </button>
+        <button className="feature-card capacity-card card-button" onClick={() => go('storage')}>
+          <p className="section-label">DRIVE CAPACITY</p>
+          <div className="capacity-value">{formatBytes(data.storage.freeBytes)}</div>
+          <p>available of {formatBytes(data.storage.totalBytes)}</p>
+          <div className="meter"><span style={{ width: data.storage.totalBytes && data.storage.freeBytes ? `${Math.max(2, (1 - data.storage.freeBytes / data.storage.totalBytes) * 100)}%` : '2%' }} /></div>
+          <span className="card-action">VIEW BREAKDOWN →</span>
+        </button>
+        <button className="feature-card next-card card-button" onClick={() => go('modules')}>
+          <p className="section-label">MODULE CENTER</p>
+          <h3>{data.modules.length} optional components available or planned</h3>
+          <p>Install, repair, start, or stop portable components.</p>
+          <span className="card-action">OPEN MODULE CENTER →</span>
+        </button>
+      </div>
       <form className="settings-form" onSubmit={save}>
         <label htmlFor="settings-name">DISPLAY NAME</label>
         <div><input id="settings-name" value={name} maxLength={32} onChange={(event) => setName(event.target.value)} /><button className="primary-button">SAVE NAME</button></div>
@@ -615,8 +608,7 @@ export default function App() {
     setRemovalMessage(result.message);
   }
   function renderView() {
-    if (view === 'home') return <HomeView data={activeData} go={setView} />;
-    if (view === 'search') return <SearchView onOpenDocument={(id, page) => { setRequestedDocument({ id, page }); setView('documents'); }} />;
+    if (view === 'home') return <HomeView data={activeData} go={setView} onOpenDocument={(id, page) => { setRequestedDocument({ id, page }); setView('documents'); }} />;
     if (view === 'library') return <LibraryView onModules={(modules) => setData({ ...activeData, modules })} />;
     if (view === 'documents') return <DocumentsView requestedDocument={requestedDocument} onRequestHandled={clearRequestedDocument} />;
     if (view === 'storage') return <StorageView storage={activeData.storage} onRefresh={refreshStorage} />;
