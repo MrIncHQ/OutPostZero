@@ -13,6 +13,9 @@ if (-not (Test-Path -LiteralPath $Updater -PathType Leaf)) {
 }
 
 function Quote-NativeArgument([string]$Value) {
+    if ($Value -notmatch '[\s"]') {
+        return $Value
+    }
     return '"' + $Value.Replace('"', '\"') + '"'
 }
 

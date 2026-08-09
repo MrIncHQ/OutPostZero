@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 const updaterScript = path.resolve('portable', 'PortableUpdater.ps1');
+const bootstrapScript = path.resolve('portable', 'UpdaterBootstrap.ps1');
 
 function hash(content: Buffer): string {
   return crypto.createHash('sha256').update(content).digest('hex').toUpperCase();
@@ -32,6 +33,18 @@ function runUpdater(root: string, staging: string, pendingFile: string, noRestar
   ];
   if (noRestart) args.push('-NoRestart');
   return spawnSync('powershell.exe', args, { encoding: 'utf8', timeout: 30_000 });
+}
+
+function runBootstrap(root: string, staging: string, pendingFile: string, handshakeFile: string) {
+  return spawnSync('powershell.exe', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', bootstrapScript,
+    '-Updater', updaterScript,
+    '-PortableRoot', root,
+    '-StagingRoot', staging,
+    '-PendingFile', pendingFile,
+    '-ProcessId', '2147483647',
+    '-HandshakeFile', handshakeFile,
+  ], { encoding: 'utf8', timeout: 30_000 });
 }
 
 async function waitForFile(filePath: string, timeoutMs = 5_000) {
@@ -99,7 +112,7 @@ test('portable updater refuses to overwrite user data even with a malicious pend
 
 test('portable updater supports a portable root at the root of a Windows drive', {
   skip: process.platform !== 'win32',
-}, () => {
+}, async () => {
   const backingRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'outpost-zero-drive-root-'));
   const driveLetter = ['Z', 'Y', 'X', 'W'].find((letter) => !fs.existsSync(`${letter}:\\`));
   assert.ok(driveLetter, 'No unused drive letter was available for the test.');
@@ -119,8 +132,11 @@ test('portable updater supports a portable root at the root of a Windows drive',
       version: '0.4.1', previousVersion: '0.4.0',
       files: [{ path: 'README.txt', size: runtime.length, sha256: hash(runtime) }],
     }));
-    const result = runUpdater(root, staging, pendingFile);
+    const handshake = path.join(root, 'Updates', 'State', 'updater-started.txt');
+    const result = runBootstrap(root, staging, pendingFile, handshake);
     assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.existsSync(handshake), true);
+    await waitForFile(path.join(root, 'README.txt'));
     assert.deepEqual(fs.readFileSync(path.join(root, 'README.txt')), runtime);
   } finally {
     spawnSync('subst.exe', [drive, '/D'], { encoding: 'utf8' });
