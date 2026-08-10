@@ -16,7 +16,7 @@ function createDatabase() {
 
 test('creates and migrates the portable SQLite database', () => {
   const { root, database } = createDatabase();
-  assert.equal(database.schemaVersion(), 5);
+  assert.equal(database.schemaVersion(), 6);
   assert.equal(database.integrityCheck(), true);
   assert.equal(fs.existsSync(path.join(root, 'Data', 'outpost-zero.sqlite')), true);
   database.close();

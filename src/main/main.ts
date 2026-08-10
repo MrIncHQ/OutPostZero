@@ -16,6 +16,8 @@ import { NoteService } from './note-service';
 import { MapService } from './map-service';
 import { RelayService } from './relay-service';
 import { UnifiedSearchService } from './unified-search-service';
+import { EducationService } from './education-service';
+import { OcrService } from './ocr-service';
 import { responseHeadersForUrl } from './security-policy';
 import type { BootstrapData, ModuleOperationResult, ModuleSummary, PortableStatus } from '../shared/contracts';
 
@@ -49,6 +51,8 @@ const updateService = new UpdateService(databaseService, app.getVersion(), porta
 const moduleService = new ModuleService();
 const kiwixService = new KiwixService(databaseService, portablePaths);
 const documentService = new DocumentService(databaseService, portablePaths);
+const educationService = new EducationService(databaseService, portablePaths);
+const ocrService = new OcrService(databaseService, portablePaths, documentService);
 const noteService = new NoteService(databaseService, portablePaths);
 const mapHelperPath = app.isPackaged ? path.join(process.resourcesPath, 'pmtiles', 'pmtiles.exe') : path.join(app.getAppPath(), 'vendor', 'pmtiles', 'pmtiles.exe');
 const mapFontRoot = path.join(app.getAppPath(), 'vendor', 'map-assets', 'fonts');
@@ -246,6 +250,38 @@ ipcMain.handle('outpost:remove-document-annotation', (_event, documentId: unknow
   if (typeof documentId !== 'string' || typeof annotationId !== 'string') throw new Error('Annotation identifier is invalid.');
   return documentService.removeAnnotation(documentId, annotationId);
 });
+ipcMain.handle('outpost:run-document-ocr', (_event, documentId: unknown) => {
+  if (typeof documentId !== 'string') throw new Error('Document identifier is invalid.');
+  return ocrService.run(documentId);
+});
+ipcMain.handle('outpost:get-document-ocr-progress', (_event, documentId: unknown) => {
+  if (typeof documentId !== 'string') throw new Error('Document identifier is invalid.');
+  return ocrService.status(documentId);
+});
+ipcMain.handle('outpost:cancel-document-ocr', (_event, documentId: unknown) => {
+  if (typeof documentId !== 'string') throw new Error('Document identifier is invalid.');
+  return ocrService.cancel(documentId);
+});
+ipcMain.handle('outpost:get-education', () => educationService.state());
+ipcMain.handle('outpost:import-education-course', async () => {
+  const selection = await dialog.showOpenDialog({ title: 'Add an offline course folder', properties: ['openDirectory'] });
+  return selection.canceled || !selection.filePaths[0]
+    ? { ok: true, message: 'Course import cancelled.', state: educationService.state() }
+    : educationService.importDirectory(selection.filePaths[0]);
+});
+ipcMain.handle('outpost:add-starter-course', () => educationService.addStarterCourse());
+ipcMain.handle('outpost:get-education-lesson', (_event, courseId: unknown, lessonId: unknown) => {
+  if (typeof courseId !== 'string' || typeof lessonId !== 'string') throw new Error('Course lesson identifier is invalid.');
+  return educationService.lesson(courseId, lessonId);
+});
+ipcMain.handle('outpost:set-education-lesson-complete', (_event, courseId: unknown, lessonId: unknown, completed: unknown) => {
+  if (typeof courseId !== 'string' || typeof lessonId !== 'string' || typeof completed !== 'boolean') throw new Error('Course progress update is invalid.');
+  return educationService.setComplete(courseId, lessonId, completed);
+});
+ipcMain.handle('outpost:remove-education-course', (_event, courseId: unknown) => {
+  if (typeof courseId !== 'string') throw new Error('Course identifier is invalid.');
+  return educationService.remove(courseId);
+});
 ipcMain.handle('outpost:get-notes', () => noteService.state());
 ipcMain.handle('outpost:save-note', (_event, note: unknown) => {
   if (!note || typeof note !== 'object') throw new Error('Note is invalid.');
@@ -367,7 +403,7 @@ ipcMain.handle('outpost:search-outpost', (_event, query: unknown) => {
 ipcMain.handle('outpost:check-updates', () => updateService.check());
 ipcMain.handle('outpost:download-update', () => updateService.download());
 ipcMain.handle('outpost:apply-update', async () => {
-  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown(), relayService.stop()]);
+  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
   await databaseService.createRotatingBackup();
   const result = await updateService.apply(process.pid);
   if (result.status === 'launching') {
@@ -379,7 +415,7 @@ ipcMain.handle('outpost:apply-update', async () => {
   return result;
 });
 ipcMain.handle('outpost:prepare-removal', async () => {
-  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown(), relayService.stop()]);
+  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
   await session.defaultSession.clearCache();
   await databaseService.createRotatingBackup();
   databaseService.close();
@@ -423,10 +459,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', (event) => {
-  if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess() || mapService.hasActiveDownload() || relayService.isRunning()) && !shutdownInProgress) {
+  if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess() || mapService.hasActiveDownload() || relayService.isRunning() || ocrService.hasActiveJobs()) && !shutdownInProgress) {
     event.preventDefault();
     shutdownInProgress = true;
-    void Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown(), relayService.stop()]).finally(() => app.quit());
+    void Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown(), relayService.stop(), ocrService.cancelAll()]).finally(() => app.quit());
     return;
   }
   databaseService.close();

@@ -6,6 +6,7 @@ const app = fs.readFileSync('src/renderer/App.tsx', 'utf8');
 const notes = fs.readFileSync('src/renderer/NotesView.tsx', 'utf8');
 const maps = fs.readFileSync('src/renderer/MapsView.tsx', 'utf8');
 const tools = fs.readFileSync('src/renderer/ToolsView.tsx', 'utf8');
+const learning = fs.readFileSync('src/renderer/LearningView.tsx', 'utf8');
 
 test('Phase 5 pages replace their planned placeholders', () => {
   assert.doesNotMatch(app, /notes:\s*\{[^}]*PHASE 5/);
@@ -14,6 +15,13 @@ test('Phase 5 pages replace their planned placeholders', () => {
   assert.match(app, /view === 'notes'.*<Suspense.*<NotesView/s);
   assert.match(app, /view === 'maps'.*<Suspense.*<MapsView/s);
   assert.match(app, /view === 'tools'.*<Suspense.*<ToolsView/s);
+});
+
+test('Education and OCR replace their module placeholders with offline controls', () => {
+  assert.match(app, /view === 'learning'.*<Suspense.*<LearningView/s);
+  for (const feature of ['IMPORT COURSE FOLDER', 'ADD STARTER COURSE', 'MARK LESSON COMPLETE']) assert.match(learning, new RegExp(feature));
+  const documents = fs.readFileSync('src/renderer/DocumentsView.tsx', 'utf8');
+  for (const feature of ['OFFLINE TEXT RECOGNITION', 'RECOGNIZE TEXT', 'CANCEL OCR']) assert.match(documents, new RegExp(feature));
 });
 
 test('Notes exposes autosave, Markdown, templates, attachments, and export', () => {

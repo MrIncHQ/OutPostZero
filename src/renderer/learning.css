@@ -1,0 +1,39 @@
+.learning-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 24px 0; }
+.learning-summary > div { display: grid; gap: 4px; padding: 18px; border: 1px solid #344139; background: rgba(6, 12, 8, .35); }
+.learning-summary strong { color: #e0d7c8; font: 34px/1 'Newsreader Variable', serif; }
+.learning-summary span { color: #7e8e84; font-size: 8px; letter-spacing: .13em; }
+.course-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 15px; }
+.course-grid > article { min-width: 0; padding: 20px; border: 1px solid #354239; background: rgba(9, 15, 11, .5); }
+.course-card-heading { display: flex; align-items: center; justify-content: space-between; color: #bb925b; font-size: 8px; letter-spacing: .13em; }
+.course-card-heading button { border: 0; background: transparent; color: #a96d5e; font-size: 20px; cursor: pointer; }
+.course-grid h3 { margin: 12px 0 5px; color: #e8e0d3; font: 24px/1.1 'Newsreader Variable', serif; }
+.course-grid article > p { min-height: 42px; color: #84938a; font-size: 10px; line-height: 1.55; }
+.course-grid article > small { color: #65736a; font-size: 7px; letter-spacing: .1em; }
+.course-progress { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; margin: 17px 0; }
+.course-progress > div { height: 4px; background: #26322c; }
+.course-progress > div span { display: block; height: 100%; background: #b98748; }
+.course-progress b { color: #d3aa70; font-size: 9px; }
+.course-grid ol { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.course-grid li button { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; width: 100%; padding: 11px; border: 1px solid #2e3933; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.course-grid li button:hover { border-color: #79623f; background: rgba(185, 135, 72, .05); }
+.course-grid li button > span { color: #c59a5c; font-size: 9px; }
+.course-grid li button div { display: grid; gap: 3px; }
+.course-grid li b { color: #dcd4c8; font-size: 10px; }
+.course-grid li small, .course-grid li i { color: #6e7c73; font-size: 7px; font-style: normal; letter-spacing: .08em; }
+.learning-reader-heading { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 18px; }
+.learning-reader-heading h2 { margin: 4px 0 0; }
+.learning-reader-heading > span { color: #b88d55; font-size: 8px; letter-spacing: .12em; }
+.learning-reader-layout { display: grid; grid-template-columns: minmax(220px, 270px) minmax(0, 1fr); gap: 15px; margin-top: 24px; }
+.learning-reader-layout > aside { align-content: start; display: grid; gap: 4px; }
+.learning-reader-layout > aside > p { margin: 0 0 7px; }
+.learning-reader-layout > aside button { display: grid; grid-template-columns: 24px 1fr; gap: 8px; padding: 11px; border: 1px solid #303b35; background: transparent; color: #9aa69f; text-align: left; cursor: pointer; }
+.learning-reader-layout > aside button.active { border-color: #a47841; background: rgba(185, 135, 72, .08); color: #e5dccf; }
+.learning-reader-layout > aside span { color: #bf9258; font-size: 9px; }
+.learning-reader-layout > aside b { font-size: 9px; font-weight: 500; }
+.lesson-content { min-height: 600px; padding: clamp(28px, 5vw, 70px); background: #eeeae1; color: #252923; }
+.lesson-content h1, .lesson-content h2, .lesson-content h3 { color: #242821; font-family: 'Newsreader Variable', serif; font-weight: 520; }
+.lesson-content h1 { font-size: clamp(30px, 4vw, 48px); }
+.lesson-content p, .lesson-content li, .lesson-content pre { font: 16px/1.75 Georgia, serif; white-space: pre-wrap; }
+.lesson-content code { color: #684c2f; }
+.lesson-completion { display: flex; justify-content: space-between; gap: 10px; margin-top: 50px; padding-top: 20px; border-top: 1px solid #cfc6b7; }
+@media (max-width: 900px) { .learning-reader-layout { grid-template-columns: 1fr; } .learning-summary { grid-template-columns: 1fr; } .course-grid { grid-template-columns: 1fr; } }

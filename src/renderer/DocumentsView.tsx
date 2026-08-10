@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import type { DocumentAnnotationInput, DocumentDetails, DocumentLibraryState, DocumentNoteInput, DocumentSearchResult, DocumentSummary } from '../shared/contracts';
+import type { DocumentAnnotationInput, DocumentDetails, DocumentLibraryState, DocumentNoteInput, DocumentSearchResult, DocumentSummary, OcrProgress } from '../shared/contracts';
 
 function formatBytes(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -29,6 +29,8 @@ function Reader({ document, onBack, onChanged, initialPage }: { document: Docume
   const [noteBody, setNoteBody] = useState('');
   const [annotationText, setAnnotationText] = useState('');
   const [message, setMessage] = useState('');
+  const [ocrProgress, setOcrProgress] = useState<OcrProgress>();
+  const [ocrBusy, setOcrBusy] = useState(false);
 
   useEffect(() => {
     if (['text', 'markdown', 'html'].includes(document.format)) void window.outpost.getDocumentText(document.id).then(setText);
@@ -69,6 +71,20 @@ function Reader({ document, onBack, onChanged, initialPage }: { document: Docume
     setAnnotationText(''); setPanel('annotations');
   }
 
+  async function runOcr() {
+    setOcrBusy(true); setMessage('Preparing offline OCR...');
+    const poll = window.setInterval(() => { void window.outpost.getDocumentOcrProgress(document.id).then(setOcrProgress); }, 350);
+    try {
+      const result = await window.outpost.runDocumentOcr(document.id);
+      setOcrProgress(result.progress); setMessage(result.message); onChanged(result.document);
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'OCR failed.'); }
+    finally { window.clearInterval(poll); setOcrBusy(false); }
+  }
+
+  async function cancelOcr() {
+    setOcrProgress(await window.outpost.cancelDocumentOcr(document.id));
+  }
+
   const pdfUrl = `${document.readerUrl}#page=${page}&zoom=${zoom}`;
   return <section className="document-reader">
     <div className="document-reader-heading">
@@ -92,7 +108,7 @@ function Reader({ document, onBack, onChanged, initialPage }: { document: Docume
       </div>
       <aside className="document-inspector">
         <nav aria-label="Document tools"><button className={panel === 'details' ? 'active' : ''} onClick={() => setPanel('details')}>DETAILS</button><button className={panel === 'bookmarks' ? 'active' : ''} onClick={() => setPanel('bookmarks')}>BOOKMARKS {document.bookmarks.length}</button><button className={panel === 'notes' ? 'active' : ''} onClick={() => setPanel('notes')}>NOTES {document.notes.length}</button><button className={panel === 'annotations' ? 'active' : ''} onClick={() => setPanel('annotations')}>MARKS {document.annotations.length}</button></nav>
-        {panel === 'details' && <div className="document-tool-panel"><dl><div><dt>File</dt><dd>{document.fileName}</dd></div><div><dt>Size</dt><dd>{formatBytes(document.size)}</dd></div><div><dt>Index</dt><dd>{document.indexStatus} · {document.indexedPages} pages</dd></div><div><dt>Progress</dt><dd>Page {document.currentPage} of {document.pageCount || '—'}</dd></div></dl>{document.indexError && <p className="form-error">Indexing error: {document.indexError}</p>}<label>TAGS<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="repair, wiring, medical" /></label><label>COLLECTIONS<input value={collections} onChange={(event) => setCollections(event.target.value)} placeholder="Manuals, Survival" /></label><button className="primary-button" onClick={() => void saveOrganization()}>SAVE ORGANIZATION</button>{message && <p>{message}</p>}</div>}
+        {panel === 'details' && <div className="document-tool-panel"><dl><div><dt>File</dt><dd>{document.fileName}</dd></div><div><dt>Size</dt><dd>{formatBytes(document.size)}</dd></div><div><dt>Index</dt><dd>{document.indexStatus} · {document.indexedPages} pages</dd></div><div><dt>OCR</dt><dd>{document.ocrStatus.replace('-', ' ')}{document.ocrUpdatedAt ? ` · ${new Date(document.ocrUpdatedAt).toLocaleDateString()}` : ''}</dd></div><div><dt>Progress</dt><dd>Page {document.currentPage} of {document.pageCount || '—'}</dd></div></dl>{document.indexError && <p className="form-error">Indexing error: {document.indexError}</p>}{document.ocrError && <p className="form-error">OCR error: {document.ocrError}</p>}{['image', 'pdf'].includes(document.format) && <section className="ocr-panel"><b>OFFLINE TEXT RECOGNITION</b><p>English OCR runs locally and adds recognized text to document search. The source file is never changed.</p>{ocrProgress && ocrProgress.state !== 'idle' && <><div className="ocr-progress"><span style={{ width: `${ocrProgress.percent}%` }} /></div><small>{ocrProgress.percent}% · {ocrProgress.message}</small></>}{ocrBusy ? <button className="secondary-button" onClick={() => void cancelOcr()}>CANCEL OCR</button> : <button className="primary-button" onClick={() => void runOcr()}>{document.ocrStatus === 'complete' ? 'RUN OCR AGAIN' : 'RECOGNIZE TEXT'}</button>}</section>}<label>TAGS<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="repair, wiring, medical" /></label><label>COLLECTIONS<input value={collections} onChange={(event) => setCollections(event.target.value)} placeholder="Manuals, Survival" /></label><button className="primary-button" onClick={() => void saveOrganization()}>SAVE ORGANIZATION</button>{message && <p>{message}</p>}</div>}
         {panel === 'bookmarks' && <div className="document-tool-panel marker-list"><button className="primary-button" onClick={() => void addBookmark()}>BOOKMARK PAGE {page}</button>{document.bookmarks.map((bookmark) => <div key={bookmark.id}><button onClick={() => void updatePage(bookmark.page)}><b>{bookmark.label}</b><small>Page {bookmark.page}</small></button><button className="marker-delete" onClick={() => void window.outpost.removeDocumentBookmark(document.id, bookmark.id).then(onChanged)}>×</button></div>)}</div>}
         {panel === 'notes' && <div className="document-tool-panel"><form onSubmit={(event) => void saveNote(event)}><label>NOTE TITLE<input value={noteTitle} onChange={(event) => setNoteTitle(event.target.value)} maxLength={100} /></label><label>NOTE<textarea value={noteBody} onChange={(event) => setNoteBody(event.target.value)} maxLength={20000} /></label><button className="primary-button" disabled={!noteBody.trim()}>SAVE ON PAGE {page}</button></form><div className="marker-list">{document.notes.map((note) => <div key={note.id}><button onClick={() => void updatePage(note.page)}><b>{note.title}</b><small>Page {note.page} · {note.body}</small></button><button className="marker-delete" onClick={() => void window.outpost.removeDocumentNote(document.id, note.id).then(onChanged)}>×</button></div>)}</div></div>}
         {panel === 'annotations' && <div className="document-tool-panel"><p>Annotations are stored separately from the source file.</p><form onSubmit={(event) => void saveAnnotation(event)}><label>HIGHLIGHT / COMMENT<textarea value={annotationText} onChange={(event) => setAnnotationText(event.target.value)} maxLength={5000} /></label><button className="primary-button" disabled={!annotationText.trim()}>MARK PAGE {page}</button></form><div className="marker-list">{document.annotations.map((annotation) => <div key={annotation.id}><button onClick={() => void updatePage(annotation.page)}><b>{annotation.kind.toUpperCase()} · PAGE {annotation.page}</b><small>{annotation.text}</small></button><button className="marker-delete" onClick={() => void window.outpost.removeDocumentAnnotation(document.id, annotation.id).then(onChanged)}>×</button></div>)}</div></div>}

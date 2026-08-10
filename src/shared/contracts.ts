@@ -91,9 +91,67 @@ export interface DocumentSummary {
   favorite: boolean;
   indexStatus: DocumentIndexStatus;
   indexError: string | null;
+  ocrStatus: 'not-run' | 'running' | 'complete' | 'error';
+  ocrUpdatedAt: string | null;
+  ocrError: string | null;
   indexedPages: number;
   tags: string[];
   collections: string[];
+}
+
+export interface OcrProgress {
+  documentId: string;
+  state: 'idle' | 'preparing' | 'recognizing' | 'complete' | 'error' | 'cancelled';
+  currentPage: number;
+  totalPages: number;
+  percent: number;
+  message: string;
+}
+
+export interface OcrOperationResult {
+  ok: boolean;
+  message: string;
+  document: DocumentDetails;
+  progress: OcrProgress;
+}
+
+export interface EducationLessonSummary {
+  id: string;
+  title: string;
+  durationMinutes: number;
+  completed: boolean;
+}
+
+export interface EducationLesson extends EducationLessonSummary {
+  courseId: string;
+  courseTitle: string;
+  body: string;
+  format: 'markdown' | 'text';
+}
+
+export interface EducationCourseSummary {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  author: string;
+  relativePath: string;
+  lessonCount: number;
+  completedLessons: number;
+  progressPercent: number;
+  lessons: EducationLessonSummary[];
+}
+
+export interface EducationState {
+  courses: EducationCourseSummary[];
+  completedLessons: number;
+  totalLessons: number;
+}
+
+export interface EducationOperationResult {
+  ok: boolean;
+  message: string;
+  state: EducationState;
 }
 
 export interface DocumentBookmark {
@@ -492,6 +550,15 @@ export interface OutpostBridge {
   removeDocumentNote(documentId: string, noteId: string): Promise<DocumentDetails>;
   saveDocumentAnnotation(documentId: string, annotation: DocumentAnnotationInput): Promise<DocumentDetails>;
   removeDocumentAnnotation(documentId: string, annotationId: string): Promise<DocumentDetails>;
+  runDocumentOcr(documentId: string): Promise<OcrOperationResult>;
+  getDocumentOcrProgress(documentId: string): Promise<OcrProgress>;
+  cancelDocumentOcr(documentId: string): Promise<OcrProgress>;
+  getEducation(): Promise<EducationState>;
+  importEducationCourse(): Promise<EducationOperationResult>;
+  addStarterCourse(): Promise<EducationOperationResult>;
+  getEducationLesson(courseId: string, lessonId: string): Promise<EducationLesson>;
+  setEducationLessonComplete(courseId: string, lessonId: string, completed: boolean): Promise<EducationState>;
+  removeEducationCourse(courseId: string): Promise<EducationOperationResult>;
   getNotes(): Promise<NotesState>;
   saveNote(note: NoteInput): Promise<PortableNote>;
   deleteNote(noteId: string): Promise<NotesState>;

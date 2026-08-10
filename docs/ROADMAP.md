@@ -45,7 +45,7 @@
 - [x] Separate annotations that never alter the source document
 - [x] Confirmed single-document removal with source-copy protection
 - [x] Responsive document library, reader, and inspector layout
-- [ ] Optional OCR module for scanned images and image-only PDFs
+- [x] Bundled offline English OCR for images and image-only PDF pages with progress, cancellation, and search indexing
 - [ ] Optional Office conversion/preview module
 
 ## Update milestone follow-up
@@ -101,6 +101,18 @@
 - [ ] Custom user-authored map layers
 - [ ] QR generation and image-based QR scanning
 - [ ] File checksum picker and CSV/XML specialized viewers
+
+## Phase 7 - Offline education
+
+- [x] Drive-contained course folders with validated manifests and Markdown/text lessons
+- [x] Native folder import that copies only declared lesson files
+- [x] Offline lesson reader with course navigation and estimated duration
+- [x] Portable SQLite completion tracking and progress summaries
+- [x] Small optional starter course
+- [x] Confirmed course removal scoped to the selected copied course
+- [ ] Quiz question format and scored attempts
+- [ ] Optional course media and captions
+- [ ] Signed downloadable course catalog
 
 ## Phase 10 - Offline medication reference
 

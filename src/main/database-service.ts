@@ -158,6 +158,22 @@ const MIGRATIONS: Migration[] = [
       )`,
     ],
   },
+  {
+    version: 6,
+    statements: [
+      `ALTER TABLE documents ADD COLUMN ocr_status TEXT NOT NULL DEFAULT 'not-run'
+        CHECK (ocr_status IN ('not-run', 'running', 'complete', 'error'))`,
+      `ALTER TABLE documents ADD COLUMN ocr_updated_at TEXT`,
+      `ALTER TABLE documents ADD COLUMN ocr_error TEXT`,
+      `CREATE TABLE IF NOT EXISTS education_progress (
+        course_id TEXT NOT NULL,
+        lesson_id TEXT NOT NULL,
+        completed INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0, 1)),
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (course_id, lesson_id)
+      ) STRICT`,
+    ],
+  },
 ];
 
 export class DatabaseService {
@@ -177,6 +193,7 @@ export class DatabaseService {
       applied_at TEXT NOT NULL
     ) STRICT`);
     this.migrate();
+    this.database.exec(`UPDATE documents SET ocr_status = 'not-run', ocr_error = NULL WHERE ocr_status = 'running'`);
   }
 
   private migrate(): void {
@@ -266,7 +283,10 @@ export class DatabaseService {
         file_name = excluded.file_name, format = excluded.format, size = excluded.size,
         modified_at = excluded.modified_at,
         index_status = CASE WHEN documents.sha256 = excluded.sha256 THEN documents.index_status ELSE 'not-indexed' END,
-        index_error = CASE WHEN documents.sha256 = excluded.sha256 THEN documents.index_error ELSE NULL END`)
+        index_error = CASE WHEN documents.sha256 = excluded.sha256 THEN documents.index_error ELSE NULL END,
+        ocr_status = CASE WHEN documents.sha256 = excluded.sha256 THEN documents.ocr_status ELSE 'not-run' END,
+        ocr_updated_at = CASE WHEN documents.sha256 = excluded.sha256 THEN documents.ocr_updated_at ELSE NULL END,
+        ocr_error = CASE WHEN documents.sha256 = excluded.sha256 THEN documents.ocr_error ELSE NULL END`)
       .run(record.id, record.relativePath, record.sha256, record.title, record.fileName, record.format,
         record.size, record.modifiedAt, record.addedAt);
   }
@@ -302,8 +322,35 @@ export class DatabaseService {
       addedAt: String(row.added_at), lastOpenedAt: row.last_opened_at ? String(row.last_opened_at) : null,
       currentPage: Number(row.current_page), pageCount: Number(row.page_count), favorite: Number(row.favorite) === 1,
       indexStatus: row.index_status as DocumentSummary['indexStatus'], indexError: row.index_error ? String(row.index_error) : null,
+      ocrStatus: row.ocr_status as DocumentSummary['ocrStatus'], ocrUpdatedAt: row.ocr_updated_at ? String(row.ocr_updated_at) : null,
+      ocrError: row.ocr_error ? String(row.ocr_error) : null,
       indexedPages: Number(indexed.count), tags, collections,
     };
+  }
+
+  documentPages(documentId: string): Array<{ page: number; text: string }> {
+    return (this.database.prepare('SELECT page_number, text FROM document_pages WHERE document_id = ? ORDER BY page_number').all(documentId) as Array<{ page_number: number; text: string }>)
+      .map((row) => ({ page: row.page_number, text: row.text }));
+  }
+
+  setDocumentOcrStatus(documentId: string, status: DocumentSummary['ocrStatus'], error: string | null = null): void {
+    this.database.prepare('UPDATE documents SET ocr_status = ?, ocr_updated_at = ?, ocr_error = ? WHERE id = ?')
+      .run(status, status === 'not-run' ? null : new Date().toISOString(), error, documentId);
+  }
+
+  educationProgress(): Array<{ courseId: string; lessonId: string; completed: boolean }> {
+    return (this.database.prepare('SELECT course_id, lesson_id, completed FROM education_progress').all() as Array<{ course_id: string; lesson_id: string; completed: number }>)
+      .map((row) => ({ courseId: row.course_id, lessonId: row.lesson_id, completed: row.completed === 1 }));
+  }
+
+  setEducationLessonComplete(courseId: string, lessonId: string, completed: boolean): void {
+    this.database.prepare(`INSERT INTO education_progress (course_id, lesson_id, completed, updated_at)
+      VALUES (?, ?, ?, ?) ON CONFLICT(course_id, lesson_id) DO UPDATE SET completed = excluded.completed, updated_at = excluded.updated_at`)
+      .run(courseId, lessonId, completed ? 1 : 0, new Date().toISOString());
+  }
+
+  removeEducationProgress(courseId: string): void {
+    this.database.prepare('DELETE FROM education_progress WHERE course_id = ?').run(courseId);
   }
 
   setDocumentIndexStatus(documentId: string, status: DocumentSummary['indexStatus'], error: string | null = null): void {

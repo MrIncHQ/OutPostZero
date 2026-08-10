@@ -1,8 +1,6 @@
 import type { ModuleOperationResult, ModuleSummary } from '../shared/contracts';
 
 const plannedModules: ModuleSummary[] = [
-  { id: 'education', name: 'Education Center', description: 'Drive-contained courses, lessons, and learning progress.', status: 'available-later', optional: true },
-  { id: 'ocr', name: 'OCR Pack', description: 'Extract searchable text from image-only documents.', status: 'available-later', optional: true },
   { id: 'local-ai', name: 'Local AI Assistant', description: 'Optional portable AI runtime and user-selected model.', status: 'available-later', optional: true },
 ];
 

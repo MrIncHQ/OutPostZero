@@ -6,6 +6,7 @@ const NotesView = lazy(() => import('./NotesView').then((module) => ({ default: 
 const MapsView = lazy(() => import('./MapsView').then((module) => ({ default: module.MapsView })));
 const RelayView = lazy(() => import('./RelayView').then((module) => ({ default: module.RelayView })));
 const ToolsView = lazy(() => import('./ToolsView').then((module) => ({ default: module.ToolsView })));
+const LearningView = lazy(() => import('./LearningView').then((module) => ({ default: module.LearningView })));
 
 type ViewId = 'home' | 'library' | 'documents' | 'maps' | 'learning' | 'notes' |
   'media' | 'relay' | 'tools' | 'modules' | 'downloads' | 'storage' | 'settings' | 'updates';
@@ -21,7 +22,6 @@ const navigation: Array<{ id: ViewId; label: string }> = [
 ];
 
 const comingSoon: Partial<Record<ViewId, { title: string; description: string; milestone: string }>> = {
-  learning: { title: 'Education center', description: 'Drive-contained lessons, courses, media, quizzes, and progress require no online account.', milestone: 'PHASE 7' },
   media: { title: 'Portable media library', description: 'Video, audio, images, playlists, metadata, and collections are planned after the core library.', milestone: 'LATER PHASE' },
   downloads: { title: 'Download manager', description: 'Queues, resume support, verification, and storage warnings activate with the first content module.', milestone: 'PHASE 4' },
 };
@@ -624,6 +624,7 @@ export default function App() {
     if (view === 'documents') return <DocumentsView requestedDocument={requestedDocument} onRequestHandled={clearRequestedDocument} />;
     if (view === 'notes') return <Suspense fallback={<section className="page-panel"><h2>Opening Notes...</h2></section>}><NotesView requestedNoteId={requestedNote} onRequestHandled={clearRequestedNote} /></Suspense>;
     if (view === 'maps') return <Suspense fallback={<section className="page-panel"><h2>Opening Maps...</h2></section>}><MapsView requestedPlaceId={requestedPlace} onRequestHandled={clearRequestedPlace} /></Suspense>;
+    if (view === 'learning') return <Suspense fallback={<section className="page-panel"><h2>Opening Education Center...</h2></section>}><LearningView /></Suspense>;
     if (view === 'relay') return <Suspense fallback={<section className="page-panel"><h2>Opening Local Relay...</h2></section>}><RelayView /></Suspense>;
     if (view === 'tools') return <Suspense fallback={<section className="page-panel"><h2>Opening Tools...</h2></section>}><ToolsView /></Suspense>;
     if (view === 'storage') return <StorageView storage={activeData.storage} onRefresh={refreshStorage} />;
