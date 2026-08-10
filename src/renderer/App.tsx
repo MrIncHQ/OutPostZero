@@ -421,7 +421,7 @@ function ModulesView({ modules, onModules }: { modules: ModuleSummary[]; onModul
     <section className="page-panel">
       <p className="section-label">MODULE CENTER</p>
       <h2>Expand this outpost.</h2>
-      <p className="page-intro">Signed modules install entirely on this drive. The process test proves lifecycle safety; the Offline Library Engine adds real Kiwix-powered ZIM browsing.</p>
+      <p className="page-intro">Optional signed engines install entirely on this drive. The Offline Library Engine provides Kiwix-powered ZIM browsing; future modules appear here only when they are ready.</p>
       {message && <div className="module-result" role="status">{message}</div>}
       <div className="module-list">
         {modules.map((module) => (

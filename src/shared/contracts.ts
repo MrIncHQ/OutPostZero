@@ -41,7 +41,6 @@ export interface ModuleSummary {
   startedAt?: string;
   health?: 'stopped' | 'healthy' | 'unhealthy';
   logPath?: string;
-  testModule?: boolean;
 }
 
 export interface ModuleOperationResult {

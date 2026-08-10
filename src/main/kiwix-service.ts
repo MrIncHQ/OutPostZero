@@ -6,7 +6,7 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { KiwixCatalogEntry, KiwixCatalogOption, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LibraryOperationResult, ModuleSummary, OfflineLibraryStatus, ZimContentSummary } from '../shared/contracts';
-import { MODULE_PACKAGE_PUBLIC_KEY } from './builtin-module-package';
+import { MODULE_PACKAGE_PUBLIC_KEY } from './module-trust';
 import { DatabaseService } from './database-service';
 import { KIWIX_PACKAGE } from './kiwix-package';
 import { PortablePathService } from './portable-path';

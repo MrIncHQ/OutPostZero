@@ -9,8 +9,6 @@ OUTPOST ZERO - PORTABLE WINDOWS BUILD
 5. Use the navigation, Storage Inspector, Module Center, Update Center,
    hardware diagnostics, and Settings.
    GitHub update checks occur only when you select CHECK FOR UPDATES.
-   In Module Center, install and start PORTABLE PROCESS TEST to verify the
-   signed module and child-process lifecycle before installing Kiwix.
    In Library, install the Kiwix engine and add the 41 KB test library to
    verify real offline ZIM browsing before downloading large archives.
    In Documents, choose IMPORT DOCUMENTS or copy files beneath Content/PDFs

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { MODULE_PACKAGE_PUBLIC_KEY } from '../src/main/builtin-module-package';
+import { MODULE_PACKAGE_PUBLIC_KEY } from '../src/main/module-trust';
 import { DatabaseService } from '../src/main/database-service';
 import { KIWIX_PACKAGE } from '../src/main/kiwix-package';
 import { hashFile, KiwixService, parseKiwixCatalog, parseKiwixCatalogFeed, parseKiwixMetalink, parseKiwixNavigation, validateKiwixPackagePath, verifyKiwixPackage } from '../src/main/kiwix-service';

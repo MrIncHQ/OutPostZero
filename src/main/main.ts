@@ -46,7 +46,7 @@ const profileService = new ProfileService(portablePaths);
 const storageService = new StorageService(portablePaths);
 const databaseService = new DatabaseService(portablePaths);
 const updateService = new UpdateService(databaseService, app.getVersion(), portablePaths);
-const moduleService = new ModuleService(databaseService, portablePaths);
+const moduleService = new ModuleService();
 const kiwixService = new KiwixService(databaseService, portablePaths);
 const documentService = new DocumentService(databaseService, portablePaths);
 const noteService = new NoteService(databaseService, portablePaths);
@@ -59,7 +59,7 @@ let isPrepared = false;
 let shutdownInProgress = false;
 
 function modules(): ModuleSummary[] {
-  return [kiwixService.summary(), ...moduleService.modules().filter((module) => module.id !== 'library-engine')];
+  return [kiwixService.summary(), ...moduleService.modules()];
 }
 
 function getStatus(): PortableStatus {
