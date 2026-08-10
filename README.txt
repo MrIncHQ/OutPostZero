@@ -18,6 +18,8 @@ OUTPOST ZERO - PORTABLE WINDOWS BUILD
    bookmarks, notes, and annotations work inside Outpost Zero without an
    installed browser or internet connection. Images and image-only PDFs can
    use bundled English OCR; recognized text is added to local document search.
+   Large scanned PDFs are processed in saved ten-page batches, while PDF pages
+   that already contain searchable text are skipped.
    Learning imports portable course folders containing course.json plus
    Markdown or text lessons. Course progress is stored only on this drive.
    Notes autosave Markdown on this drive and can carry local attachments.
