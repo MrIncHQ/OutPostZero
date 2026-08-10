@@ -475,6 +475,70 @@ export interface HardwareDiagnostics {
   gpuChecked: boolean;
 }
 
+export type AiTier = 'light' | 'balanced' | 'advanced' | 'expert';
+
+export interface AiModelState {
+  id: string;
+  name: string;
+  publisher: string;
+  license: string;
+  parameters: string;
+  quantization: string;
+  tier: AiTier;
+  contextLength: number;
+  downloadBytes: number;
+  minimumMemoryBytes: number;
+  recommendedMemoryBytes: number;
+  minimumLogicalCores: number;
+  installed: boolean;
+  selected: boolean;
+  recommended: boolean;
+  compatible: boolean;
+  compatibilityMessage: string;
+}
+
+export interface AiDownloadStatus {
+  state: 'idle' | 'downloading-runtime' | 'downloading-model' | 'verifying' | 'installing' | 'complete' | 'cancelled' | 'error';
+  itemId?: string;
+  title?: string;
+  downloadedBytes: number;
+  totalBytes: number;
+  message: string;
+}
+
+export interface AiState {
+  supportedHost: boolean;
+  hostMessage: string;
+  runtimeInstalled: boolean;
+  runtimeVersion: string;
+  running: boolean;
+  enabled: boolean;
+  selectedModelId: string | null;
+  recommendedModelId: string | null;
+  models: AiModelState[];
+  hardware: HardwareDiagnostics;
+  download: AiDownloadStatus;
+}
+
+export interface AiOperationResult {
+  ok: boolean;
+  message: string;
+  state: AiState;
+}
+
+export interface AiSource {
+  id: string;
+  kind: 'document' | 'kiwix';
+  title: string;
+  location: string;
+  excerpt: string;
+}
+
+export interface AiChatResult extends AiOperationResult {
+  response?: string;
+  sources?: AiSource[];
+}
+
 export interface UpdateStatus {
   currentVersion: string;
   provider: 'none' | 'github';
@@ -523,6 +587,16 @@ export interface OutpostBridge {
   updateProfile(displayName: string): Promise<LocalProfile>;
   refreshStorage(): Promise<StorageSummary>;
   refreshHardware(): Promise<HardwareDiagnostics>;
+  getAiState(): Promise<AiState>;
+  installAiRuntime(): Promise<AiOperationResult>;
+  downloadAiModel(modelId: string): Promise<AiOperationResult>;
+  getAiDownloadStatus(): Promise<AiDownloadStatus>;
+  cancelAiDownload(): Promise<AiDownloadStatus>;
+  selectAiModel(modelId: string | null): Promise<AiOperationResult>;
+  removeAiModel(modelId: string): Promise<AiOperationResult>;
+  startAi(): Promise<AiOperationResult>;
+  stopAi(): Promise<AiOperationResult>;
+  chatWithAi(messages: Array<{ role: 'user' | 'assistant'; content: string }>): Promise<AiChatResult>;
   checkDatabaseIntegrity(): Promise<boolean>;
   refreshModules(): Promise<ModuleSummary[]>;
   installModule(moduleId: string): Promise<ModuleOperationResult>;

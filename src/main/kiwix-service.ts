@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { spawn, type ChildProcess } from 'node:child_process';
-import type { KiwixCatalogEntry, KiwixCatalogOption, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LibraryOperationResult, ModuleSummary, OfflineLibraryStatus, ZimContentSummary } from '../shared/contracts';
+import type { AiSource, KiwixCatalogEntry, KiwixCatalogOption, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LibraryOperationResult, ModuleSummary, OfflineLibraryStatus, ZimContentSummary } from '../shared/contracts';
 import { MODULE_PACKAGE_PUBLIC_KEY } from './module-trust';
 import { DatabaseService } from './database-service';
 import { KIWIX_PACKAGE } from './kiwix-package';
@@ -53,6 +53,23 @@ function safeZimFileName(value: string): string {
   const decoded = decodeURIComponent(value);
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.zim$/i.test(decoded)) throw new Error('Kiwix catalog returned an unsafe ZIM filename.');
   return decoded;
+}
+
+function plainKiwixText(value: string): string {
+  return decodeXml(value.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+}
+
+export function parseKiwixSearchXml(xml: string): Array<{ title: string; link: string; excerpt: string }> {
+  const results: Array<{ title: string; link: string; excerpt: string }> = [];
+  for (const tag of ['item', 'entry']) {
+    for (const match of xml.matchAll(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi'))) {
+      const block = match[1]; const title = plainKiwixText(xmlText(block, 'title'));
+      const linkTag = block.match(/<link\b[^>]*>/i)?.[0] ?? ''; const link = xmlAttribute(linkTag, 'href') || plainKiwixText(xmlText(block, 'link'));
+      const excerpt = plainKiwixText(xmlText(block, 'description') || xmlText(block, 'summary') || xmlText(block, 'content'));
+      if (title && link && !results.some((result) => result.link === link)) results.push({ title, link, excerpt });
+    }
+  }
+  return results;
 }
 
 function positiveInteger(value: string): number {
@@ -314,6 +331,32 @@ export class KiwixService {
       serverUrl: this.active ? `http://127.0.0.1:${this.active.port}/` : undefined,
       content: this.scan(),
     };
+  }
+
+  async searchForAi(query: string, limit = 4): Promise<AiSource[]> {
+    const cleaned = query.trim().slice(0, 300); if (!cleaned || limit < 1 || !this.scan().length) return [];
+    if (!this.active) { const started = await this.start(); if (!started.ok || !this.active) return []; }
+    const base = new URL(`http://127.0.0.1:${this.active.port}/`); const candidates: Array<{ title: string; link: string; excerpt: string; library: string }> = [];
+    for (const content of this.scan().slice(0, 6)) {
+      try {
+        const endpoint = new URL('/search', base); endpoint.searchParams.set('pattern', cleaned); endpoint.searchParams.set('content', path.basename(content.fileName, '.zim').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ /g, '_').replace(/\+/g, 'plus')); endpoint.searchParams.set('pageLength', String(Math.min(3, limit))); endpoint.searchParams.set('format', 'xml');
+        const response = await this.fetchImpl(endpoint, { signal: AbortSignal.timeout(15_000) }); if (!response.ok) continue;
+        for (const result of parseKiwixSearchXml(await response.text())) candidates.push({ ...result, library: content.name });
+      } catch { /* A ZIM may not contain a full-text index. */ }
+      if (candidates.length >= limit * 2) break;
+    }
+    const sources: AiSource[] = [];
+    for (const candidate of candidates.slice(0, limit)) {
+      let excerpt = candidate.excerpt;
+      try {
+        const article = new URL(candidate.link, base); if (article.origin === base.origin) {
+          const response = await this.fetchImpl(article, { signal: AbortSignal.timeout(12_000) });
+          if (response.ok && (response.headers.get('content-type') ?? '').includes('text/html')) excerpt = plainKiwixText(await response.text()).slice(0, 3500) || excerpt;
+        }
+      } catch { /* Search snippet remains useful when an article cannot be expanded. */ }
+      if (excerpt) sources.push({ id: crypto.createHash('sha256').update(`${candidate.library}\0${candidate.link}`).digest('hex').slice(0, 16), kind: 'kiwix', title: candidate.title, location: `Kiwix · ${candidate.library}`, excerpt: excerpt.slice(0, 3500) });
+    }
+    return sources;
   }
 
   async removeContent(contentId: string): Promise<LibraryOperationResult> {

@@ -1,5 +1,14 @@
 # Roadmap
 
+## Phase 8 - Local AI assistant
+
+- Detect the connected computer before recommending or starting a model.
+- Keep the portable llama.cpp runtime and explicitly selected GGUF models under `AI/`.
+- Recommend a conservative model tier while still showing every available tier.
+- Re-check compatibility on every host and lock an installed model when the current computer cannot safely run it.
+- Keep model downloads, selection, and process startup explicit; local AI is never downloaded or enabled automatically.
+- Search indexed documents and installed Kiwix libraries before generation, pass only relevant read-only excerpts, and label the local sources used in each answer.
+
 ## Phase 0 - Prove portability
 
 - [x] Root marker detection

@@ -6,10 +6,15 @@ import test from 'node:test';
 import { MODULE_PACKAGE_PUBLIC_KEY } from '../src/main/module-trust';
 import { DatabaseService } from '../src/main/database-service';
 import { KIWIX_PACKAGE } from '../src/main/kiwix-package';
-import { hashFile, KiwixService, parseKiwixCatalog, parseKiwixCatalogFeed, parseKiwixMetalink, parseKiwixNavigation, validateKiwixPackagePath, verifyKiwixPackage } from '../src/main/kiwix-service';
+import { hashFile, KiwixService, parseKiwixCatalog, parseKiwixCatalogFeed, parseKiwixMetalink, parseKiwixNavigation, parseKiwixSearchXml, validateKiwixPackagePath, verifyKiwixPackage } from '../src/main/kiwix-service';
 import { PortablePathService } from '../src/main/portable-path';
 
 const archivePath = path.resolve('VendorCache', 'kiwix-tools_win-x86_64-3.8.1.zip');
+
+test('parses Kiwix full-text XML results into local AI sources', () => {
+  const results = parseKiwixSearchXml('<rss><channel><item><title>Water purification</title><link>/content/wiki/Water</link><description>Methods &amp; safety notes</description></item></channel></rss>');
+  assert.deepEqual(results, [{ title: 'Water purification', link: '/content/wiki/Water', excerpt: 'Methods & safety notes' }]);
+});
 const samplePath = path.resolve('VendorCache', 'openzim-small.zim');
 
 function makeRuntime() {

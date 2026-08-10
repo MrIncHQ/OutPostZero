@@ -1,8 +1,6 @@
 import type { ModuleOperationResult, ModuleSummary } from '../shared/contracts';
 
-const plannedModules: ModuleSummary[] = [
-  { id: 'local-ai', name: 'Local AI Assistant', description: 'Optional portable AI runtime and user-selected model.', status: 'available-later', optional: true },
-];
+const plannedModules: ModuleSummary[] = [];
 
 export class ModuleService {
   modules(): ModuleSummary[] {

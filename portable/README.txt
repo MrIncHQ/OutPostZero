@@ -34,6 +34,15 @@ OUTPOST ZERO - PORTABLE WINDOWS BUILD
    Outposts connected to the same local network, compare the displayed
    verification code, then mark the device verified. Received files are saved
    only to a selected library folder on this portable drive.
+   Local AI is optional and never downloads or starts automatically. Open
+   Local AI to inspect the connected computer, install the portable llama.cpp
+   runtime, and choose one verified model. Outpost Zero recommends a safe tier
+   from the current CPU and RAM but still shows every model. If this drive is
+   moved to a weaker computer, an incompatible installed model is kept but
+   locked until you select a supported lower tier or no model. Questions can
+   use read-only matches from indexed documents and installed Kiwix libraries;
+   the answer displays the local sources it received. AI output can be wrong,
+   so verify important medical, legal, safety, and technical guidance.
 6. Before unplugging the drive, choose PREPARE DRIVE FOR REMOVAL in the app,
    close Outpost Zero, and use Windows Safely Remove Hardware.
 

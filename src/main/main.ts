@@ -18,6 +18,7 @@ import { RelayService } from './relay-service';
 import { UnifiedSearchService } from './unified-search-service';
 import { EducationService } from './education-service';
 import { OcrService } from './ocr-service';
+import { AiService } from './ai-service';
 import { responseHeadersForUrl } from './security-policy';
 import type { BootstrapData, ModuleOperationResult, ModuleSummary, PortableStatus } from '../shared/contracts';
 
@@ -58,12 +59,21 @@ const mapHelperPath = app.isPackaged ? path.join(process.resourcesPath, 'pmtiles
 const mapFontRoot = path.join(app.getAppPath(), 'vendor', 'map-assets', 'fonts');
 const mapService = new MapService(databaseService, portablePaths, { helperPath: mapHelperPath });
 const relayService = new RelayService(profileService, portablePaths);
+const aiService = new AiService(portablePaths, () => collectHardwareDiagnostics(app.getGPUInfo('complete')), globalThis.fetch, async (query) => {
+  const documentMatches = documentService.search(query); const seen = new Set(documentMatches.map((result) => `${result.documentId}:${result.page}`));
+  for (const token of query.toLocaleLowerCase().match(/[\p{L}\p{N}]{4,}/gu)?.filter((token) => !['what', 'when', 'where', 'which', 'with', 'from', 'does', 'about', 'have', 'that', 'this'].includes(token)).slice(0, 5) ?? []) {
+    for (const result of documentService.search(token)) { const key = `${result.documentId}:${result.page}`; if (!seen.has(key)) { seen.add(key); documentMatches.push(result); } }
+  }
+  const documents = documentMatches.slice(0, 5).map((result, index) => ({ id: `document-${result.documentId}-${result.page}-${index}`, kind: 'document' as const, title: result.title, location: `Document page ${result.page}`, excerpt: result.excerpt }));
+  const kiwix = await kiwixService.searchForAi(query, Math.max(0, 8 - documents.length));
+  return [...documents, ...kiwix];
+});
 const unifiedSearchService = new UnifiedSearchService(databaseService, documentService);
 let isPrepared = false;
 let shutdownInProgress = false;
 
 function modules(): ModuleSummary[] {
-  return [kiwixService.summary(), ...moduleService.modules()];
+  return [kiwixService.summary(), aiService.summary(), ...moduleService.modules()];
 }
 
 function getStatus(): PortableStatus {
@@ -155,6 +165,28 @@ ipcMain.handle('outpost:update-profile', (_event, displayName: unknown) => {
 });
 ipcMain.handle('outpost:refresh-storage', () => storageService.summarize());
 ipcMain.handle('outpost:refresh-hardware', () => collectHardwareDiagnostics(app.getGPUInfo('basic')));
+ipcMain.handle('outpost:get-ai-state', () => aiService.state());
+ipcMain.handle('outpost:install-ai-runtime', () => aiService.installRuntime());
+ipcMain.handle('outpost:get-ai-download-status', () => aiService.downloadStatus());
+ipcMain.handle('outpost:download-ai-model', (_event, value: unknown) => {
+  if (typeof value !== 'string' || !/^[a-z0-9.-]{1,64}$/.test(value)) throw new Error('AI model identifier is invalid.');
+  return aiService.downloadModel(value);
+});
+ipcMain.handle('outpost:cancel-ai-download', () => aiService.cancelDownload());
+ipcMain.handle('outpost:select-ai-model', (_event, value: unknown) => {
+  if (value !== null && (typeof value !== 'string' || !/^[a-z0-9.-]{1,64}$/.test(value))) throw new Error('AI model identifier is invalid.');
+  return aiService.selectModel(value);
+});
+ipcMain.handle('outpost:remove-ai-model', (_event, value: unknown) => {
+  if (typeof value !== 'string' || !/^[a-z0-9.-]{1,64}$/.test(value)) throw new Error('AI model identifier is invalid.');
+  return aiService.removeModel(value);
+});
+ipcMain.handle('outpost:start-ai', () => aiService.start());
+ipcMain.handle('outpost:stop-ai', () => aiService.stop());
+ipcMain.handle('outpost:chat-with-ai', (_event, value: unknown) => {
+  if (!Array.isArray(value)) throw new Error('AI chat history is invalid.');
+  return aiService.chat(value as Array<{ role: 'user' | 'assistant'; content: string }>);
+});
 ipcMain.handle('outpost:check-database-integrity', () => databaseService.integrityCheck());
 ipcMain.handle('outpost:refresh-modules', () => modules());
 function moduleId(value: unknown): string {
@@ -170,6 +202,14 @@ async function moduleAction(action: 'install' | 'start' | 'stop' | 'repair' | 'u
           : action === 'repair' ? await kiwixService.repair()
             : await kiwixService.uninstall();
     return { ...result, modules: modules() };
+  }
+  if (id === 'local-ai') {
+    const result = action === 'install' ? await aiService.installRuntime()
+      : action === 'start' ? await aiService.start()
+        : action === 'stop' ? await aiService.stop()
+          : action === 'repair' ? await aiService.installRuntime()
+            : await aiService.removeRuntime();
+    return { ok: result.ok, message: result.message, modules: modules() };
   }
   const result = action === 'install' ? await moduleService.install(id)
     : action === 'start' ? await moduleService.start(id)
@@ -407,7 +447,7 @@ ipcMain.handle('outpost:search-outpost', (_event, query: unknown) => {
 ipcMain.handle('outpost:check-updates', () => updateService.check());
 ipcMain.handle('outpost:download-update', () => updateService.download());
 ipcMain.handle('outpost:apply-update', async () => {
-  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
+  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), aiService.shutdown(), mapService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
   await databaseService.createRotatingBackup();
   const result = await updateService.apply(process.pid);
   if (result.status === 'launching') {
@@ -419,7 +459,7 @@ ipcMain.handle('outpost:apply-update', async () => {
   return result;
 });
 ipcMain.handle('outpost:prepare-removal', async () => {
-  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
+  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), aiService.shutdown(), mapService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
   await session.defaultSession.clearCache();
   await databaseService.createRotatingBackup();
   databaseService.close();
@@ -463,10 +503,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', (event) => {
-  if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess() || mapService.hasActiveDownload() || relayService.isRunning() || ocrService.hasActiveJobs()) && !shutdownInProgress) {
+  if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess() || aiService.hasRunningProcess() || mapService.hasActiveDownload() || relayService.isRunning() || ocrService.hasActiveJobs()) && !shutdownInProgress) {
     event.preventDefault();
     shutdownInProgress = true;
-    void Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown(), relayService.stop(), ocrService.cancelAll()]).finally(() => app.quit());
+    void Promise.all([moduleService.stopAll(), kiwixService.shutdown(), aiService.shutdown(), mapService.shutdown(), relayService.stop(), ocrService.cancelAll()]).finally(() => app.quit());
     return;
   }
   databaseService.close();

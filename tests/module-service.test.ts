@@ -6,13 +6,13 @@ test('shows only real and planned optional modules', () => {
   const service = new ModuleService();
   const modules = service.modules();
 
-  assert.deepEqual(modules.map((module) => module.id), ['local-ai']);
+  assert.deepEqual(modules.map((module) => module.id), []);
   assert.equal(modules.some((module) => module.id === 'offline-maps'), false);
   assert.equal(modules.some((module) => module.id === 'portable-process-test'), false);
   assert.equal(modules.every((module) => module.status === 'available-later'), true);
 });
 
-test('planned modules cannot be operated before release', async () => {
+test('unknown modules cannot be operated', async () => {
   const service = new ModuleService();
 
   assert.equal((await service.install('local-ai')).ok, false);
@@ -27,6 +27,6 @@ test('planned modules cannot be operated before release', async () => {
 test('module summaries are returned as independent values', () => {
   const service = new ModuleService();
   const first = service.modules();
-  first[0].name = 'Changed';
-  assert.equal(service.modules()[0].name, 'Local AI Assistant');
+  first.push({ id: 'changed', name: 'Changed', description: '', status: 'available-later', optional: true });
+  assert.deepEqual(service.modules(), []);
 });

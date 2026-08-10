@@ -1,6 +1,7 @@
 import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import type { BootstrapData, KiwixCatalogEntry, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary, UnifiedSearchResult } from '../shared/contracts';
 import { DocumentsView } from './DocumentsView';
+import { AiView } from './AiView';
 
 const NotesView = lazy(() => import('./NotesView').then((module) => ({ default: module.NotesView })));
 const MapsView = lazy(() => import('./MapsView').then((module) => ({ default: module.MapsView })));
@@ -9,7 +10,7 @@ const ToolsView = lazy(() => import('./ToolsView').then((module) => ({ default: 
 const LearningView = lazy(() => import('./LearningView').then((module) => ({ default: module.LearningView })));
 
 type ViewId = 'home' | 'library' | 'documents' | 'maps' | 'learning' | 'notes' |
-  'media' | 'relay' | 'tools' | 'modules' | 'downloads' | 'storage' | 'settings' | 'updates';
+  'media' | 'relay' | 'tools' | 'ai' | 'modules' | 'downloads' | 'storage' | 'settings' | 'updates';
 
 const navigation: Array<{ id: ViewId; label: string }> = [
   { id: 'home', label: 'Home' }, { id: 'library', label: 'Library' },
@@ -17,6 +18,7 @@ const navigation: Array<{ id: ViewId; label: string }> = [
   { id: 'maps', label: 'Maps' }, { id: 'learning', label: 'Learning' },
   { id: 'notes', label: 'Notes' }, { id: 'media', label: 'Media' },
   { id: 'relay', label: 'Local Relay' }, { id: 'tools', label: 'Tools' },
+  { id: 'ai', label: 'Local AI' },
   { id: 'modules', label: 'Modules' }, { id: 'downloads', label: 'Downloads' },
   { id: 'updates', label: 'Updates' },
 ];
@@ -511,7 +513,7 @@ function SettingsView({ data, onProfile, onHardware, onDatabaseIntegrity, go }: 
         <div><dt>Platform</dt><dd>{data.status.platform} / {data.status.architecture}</dd></div>
         <div><dt>Version</dt><dd>v{data.status.version}</dd></div>
         <div><dt>Telemetry</dt><dd>Disabled</dd></div>
-        <div><dt>AI</dt><dd>Not installed</dd></div>
+        <div><dt>AI</dt><dd>{data.modules.find((module) => module.id === 'local-ai')?.status ?? 'Not installed'}</dd></div>
         <div><dt>Database</dt><dd>Schema {data.database.schemaVersion} / {data.database.integrityOk === null ? 'Not checked this session' : data.database.integrityOk ? 'Integrity OK' : 'Check failed'}</dd></div>
       </dl>
       <button className="secondary-button" onClick={() => void onDatabaseIntegrity()}>CHECK DATABASE INTEGRITY</button>
@@ -643,6 +645,7 @@ export default function App() {
     if (view === 'learning') return <Suspense fallback={<section className="page-panel"><h2>Opening Education Center...</h2></section>}><LearningView /></Suspense>;
     if (view === 'relay') return <Suspense fallback={<section className="page-panel"><h2>Opening Local Relay...</h2></section>}><RelayView /></Suspense>;
     if (view === 'tools') return <Suspense fallback={<section className="page-panel"><h2>Opening Tools...</h2></section>}><ToolsView /></Suspense>;
+    if (view === 'ai') return <AiView onModules={(modules) => setData({ ...activeData, modules })} />;
     if (view === 'storage') return <StorageView storage={activeData.storage} onRefresh={refreshStorage} />;
     if (view === 'modules') return <ModulesView modules={activeData.modules} onModules={(modules) => setData({ ...activeData, modules })} />;
     if (view === 'updates') return <UpdatesView data={activeData} />;
@@ -671,7 +674,7 @@ export default function App() {
         {data.status.recoveredFromUncleanShutdown && <div className="warning">The previous session ended unexpectedly. Portable state was recovered.</div>}
         {renderView()}
         <footer>
-          <div className="global-status"><span>OFFLINE</span><i />0 OUTPOSTS NEARBY<i />{formatBytes(data.storage.freeBytes)} FREE<i />AI: NOT INSTALLED</div>
+          <div className="global-status"><span>OFFLINE</span><i />0 OUTPOSTS NEARBY<i />{formatBytes(data.storage.freeBytes)} FREE<i />AI: {data.modules.find((module) => module.id === 'local-ai')?.status.replace('-', ' ').toUpperCase() ?? 'NOT INSTALLED'}</div>
           <button className="eject-button" onClick={prepareForRemoval}>PREPARE DRIVE FOR REMOVAL</button>
         </footer>
         {removalMessage && <div className="toast" role="status">✓ {removalMessage}</div>}
