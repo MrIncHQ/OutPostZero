@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import type { MapDownloadRequest, MapDownloadStatus, MapLocationResult, MapPackage, MapPlaceInput, MapsState } from '../shared/contracts';
+
+maplibregl.setWorkerUrl(maplibreWorkerUrl);
 
 function formatBytes(bytes: number): string { return bytes < 1024 ** 3 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${(bytes / 1024 ** 3).toFixed(1)} GB`; }
 function estimatedMapBytes(radiusKilometers: number, latitude: number, maxZoom: number): number {
@@ -22,7 +25,9 @@ function measurement(a: [number, number], b: [number, number]): { distance: stri
 
 export function MapsView({ requestedPlaceId, onRequestHandled }: { requestedPlaceId?: string; onRequestHandled?: () => void }) {
   const container = useRef<HTMLDivElement>(null); const mapRef = useRef<maplibregl.Map | undefined>(undefined); const markers = useRef<maplibregl.Marker[]>([]);
+  const firstRenderedTile = useRef(false);
   const [state, setState] = useState<MapsState>(); const [selectedPackage, setSelectedPackage] = useState<MapPackage>();
+  const [mapReady, setMapReady] = useState(false);
   const [cursor, setCursor] = useState<[number, number]>([-98.5795, 39.8283]); const [zoom, setZoom] = useState(3);
   const [measureMode, setMeasureMode] = useState(false); const measureModeRef = useRef(false); const measureStart = useRef<[number, number] | undefined>(undefined); const [measureResult, setMeasureResult] = useState('');
   const [place, setPlace] = useState<MapPlaceInput>({ name: '', latitude: 39.8283, longitude: -98.5795, note: '', favorite: false });
@@ -36,6 +41,18 @@ export function MapsView({ requestedPlaceId, onRequestHandled }: { requestedPlac
   async function refresh() { const next = await window.outpost.getMaps(); setState(next); return next; }
   useEffect(() => { void refresh(); }, []);
   useEffect(() => {
+    maplibregl.addProtocol('outpost-tile', async (request) => {
+      const match = /^outpost-tile:\/\/package\/([A-F0-9]{24})\/(\d+)\/(\d+)\/(\d+)$/i.exec(request.url);
+      if (!match) throw new Error('The offline map requested an invalid tile address.');
+      const bytes = await window.outpost.getMapTile(match[1], Number(match[2]), Number(match[3]), Number(match[4]));
+      if (!bytes) return { data: new ArrayBuffer(0) };
+      const view = new Uint8Array(bytes);
+      if (!firstRenderedTile.current) { firstRenderedTile.current = true; setMessage('Drawing offline map tiles...'); }
+      return { data: view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) };
+    });
+    return () => maplibregl.removeProtocol('outpost-tile');
+  }, []);
+  useEffect(() => {
     if (!['resolving', 'downloading', 'verifying'].includes(downloadStatus.state)) return;
     const timer = window.setInterval(() => { void window.outpost.getMapDownloadStatus().then(setDownloadStatus); }, 500);
     return () => window.clearInterval(timer);
@@ -44,6 +61,8 @@ export function MapsView({ requestedPlaceId, onRequestHandled }: { requestedPlac
     if (!container.current || mapRef.current) return;
     const map = new maplibregl.Map({ container: container.current, style: { version: 8, sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#101713' } }] }, center: cursor, zoom, attributionControl: false });
     map.addControl(new maplibregl.NavigationControl(), 'top-right'); map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+    map.once('load', () => setMapReady(true));
+    map.on('error', (event) => setMessage(`Map rendering failed: ${event.error?.message ?? 'the selected tile could not be drawn.'}`));
     map.on('mousemove', (event: maplibregl.MapMouseEvent) => setCursor([event.lngLat.lng, event.lngLat.lat])); map.on('zoomend', () => setZoom(map.getZoom()));
     map.on('click', (event: maplibregl.MapMouseEvent) => {
       const point: [number, number] = [event.lngLat.lng, event.lngLat.lat]; setCursor(point); setPlace((current) => ({ ...current, latitude: point[1], longitude: point[0] }));
@@ -55,7 +74,7 @@ export function MapsView({ requestedPlaceId, onRequestHandled }: { requestedPlac
       if (source) source.setData(data); else { map.addSource('measurement', { type: 'geojson', data }); map.addLayer({ id: 'measurement-line', type: 'line', source: 'measurement', paint: { 'line-color': '#e0a44f', 'line-width': 3, 'line-dasharray': [2, 2] } }); }
       measureStart.current = undefined;
     });
-    mapRef.current = map; return () => { map.remove(); mapRef.current = undefined; };
+    mapRef.current = map; return () => { setMapReady(false); map.remove(); mapRef.current = undefined; };
   }, []);
 
   useEffect(() => {
@@ -68,7 +87,7 @@ export function MapsView({ requestedPlaceId, onRequestHandled }: { requestedPlac
   }, [state, requestedPlaceId, onRequestHandled]);
 
   async function loadPackage(item: MapPackage) {
-    const map = mapRef.current; if (!map) return; setSelectedPackage(item); setMessage(`Opening ${item.title}...`);
+    const map = mapRef.current; if (!map) return; firstRenderedTile.current = false; setSelectedPackage(item); setMessage(`Opening ${item.title}...`);
     try {
       if (item.tileType === 'vector') {
           const layers: maplibregl.LayerSpecification[] = [];
@@ -77,14 +96,14 @@ export function MapsView({ requestedPlaceId, onRequestHandled }: { requestedPlac
             layers.push({ id: `mb-line-${index}`, type: 'line', source: 'offline', 'source-layer': sourceLayer, filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': index % 3 ? '#8c9c91' : '#d2a15c', 'line-width': 1.2 } });
             layers.push({ id: `mb-point-${index}`, type: 'circle', source: 'offline', 'source-layer': sourceLayer, filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-color': '#d8a65e', 'circle-radius': 3 } });
           });
-          map.setStyle({ version: 8, sources: { offline: { type: 'vector', tiles: [`outpost-map://tile/${item.id}/{z}/{x}/{y}`], minzoom: item.minZoom, maxzoom: item.maxZoom } }, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#101713' } }, ...layers] });
-      } else if (item.tileType === 'raster') map.setStyle({ version: 8, sources: { offline: { type: 'raster', tiles: [`outpost-map://tile/${item.id}/{z}/{x}/{y}`], tileSize: 256, minzoom: item.minZoom, maxzoom: item.maxZoom } }, layers: [{ id: 'offline-raster', type: 'raster', source: 'offline' }] });
+          map.setStyle({ version: 8, sources: { offline: { type: 'vector', tiles: [`outpost-tile://package/${item.id}/{z}/{x}/{y}`], minzoom: item.minZoom, maxzoom: item.maxZoom } }, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#101713' } }, ...layers] });
+      } else if (item.tileType === 'raster') map.setStyle({ version: 8, sources: { offline: { type: 'raster', tiles: [`outpost-tile://package/${item.id}/{z}/{x}/{y}`], tileSize: 256, minzoom: item.minZoom, maxzoom: item.maxZoom } }, layers: [{ id: 'offline-raster', type: 'raster', source: 'offline' }] });
       else throw new Error('This map package uses an unsupported tile format.');
       if (item.bounds) map.fitBounds([[item.bounds[0], item.bounds[1]], [item.bounds[2], item.bounds[3]]], { padding: 30, duration: 0 });
-      setMessage(`${item.title} is being served entirely from this drive.`);
+      map.once('idle', () => setMessage(`${item.title} is loaded entirely from this drive.`));
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not open this map package.'); }
   }
-  useEffect(() => { if (!selectedPackage && state?.packages[0] && mapRef.current) void loadPackage(state.packages[0]); }, [state, selectedPackage]);
+  useEffect(() => { if (!selectedPackage && state?.packages[0] && mapRef.current && mapReady) void loadPackage(state.packages[0]); }, [state, selectedPackage, mapReady]);
 
   async function savePlace() { const saved = await window.outpost.saveMapPlace(place); const next = await refresh(); setPlace(saved); setState(next); setMessage(`${saved.name} saved on this drive.`); }
   async function deletePlace() { if (!place.id) return; setState(await window.outpost.deleteMapPlace(place.id)); setPlace({ name: '', latitude: cursor[1], longitude: cursor[0], note: '', favorite: false }); }

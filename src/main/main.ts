@@ -270,6 +270,11 @@ ipcMain.handle('outpost:export-note', async (_event, noteId: unknown) => {
   fs.writeFileSync(target.filePath, exported.content, 'utf8'); return { ok: true, message: 'Markdown note exported.' };
 });
 ipcMain.handle('outpost:get-maps', () => mapService.reconcile());
+ipcMain.handle('outpost:get-map-tile', async (_event, packageId: unknown, z: unknown, x: unknown, y: unknown) => {
+  if (typeof packageId !== 'string' || ![z, x, y].every((value) => typeof value === 'number' && Number.isSafeInteger(value))) throw new Error('Map tile coordinates are invalid.');
+  const tile = await mapService.tile(packageId, z as number, x as number, y as number);
+  return tile?.bytes ?? null;
+});
 ipcMain.handle('outpost:import-map-packages', async () => {
   const selection = await dialog.showOpenDialog({ title: 'Add an offline map package', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Offline maps', extensions: ['pmtiles', 'mbtiles'] }] });
   return selection.canceled ? { ok: true, message: 'Import cancelled.', state: mapService.state() } : mapService.importPackages(selection.filePaths);

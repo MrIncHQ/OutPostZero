@@ -21,6 +21,13 @@ test('offline map protocol permits cross-origin range fetches from the packaged 
   assert.match(main, /scheme: 'outpost-map'[\s\S]*?supportFetchAPI: true, corsEnabled: true/);
 });
 
+test('offline map tiles cross the context-isolated bridge without browser fetches', () => {
+  const main = fs.readFileSync('src/main/main.ts', 'utf8');
+  const preload = fs.readFileSync('src/main/preload.ts', 'utf8');
+  assert.match(main, /ipcMain\.handle\('outpost:get-map-tile'/);
+  assert.match(preload, /getMapTile:.*ipcRenderer\.invoke\('outpost:get-map-tile'/);
+});
+
 test('applies the renderer policy only to Outpost Zero files', () => {
   const headers = responseHeadersForUrl('file:///portable/resources/app.asar/index.html', { Existing: ['kept'] });
   assert.deepEqual(headers.Existing, ['kept']);

@@ -25,9 +25,13 @@ test('Notes exposes autosave, Markdown, templates, attachments, and export', () 
 });
 
 test('Maps and tools expose the core offline controls', () => {
-  for (const feature of ['PMTiles', 'outpost-map://tile', 'COPY COORDINATES', 'MEASURE', 'IMPORT GPX', 'EXPORT GPX', 'SAVE THIS PLACE', 'DOWNLOAD MAP', 'DOWNLOAD THIS CONFIRMED REGION', 'SEARCH LOCATIONS', 'LOCATION REQUIRED', 'ROUGH SIZE ESTIMATE', 'CANCEL DOWNLOAD']) assert.match(maps, new RegExp(feature));
+  for (const feature of ['PMTiles', 'outpost-tile://package', 'COPY COORDINATES', 'MEASURE', 'IMPORT GPX', 'EXPORT GPX', 'SAVE THIS PLACE', 'DOWNLOAD MAP', 'DOWNLOAD THIS CONFIRMED REGION', 'SEARCH LOCATIONS', 'LOCATION REQUIRED', 'ROUGH SIZE ESTIMATE', 'CANCEL DOWNLOAD']) assert.match(maps, new RegExp(feature));
+  assert.match(maps, /maplibre-gl-worker\.mjs\?worker&url/);
+  assert.match(maps, /setWorkerUrl\(maplibreWorkerUrl\)/);
+  assert.match(maps, /addProtocol\('outpost-tile'/);
+  assert.match(maps, /window\.outpost\.getMapTile/);
   assert.match(maps, /if \(added\) await loadPackage\(added\)/);
-  assert.match(maps, /if \(!selectedPackage && state\?\.packages\[0\] && mapRef\.current\) void loadPackage\(state\.packages\[0\]\)/);
+  assert.match(maps, /if \(!selectedPackage && state\?\.packages\[0\] && mapRef\.current && mapReady\) void loadPackage\(state\.packages\[0\]\)/);
   for (const feature of ['SCIENTIFIC CALCULATOR', 'UNIT CONVERTER', 'SHA-256', 'IPV4 SUBNET', 'COORDINATE CONVERTER', 'REGEX TESTER', 'PASSWORD GENERATOR']) assert.match(tools, new RegExp(feature));
 });
 
