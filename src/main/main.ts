@@ -14,6 +14,7 @@ import { KiwixService } from './kiwix-service';
 import { DocumentService } from './document-service';
 import { NoteService } from './note-service';
 import { MapService } from './map-service';
+import { RelayService } from './relay-service';
 import { UnifiedSearchService } from './unified-search-service';
 import { responseHeadersForUrl } from './security-policy';
 import type { BootstrapData, ModuleOperationResult, ModuleSummary, PortableStatus } from '../shared/contracts';
@@ -52,6 +53,7 @@ const noteService = new NoteService(databaseService, portablePaths);
 const mapHelperPath = app.isPackaged ? path.join(process.resourcesPath, 'pmtiles', 'pmtiles.exe') : path.join(app.getAppPath(), 'vendor', 'pmtiles', 'pmtiles.exe');
 const mapFontRoot = path.join(app.getAppPath(), 'vendor', 'map-assets', 'fonts');
 const mapService = new MapService(databaseService, portablePaths, { helperPath: mapHelperPath });
+const relayService = new RelayService(profileService, portablePaths);
 const unifiedSearchService = new UnifiedSearchService(databaseService, documentService);
 let isPrepared = false;
 let shutdownInProgress = false;
@@ -317,6 +319,47 @@ ipcMain.handle('outpost:export-gpx', async () => {
   if (target.canceled || !target.filePath) return { ok: true, message: 'Export cancelled.' };
   fs.writeFileSync(target.filePath, mapService.gpx(), 'utf8'); return { ok: true, message: 'Saved places exported as GPX.' };
 });
+ipcMain.handle('outpost:get-relay-state', () => relayService.state());
+ipcMain.handle('outpost:start-relay', () => relayService.start());
+ipcMain.handle('outpost:stop-relay', () => relayService.stop());
+ipcMain.handle('outpost:set-relay-history', (_event, enabled: unknown) => {
+  if (typeof enabled !== 'boolean') throw new Error('Relay history setting is invalid.');
+  return relayService.setHistory(enabled);
+});
+ipcMain.handle('outpost:verify-relay-peer', (_event, peerId: unknown) => {
+  if (typeof peerId !== 'string') throw new Error('Relay peer identifier is invalid.');
+  return relayService.verifyPeer(peerId);
+});
+ipcMain.handle('outpost:forget-relay-peer', (_event, peerId: unknown) => {
+  if (typeof peerId !== 'string') throw new Error('Relay peer identifier is invalid.');
+  return relayService.forgetPeer(peerId);
+});
+ipcMain.handle('outpost:send-relay-message', (_event, peerId: unknown, scope: unknown, body: unknown) => {
+  if (typeof peerId !== 'string' || (scope !== 'direct' && scope !== 'room') || typeof body !== 'string') throw new Error('Relay message is invalid.');
+  return relayService.sendMessage(peerId, scope, body);
+});
+ipcMain.handle('outpost:mark-relay-read', (_event, peerId: unknown, scope: unknown) => {
+  if (typeof peerId !== 'string' || (scope !== 'direct' && scope !== 'room')) throw new Error('Relay conversation is invalid.');
+  return relayService.markRead(peerId, scope);
+});
+ipcMain.handle('outpost:send-relay-file', async (_event, peerId: unknown) => {
+  if (typeof peerId !== 'string') throw new Error('Relay peer identifier is invalid.');
+  const selection = await dialog.showOpenDialog({ title: 'Send an encrypted file', properties: ['openFile'] });
+  if (selection.canceled || !selection.filePaths[0]) return { ok: true, message: 'File selection cancelled.', state: relayService.state() };
+  return relayService.sendFile(peerId, selection.filePaths[0]);
+});
+ipcMain.handle('outpost:accept-relay-file', (_event, transferId: unknown, destination: unknown) => {
+  if (typeof transferId !== 'string' || !['documents', 'media', 'custom'].includes(String(destination))) throw new Error('Relay file destination is invalid.');
+  return relayService.acceptFile(transferId, destination as 'documents' | 'media' | 'custom');
+});
+ipcMain.handle('outpost:decline-relay-file', (_event, transferId: unknown) => {
+  if (typeof transferId !== 'string') throw new Error('Relay transfer identifier is invalid.');
+  return relayService.declineFile(transferId);
+});
+ipcMain.handle('outpost:cancel-relay-transfer', (_event, transferId: unknown) => {
+  if (typeof transferId !== 'string') throw new Error('Relay transfer identifier is invalid.');
+  return relayService.cancelTransfer(transferId);
+});
 ipcMain.handle('outpost:search-outpost', (_event, query: unknown) => {
   if (typeof query !== 'string' || query.length > 200) throw new Error('Search query is invalid.');
   return unifiedSearchService.search(query);
@@ -324,7 +367,7 @@ ipcMain.handle('outpost:search-outpost', (_event, query: unknown) => {
 ipcMain.handle('outpost:check-updates', () => updateService.check());
 ipcMain.handle('outpost:download-update', () => updateService.download());
 ipcMain.handle('outpost:apply-update', async () => {
-  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown()]);
+  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown(), relayService.stop()]);
   await databaseService.createRotatingBackup();
   const result = await updateService.apply(process.pid);
   if (result.status === 'launching') {
@@ -336,7 +379,7 @@ ipcMain.handle('outpost:apply-update', async () => {
   return result;
 });
 ipcMain.handle('outpost:prepare-removal', async () => {
-  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown()]);
+  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown(), relayService.stop()]);
   await session.defaultSession.clearCache();
   await databaseService.createRotatingBackup();
   databaseService.close();
@@ -380,10 +423,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', (event) => {
-  if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess() || mapService.hasActiveDownload()) && !shutdownInProgress) {
+  if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess() || mapService.hasActiveDownload() || relayService.isRunning()) && !shutdownInProgress) {
     event.preventDefault();
     shutdownInProgress = true;
-    void Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown()]).finally(() => app.quit());
+    void Promise.all([moduleService.stopAll(), kiwixService.shutdown(), mapService.shutdown(), relayService.stop()]).finally(() => app.quit());
     return;
   }
   databaseService.close();

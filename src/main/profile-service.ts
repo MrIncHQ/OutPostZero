@@ -92,4 +92,14 @@ export class ProfileService {
     writeAtomic(this.profilePath, `${JSON.stringify(profile, null, 2)}\n`);
     return profile;
   }
+
+  publicKeyPem(): string {
+    if (!this.read() || !fs.existsSync(this.publicKeyPath)) throw new Error('A local identity is required for Local Relay.');
+    return fs.readFileSync(this.publicKeyPath, 'utf8');
+  }
+
+  sign(data: Uint8Array): string {
+    if (!this.read() || !fs.existsSync(this.privateKeyPath)) throw new Error('A local identity is required for Local Relay.');
+    return crypto.sign(null, data, fs.readFileSync(this.privateKeyPath, 'utf8')).toString('base64');
+  }
 }

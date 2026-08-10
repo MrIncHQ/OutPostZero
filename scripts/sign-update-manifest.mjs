@@ -9,7 +9,7 @@ if (!distributionArgument || !privateKeyArgument || !/^\d+\.\d+\.\d+$/.test(vers
 
 const distribution = fs.realpathSync(distributionArgument);
 const privateKeyPath = fs.realpathSync(privateKeyArgument);
-const excludedRootFiles = new Set(['.outpost-zero-root', 'README.md', 'update-manifest.json']);
+const excludedRootFiles = new Set(['.gitattributes', '.outpost-zero-root', 'README.md', 'update-manifest.json']);
 const protectedRoots = new Set([
   'ai', 'backups', 'cache', 'config', 'content', 'data', 'downloads',
   'exports', 'logs', 'modules', 'profile', 'runtimeparts', 'temp', 'updates',

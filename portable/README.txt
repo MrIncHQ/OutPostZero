@@ -23,6 +23,12 @@ OUTPOST ZERO - PORTABLE WINDOWS BUILD
    Protomaps daily OpenStreetMap build. You can also import an existing
    PMTiles/MBTiles package. Saved places, measurements, and GPX files remain
    available offline.
+   Local Relay provides opt-in LAN discovery, device verification, TLS 1.3
+   direct and room messages, and explicitly accepted encrypted file transfers.
+   It never creates firewall rules or needs internet access. Start it on two
+   Outposts connected to the same local network, compare the displayed
+   verification code, then mark the device verified. Received files are saved
+   only to a selected library folder on this portable drive.
 6. Before unplugging the drive, choose PREPARE DRIVE FOR REMOVAL in the app,
    close Outpost Zero, and use Windows Safely Remove Hardware.
 

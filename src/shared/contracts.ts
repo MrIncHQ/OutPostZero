@@ -285,6 +285,63 @@ export interface PhaseFiveOperationResult<T> {
   state: T;
 }
 
+export interface RelayPeer {
+  id: string;
+  displayName: string;
+  fingerprint: string;
+  address: string;
+  port: number;
+  lastSeenAt: string;
+  online: boolean;
+  verified: boolean;
+  identityChanged: boolean;
+  verificationCode: string;
+}
+
+export interface RelayMessage {
+  id: string;
+  peerId: string;
+  scope: 'direct' | 'room';
+  direction: 'incoming' | 'outgoing';
+  senderName: string;
+  body: string;
+  sentAt: string;
+  delivered: boolean;
+  read: boolean;
+}
+
+export interface RelayTransfer {
+  id: string;
+  peerId: string;
+  peerName: string;
+  direction: 'incoming' | 'outgoing';
+  fileName: string;
+  size: number;
+  sha256: string;
+  status: 'offered' | 'waiting' | 'transferring' | 'complete' | 'declined' | 'cancelled' | 'error';
+  transferredBytes: number;
+  relativePath?: string;
+  message?: string;
+}
+
+export interface RelayState {
+  enabled: boolean;
+  port: number | null;
+  historyEnabled: boolean;
+  identityFingerprint: string;
+  transport: 'TLS 1.3';
+  firewallMessage: string | null;
+  peers: RelayPeer[];
+  messages: RelayMessage[];
+  transfers: RelayTransfer[];
+}
+
+export interface RelayOperationResult {
+  ok: boolean;
+  message: string;
+  state: RelayState;
+}
+
 export interface UnifiedSearchResult {
   source: 'document' | 'note' | 'map';
   id: string;
@@ -455,6 +512,18 @@ export interface OutpostBridge {
   deleteMapPlace(placeId: string): Promise<MapsState>;
   importGpx(): Promise<PhaseFiveOperationResult<MapsState>>;
   exportGpx(): Promise<{ ok: boolean; message: string }>;
+  getRelayState(): Promise<RelayState>;
+  startRelay(): Promise<RelayOperationResult>;
+  stopRelay(): Promise<RelayOperationResult>;
+  setRelayHistory(enabled: boolean): Promise<RelayState>;
+  verifyRelayPeer(peerId: string): Promise<RelayState>;
+  forgetRelayPeer(peerId: string): Promise<RelayState>;
+  sendRelayMessage(peerId: string, scope: 'direct' | 'room', body: string): Promise<RelayOperationResult>;
+  markRelayRead(peerId: string, scope: 'direct' | 'room'): Promise<RelayState>;
+  sendRelayFile(peerId: string): Promise<RelayOperationResult>;
+  acceptRelayFile(transferId: string, destination: 'documents' | 'media' | 'custom'): Promise<RelayOperationResult>;
+  declineRelayFile(transferId: string): Promise<RelayOperationResult>;
+  cancelRelayTransfer(transferId: string): Promise<RelayOperationResult>;
   searchOutpost(query: string): Promise<UnifiedSearchResult[]>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   downloadUpdate(): Promise<UpdateDownloadResult>;
