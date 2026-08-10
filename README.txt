@@ -14,7 +14,10 @@ OUTPOST ZERO - PORTABLE WINDOWS BUILD
    In Documents, choose IMPORT DOCUMENTS or copy files beneath Content/PDFs
    and Content/Documents and select SCAN FOLDERS. PDF reading, page search,
    bookmarks, notes, and annotations work inside Outpost Zero without an
-   installed browser or internet connection.
+   installed browser or internet connection. Images and image-only PDFs can
+   use bundled English OCR; recognized text is added to local document search.
+   Learning imports portable course folders containing course.json plus
+   Markdown or text lessons. Course progress is stored only on this drive.
    Notes autosave Markdown on this drive and can carry local attachments.
    Tools run entirely in the app. Maps lets you search for and explicitly
    confirm a location, then downloads only the chosen region from the official
