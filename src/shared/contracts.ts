@@ -444,6 +444,7 @@ export interface OutpostBridge {
   exportNote(noteId: string): Promise<{ ok: boolean; message: string }>;
   getMaps(): Promise<MapsState>;
   getMapTile(packageId: string, z: number, x: number, y: number): Promise<Uint8Array | null>;
+  getMapGlyph(fontStack: string, range: string): Promise<Uint8Array | null>;
   importMapPackages(): Promise<PhaseFiveOperationResult<MapsState>>;
   searchMapLocations(query: string): Promise<MapLocationResult[]>;
   downloadMap(request: MapDownloadRequest): Promise<PhaseFiveOperationResult<MapsState>>;

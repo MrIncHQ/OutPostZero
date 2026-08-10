@@ -2,9 +2,23 @@ import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+import { layers as protomapsLayers, namedFlavor } from '@protomaps/basemaps';
 import type { MapDownloadRequest, MapDownloadStatus, MapLocationResult, MapPackage, MapPlaceInput, MapsState } from '../shared/contracts';
 
 maplibregl.setWorkerUrl(maplibreWorkerUrl);
+
+const OFFLINE_BASEMAP_LAYERS = (protomapsLayers('offline', namedFlavor('dark'), { lang: 'en' }) as unknown as maplibregl.LayerSpecification[]).map((layer) => {
+  if (layer.type !== 'symbol') return layer;
+  const layout = { ...layer.layout } as Record<string, unknown>; const paint = { ...layer.paint } as Record<string, unknown>;
+  for (const key of Object.keys(layout)) if (key.startsWith('icon-')) delete layout[key];
+  for (const key of Object.keys(paint)) if (key.startsWith('icon-')) delete paint[key];
+  return { ...layer, layout, paint } as maplibregl.LayerSpecification;
+});
+
+function isProtomapsPackage(item: MapPackage): boolean {
+  const sourceLayers = new Set(item.sourceLayers ?? []);
+  return ['earth', 'roads', 'places', 'water'].every((layer) => sourceLayers.has(layer));
+}
 
 function formatBytes(bytes: number): string { return bytes < 1024 ** 3 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${(bytes / 1024 ** 3).toFixed(1)} GB`; }
 function estimatedMapBytes(radiusKilometers: number, latitude: number, maxZoom: number): number {
@@ -50,7 +64,14 @@ export function MapsView({ requestedPlaceId, onRequestHandled }: { requestedPlac
       if (!firstRenderedTile.current) { firstRenderedTile.current = true; setMessage('Drawing offline map tiles...'); }
       return { data: view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) };
     });
-    return () => maplibregl.removeProtocol('outpost-tile');
+    maplibregl.addProtocol('outpost-glyph', async (request) => {
+      const match = /^outpost-glyph:\/\/fonts\/([^/]+)\/(\d+-\d+)\.pbf$/i.exec(request.url);
+      if (!match) throw new Error('The offline map requested an invalid font asset.');
+      const bytes = await window.outpost.getMapGlyph(decodeURIComponent(match[1]), match[2]);
+      if (!bytes) throw new Error(`Offline map font data is missing for ${decodeURIComponent(match[1])} ${match[2]}.`);
+      const view = new Uint8Array(bytes); return { data: view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) };
+    });
+    return () => { maplibregl.removeProtocol('outpost-tile'); maplibregl.removeProtocol('outpost-glyph'); };
   }, []);
   useEffect(() => {
     if (!['resolving', 'downloading', 'verifying'].includes(downloadStatus.state)) return;
@@ -60,7 +81,7 @@ export function MapsView({ requestedPlaceId, onRequestHandled }: { requestedPlac
   useEffect(() => {
     if (!container.current || mapRef.current) return;
     const map = new maplibregl.Map({ container: container.current, style: { version: 8, sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#101713' } }] }, center: cursor, zoom, attributionControl: false });
-    map.addControl(new maplibregl.NavigationControl(), 'top-right'); map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+    map.addControl(new maplibregl.NavigationControl(), 'top-right'); map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left'); map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
     map.once('load', () => setMapReady(true));
     map.on('error', (event) => setMessage(`Map rendering failed: ${event.error?.message ?? 'the selected tile could not be drawn.'}`));
     map.on('mousemove', (event: maplibregl.MapMouseEvent) => setCursor([event.lngLat.lng, event.lngLat.lat])); map.on('zoomend', () => setZoom(map.getZoom()));
@@ -90,13 +111,17 @@ export function MapsView({ requestedPlaceId, onRequestHandled }: { requestedPlac
     const map = mapRef.current; if (!map) return; firstRenderedTile.current = false; setSelectedPackage(item); setMessage(`Opening ${item.title}...`);
     try {
       if (item.tileType === 'vector') {
-          const layers: maplibregl.LayerSpecification[] = [];
-          (item.sourceLayers ?? []).forEach((sourceLayer, index) => {
-            layers.push({ id: `mb-fill-${index}`, type: 'fill', source: 'offline', 'source-layer': sourceLayer, filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': index % 2 ? '#314b3f' : '#263d34', 'fill-opacity': .72, 'fill-outline-color': '#577064' } });
-            layers.push({ id: `mb-line-${index}`, type: 'line', source: 'offline', 'source-layer': sourceLayer, filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': index % 3 ? '#8c9c91' : '#d2a15c', 'line-width': 1.2 } });
-            layers.push({ id: `mb-point-${index}`, type: 'circle', source: 'offline', 'source-layer': sourceLayer, filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-color': '#d8a65e', 'circle-radius': 3 } });
-          });
-          map.setStyle({ version: 8, sources: { offline: { type: 'vector', tiles: [`outpost-tile://package/${item.id}/{z}/{x}/{y}`], minzoom: item.minZoom, maxzoom: item.maxZoom } }, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#101713' } }, ...layers] });
+          let styledLayers: maplibregl.LayerSpecification[];
+          if (isProtomapsPackage(item)) styledLayers = OFFLINE_BASEMAP_LAYERS;
+          else {
+            styledLayers = [{ id: 'background', type: 'background', paint: { 'background-color': '#101713' } }];
+            (item.sourceLayers ?? []).forEach((sourceLayer, index) => {
+              styledLayers.push({ id: `mb-fill-${index}`, type: 'fill', source: 'offline', 'source-layer': sourceLayer, filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': index % 2 ? '#314b3f' : '#263d34', 'fill-opacity': .72, 'fill-outline-color': '#577064' } });
+              styledLayers.push({ id: `mb-line-${index}`, type: 'line', source: 'offline', 'source-layer': sourceLayer, filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': index % 3 ? '#8c9c91' : '#d2a15c', 'line-width': 1.2 } });
+              styledLayers.push({ id: `mb-point-${index}`, type: 'circle', source: 'offline', 'source-layer': sourceLayer, filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-color': '#d8a65e', 'circle-radius': 3 } });
+            });
+          }
+          map.setStyle({ version: 8, glyphs: 'outpost-glyph://fonts/{fontstack}/{range}.pbf', sources: { offline: { type: 'vector', tiles: [`outpost-tile://package/${item.id}/{z}/{x}/{y}`], minzoom: item.minZoom, maxzoom: item.maxZoom, attribution: isProtomapsPackage(item) ? '© OpenStreetMap · Protomaps' : undefined } }, layers: styledLayers });
       } else if (item.tileType === 'raster') map.setStyle({ version: 8, sources: { offline: { type: 'raster', tiles: [`outpost-tile://package/${item.id}/{z}/{x}/{y}`], tileSize: 256, minzoom: item.minZoom, maxzoom: item.maxZoom } }, layers: [{ id: 'offline-raster', type: 'raster', source: 'offline' }] });
       else throw new Error('This map package uses an unsupported tile format.');
       if (item.bounds) map.fitBounds([[item.bounds[0], item.bounds[1]], [item.bounds[2], item.bounds[3]]], { padding: 30, duration: 0 });

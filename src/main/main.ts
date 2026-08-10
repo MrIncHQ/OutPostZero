@@ -50,6 +50,7 @@ const kiwixService = new KiwixService(databaseService, portablePaths);
 const documentService = new DocumentService(databaseService, portablePaths);
 const noteService = new NoteService(databaseService, portablePaths);
 const mapHelperPath = app.isPackaged ? path.join(process.resourcesPath, 'pmtiles', 'pmtiles.exe') : path.join(app.getAppPath(), 'vendor', 'pmtiles', 'pmtiles.exe');
+const mapFontRoot = path.join(app.getAppPath(), 'vendor', 'map-assets', 'fonts');
 const mapService = new MapService(databaseService, portablePaths, { helperPath: mapHelperPath });
 const unifiedSearchService = new UnifiedSearchService(databaseService, documentService);
 let isPrepared = false;
@@ -274,6 +275,12 @@ ipcMain.handle('outpost:get-map-tile', async (_event, packageId: unknown, z: unk
   if (typeof packageId !== 'string' || ![z, x, y].every((value) => typeof value === 'number' && Number.isSafeInteger(value))) throw new Error('Map tile coordinates are invalid.');
   const tile = await mapService.tile(packageId, z as number, x as number, y as number);
   return tile?.bytes ?? null;
+});
+ipcMain.handle('outpost:get-map-glyph', (_event, fontStack: unknown, range: unknown) => {
+  const allowedFonts = new Set(['Noto Sans Regular', 'Noto Sans Medium', 'Noto Sans Italic']);
+  if (typeof fontStack !== 'string' || !allowedFonts.has(fontStack) || typeof range !== 'string' || !/^\d{1,6}-\d{1,6}$/.test(range)) throw new Error('Offline map font request is invalid.');
+  const filePath = path.join(mapFontRoot, fontStack, `${range}.pbf`);
+  return fs.existsSync(filePath) ? new Uint8Array(fs.readFileSync(filePath)) : null;
 });
 ipcMain.handle('outpost:import-map-packages', async () => {
   const selection = await dialog.showOpenDialog({ title: 'Add an offline map package', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Offline maps', extensions: ['pmtiles', 'mbtiles'] }] });

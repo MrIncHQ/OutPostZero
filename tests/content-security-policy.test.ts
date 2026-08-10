@@ -28,6 +28,13 @@ test('offline map tiles cross the context-isolated bridge without browser fetche
   assert.match(preload, /getMapTile:.*ipcRenderer\.invoke\('outpost:get-map-tile'/);
 });
 
+test('offline map glyphs cross the context-isolated bridge without network access', () => {
+  const main = fs.readFileSync('src/main/main.ts', 'utf8');
+  const preload = fs.readFileSync('src/main/preload.ts', 'utf8');
+  assert.match(main, /ipcMain\.handle\('outpost:get-map-glyph'/);
+  assert.match(preload, /getMapGlyph:.*ipcRenderer\.invoke\('outpost:get-map-glyph'/);
+});
+
 test('applies the renderer policy only to Outpost Zero files', () => {
   const headers = responseHeadersForUrl('file:///portable/resources/app.asar/index.html', { Existing: ['kept'] });
   assert.deepEqual(headers.Existing, ['kept']);

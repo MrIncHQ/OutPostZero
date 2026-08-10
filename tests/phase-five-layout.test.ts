@@ -30,6 +30,11 @@ test('Maps and tools expose the core offline controls', () => {
   assert.match(maps, /setWorkerUrl\(maplibreWorkerUrl\)/);
   assert.match(maps, /addProtocol\('outpost-tile'/);
   assert.match(maps, /window\.outpost\.getMapTile/);
+  assert.match(maps, /@protomaps\/basemaps/);
+  assert.match(maps, /OFFLINE_BASEMAP_LAYERS/);
+  assert.match(maps, /addProtocol\('outpost-glyph'/);
+  assert.match(maps, /window\.outpost\.getMapGlyph/);
+  assert.match(maps, /OpenStreetMap/);
   assert.match(maps, /if \(added\) await loadPackage\(added\)/);
   assert.match(maps, /if \(!selectedPackage && state\?\.packages\[0\] && mapRef\.current && mapReady\) void loadPackage\(state\.packages\[0\]\)/);
   for (const feature of ['SCIENTIFIC CALCULATOR', 'UNIT CONVERTER', 'SHA-256', 'IPV4 SUBNET', 'COORDINATE CONVERTER', 'REGEX TESTER', 'PASSWORD GENERATOR']) assert.match(tools, new RegExp(feature));
@@ -48,4 +53,18 @@ test('Windows packaging includes the pinned offline map extractor and its licens
   assert.match(packageFile, /vendor\/pmtiles\/LICENSE/);
   assert.equal(fs.existsSync('vendor/pmtiles/pmtiles.exe'), true);
   assert.equal(fs.existsSync('vendor/pmtiles/LICENSE'), true);
+});
+
+test('Windows packaging includes offline cartographic fonts and their licenses', () => {
+  const packageFile = fs.readFileSync('package.json', 'utf8');
+  assert.match(packageFile, /vendor\/map-assets\/\*\*\/\*/);
+  assert.match(packageFile, /Noto-Sans-OFL\.txt/);
+  assert.match(packageFile, /Protomaps-BSD-3-Clause\.md/);
+  for (const file of [
+    'vendor/map-assets/fonts/Noto Sans Regular/0-255.pbf',
+    'vendor/map-assets/fonts/Noto Sans Medium/0-255.pbf',
+    'vendor/map-assets/fonts/Noto Sans Italic/0-255.pbf',
+    'vendor/map-assets/Noto-Sans-OFL.txt',
+    'vendor/map-assets/Protomaps-BSD-3-Clause.md',
+  ]) assert.equal(fs.existsSync(file), true, `${file} is missing`);
 });
