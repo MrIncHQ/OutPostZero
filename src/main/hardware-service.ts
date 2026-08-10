@@ -19,13 +19,18 @@ function parseGpuDevices(raw: unknown): string[] {
 }
 
 export async function collectHardwareDiagnostics(gpuInfo: Promise<unknown>): Promise<HardwareDiagnostics> {
-  const cpus = os.cpus();
+  const diagnostics = collectBasicHardwareDiagnostics();
   let gpuDevices: string[] = [];
   try {
     gpuDevices = parseGpuDevices(await gpuInfo);
   } catch {
     // GPU details can be unavailable under remote sessions or software rendering.
   }
+  return { ...diagnostics, gpuDevices, gpuChecked: true };
+}
+
+export function collectBasicHardwareDiagnostics(): HardwareDiagnostics {
+  const cpus = os.cpus();
   return {
     cpuModel: cpus[0]?.model.trim() || 'Unknown CPU',
     logicalCores: cpus.length,
@@ -35,6 +40,7 @@ export async function collectHardwareDiagnostics(gpuInfo: Promise<unknown>): Pro
     platform: process.platform,
     architecture: process.arch,
     hostname: os.hostname(),
-    gpuDevices,
+    gpuDevices: [],
+    gpuChecked: false,
   };
 }

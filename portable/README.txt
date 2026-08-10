@@ -8,6 +8,8 @@ OUTPOST ZERO - PORTABLE WINDOWS BUILD
    generated and stored only inside this portable folder.
 5. Use the navigation, Storage Inspector, Module Center, Update Center,
    hardware diagnostics, and Settings.
+   Startup does not scan every content file. Open the Storage Inspector when
+   you want a current storage breakdown.
    GitHub update checks occur only when you select CHECK FOR UPDATES.
    In Library, install the Kiwix engine and add the 41 KB test library to
    verify real offline ZIM browsing before downloading large archives.

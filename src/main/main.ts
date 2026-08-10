@@ -7,7 +7,7 @@ import { SessionState } from './session-state';
 import { ProfileService } from './profile-service';
 import { StorageService } from './storage-service';
 import { DatabaseService } from './database-service';
-import { collectHardwareDiagnostics } from './hardware-service';
+import { collectBasicHardwareDiagnostics, collectHardwareDiagnostics } from './hardware-service';
 import { UpdateService } from './portable-update-service';
 import { ModuleService } from './module-service';
 import { KiwixService } from './kiwix-service';
@@ -130,18 +130,21 @@ function rangedFileResponse(filePath: string, request: Request): Response | Prom
   return new Response(Uint8Array.from(bytes).buffer, { status: 206, headers: { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': String(bytes.length), 'Content-Type': 'application/octet-stream' } });
 }
 
-ipcMain.handle('outpost:get-bootstrap', async (): Promise<BootstrapData> => ({
-  status: getStatus(),
-  profile: profileService.read(),
-  storage: await storageService.summarize(),
-  modules: modules(),
-  hardware: await collectHardwareDiagnostics(app.getGPUInfo('basic')),
-  updates: updateService.status(),
-  database: {
-    schemaVersion: databaseService.schemaVersion(),
-    integrityOk: databaseService.integrityCheck(),
-  },
-}));
+ipcMain.handle('outpost:get-bootstrap', async (): Promise<BootstrapData> => {
+  const status = getStatus();
+  return {
+    status,
+    profile: profileService.read(),
+    storage: storageService.quickSummary(status.freeBytes, status.totalBytes),
+    modules: modules(),
+    hardware: collectBasicHardwareDiagnostics(),
+    updates: updateService.status(),
+    database: {
+      schemaVersion: databaseService.schemaVersion(),
+      integrityOk: status.recoveredFromUncleanShutdown ? databaseService.integrityCheck() : null,
+    },
+  };
+});
 ipcMain.handle('outpost:create-profile', (_event, displayName: unknown) => {
   if (typeof displayName !== 'string') throw new Error('Display name must be text.');
   return profileService.create(displayName);
@@ -152,6 +155,7 @@ ipcMain.handle('outpost:update-profile', (_event, displayName: unknown) => {
 });
 ipcMain.handle('outpost:refresh-storage', () => storageService.summarize());
 ipcMain.handle('outpost:refresh-hardware', () => collectHardwareDiagnostics(app.getGPUInfo('basic')));
+ipcMain.handle('outpost:check-database-integrity', () => databaseService.integrityCheck());
 ipcMain.handle('outpost:refresh-modules', () => modules());
 function moduleId(value: unknown): string {
   if (typeof value !== 'string' || !/^[a-z0-9-]{1,64}$/.test(value)) throw new Error('Module identifier is invalid.');

@@ -47,6 +47,16 @@ async function directoryBytes(directory: string): Promise<number> {
 export class StorageService {
   constructor(private readonly paths: PortablePathService) {}
 
+  quickSummary(freeBytes: number | null = null, totalBytes: number | null = null): StorageSummary {
+    return {
+      categories: CATEGORIES.map((category) => ({ id: category.id, label: category.label, bytes: 0 })),
+      usedByOutpostBytes: 0,
+      freeBytes,
+      totalBytes,
+      scannedAt: null,
+    };
+  }
+
   async summarize(): Promise<StorageSummary> {
     const categories: StorageCategory[] = await Promise.all(CATEGORIES.map(async (category) => ({
       id: category.id,
@@ -70,6 +80,7 @@ export class StorageService {
       usedByOutpostBytes: categories.reduce((sum, category) => sum + category.bytes, 0),
       freeBytes,
       totalBytes,
+      scannedAt: new Date().toISOString(),
     };
   }
 }

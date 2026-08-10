@@ -8,9 +8,9 @@ Outpost Zero is a portable Electron application. The Electron main process is th
 - The main process redirects Electron user data, session data, cache, logs, and temporary paths beneath the portable root before the app becomes ready.
 - `SessionState` writes an atomic dirty/clean marker for shutdown recovery.
 - `ProfileService` creates and preserves a drive-local Ed25519 identity and validated display name.
-- `StorageService` scans declared portable categories without following symbolic links.
+- `StorageService` returns drive capacity immediately at startup and scans declared portable categories on demand without following symbolic links.
 - `DatabaseService` owns the portable SQLite metadata database, versioned migrations, integrity checks, and rotating drive-local backups.
-- `HardwareService` reports current host compute resources without persisting host data.
+- `HardwareService` reports basic host resources immediately and defers the GPU query until requested, without persisting host data.
 - `UpdateService` verifies the pinned Ed25519 signature on GitHub manifests, rejects non-runtime paths, downloads changed files into portable staging, verifies SHA-256 hashes, and launches the external swap helper.
 - `PortableUpdater.ps1` waits for the app to exit, backs up runtime files, replaces only the verified allowlist, rolls back on any failure, and restarts the portable launcher.
 - `ModuleService` supplies the catalog of future optional engines. Install controls remain locked until a production package is ready.

@@ -371,14 +371,24 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
 }
 
 function StorageView({ storage, onRefresh }: { storage: StorageSummary; onRefresh: () => Promise<void> }) {
+  const [scanning, setScanning] = useState(!storage.scannedAt);
   const largest = Math.max(1, ...storage.categories.map((category) => category.bytes));
+  async function refresh() {
+    setScanning(true);
+    try { await onRefresh(); } finally { setScanning(false); }
+  }
+  useEffect(() => {
+    if (!storage.scannedAt) void refresh();
+    // Storage is intentionally scanned only after the inspector opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
     <section className="page-panel">
       <div className="page-heading">
         <div><p className="section-label">STORAGE INSPECTOR</p><h2>{formatBytes(storage.freeBytes)} free</h2></div>
-        <button className="secondary-button" onClick={() => void onRefresh()}>REFRESH SCAN</button>
+        <button className="secondary-button" onClick={() => void refresh()} disabled={scanning}>{scanning ? 'SCANNING DRIVE...' : 'REFRESH SCAN'}</button>
       </div>
-      <p className="page-intro">Outpost Zero currently manages {formatBytes(storage.usedByOutpostBytes)} beneath this portable root.</p>
+      <p className="page-intro">{scanning && !storage.scannedAt ? 'Calculating the portable content breakdown without blocking startup.' : `Outpost Zero currently manages ${formatBytes(storage.usedByOutpostBytes)} beneath this portable root.`}</p>
       <div className="storage-list">
         {storage.categories.map((category) => (
           <div className="storage-row" key={category.id}>
@@ -446,10 +456,11 @@ function ModulesView({ modules, onModules }: { modules: ModuleSummary[]; onModul
   );
 }
 
-function SettingsView({ data, onProfile, onHardware, go }: {
+function SettingsView({ data, onProfile, onHardware, onDatabaseIntegrity, go }: {
   data: BootstrapData;
   onProfile: (profile: LocalProfile) => void;
   onHardware: () => Promise<void>;
+  onDatabaseIntegrity: () => Promise<void>;
   go: (view: ViewId) => void;
 }) {
   const [name, setName] = useState(data.profile?.displayName ?? '');
@@ -501,8 +512,9 @@ function SettingsView({ data, onProfile, onHardware, go }: {
         <div><dt>Version</dt><dd>v{data.status.version}</dd></div>
         <div><dt>Telemetry</dt><dd>Disabled</dd></div>
         <div><dt>AI</dt><dd>Not installed</dd></div>
-        <div><dt>Database</dt><dd>Schema {data.database.schemaVersion} / {data.database.integrityOk ? 'Integrity OK' : 'Check failed'}</dd></div>
+        <div><dt>Database</dt><dd>Schema {data.database.schemaVersion} / {data.database.integrityOk === null ? 'Not checked this session' : data.database.integrityOk ? 'Integrity OK' : 'Check failed'}</dd></div>
       </dl>
+      <button className="secondary-button" onClick={() => void onDatabaseIntegrity()}>CHECK DATABASE INTEGRITY</button>
       <div className="settings-section-heading">
         <div><p className="section-label">HARDWARE DIAGNOSTICS</p><h3>Current host resources</h3></div>
         <button className="secondary-button" onClick={() => void onHardware()}>REFRESH</button>
@@ -511,7 +523,7 @@ function SettingsView({ data, onProfile, onHardware, go }: {
         <div><dt>CPU</dt><dd>{data.hardware.cpuModel}</dd></div>
         <div><dt>Logical cores</dt><dd>{data.hardware.logicalCores}</dd></div>
         <div><dt>Memory</dt><dd>{formatBytes(data.hardware.freeMemoryBytes)} free / {formatBytes(data.hardware.totalMemoryBytes)}</dd></div>
-        <div><dt>GPU</dt><dd>{data.hardware.gpuDevices.join(', ') || 'Unavailable'}</dd></div>
+        <div><dt>GPU</dt><dd>{data.hardware.gpuChecked ? data.hardware.gpuDevices.join(', ') || 'Unavailable' : 'Select Refresh to inspect'}</dd></div>
         <div><dt>Operating system</dt><dd>{data.hardware.operatingSystem}</dd></div>
         <div><dt>Host name</dt><dd>{data.hardware.hostname}</dd></div>
       </dl>
@@ -610,6 +622,10 @@ export default function App() {
     const hardware = await window.outpost.refreshHardware();
     setData((current) => current ? { ...current, hardware } : current);
   }
+  async function checkDatabaseIntegrity() {
+    const integrityOk = await window.outpost.checkDatabaseIntegrity();
+    setData((current) => current ? { ...current, database: { ...current.database, integrityOk } } : current);
+  }
   async function prepareForRemoval() {
     const result = await window.outpost.prepareForRemoval();
     setRemovalMessage(result.message);
@@ -630,7 +646,7 @@ export default function App() {
     if (view === 'storage') return <StorageView storage={activeData.storage} onRefresh={refreshStorage} />;
     if (view === 'modules') return <ModulesView modules={activeData.modules} onModules={(modules) => setData({ ...activeData, modules })} />;
     if (view === 'updates') return <UpdatesView data={activeData} />;
-    if (view === 'settings') return <SettingsView data={activeData} onProfile={(profile) => setData({ ...activeData, profile })} onHardware={refreshHardware} go={setView} />;
+    if (view === 'settings') return <SettingsView data={activeData} onProfile={(profile) => setData({ ...activeData, profile })} onHardware={refreshHardware} onDatabaseIntegrity={checkDatabaseIntegrity} go={setView} />;
     return <PlannedView view={view} go={setView} />;
   }
 

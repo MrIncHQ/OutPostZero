@@ -27,6 +27,7 @@ export interface StorageSummary {
   usedByOutpostBytes: number;
   freeBytes: number | null;
   totalBytes: number | null;
+  scannedAt: string | null;
 }
 
 export interface ModuleSummary {
@@ -471,6 +472,7 @@ export interface HardwareDiagnostics {
   architecture: string;
   hostname: string;
   gpuDevices: string[];
+  gpuChecked: boolean;
 }
 
 export interface UpdateStatus {
@@ -512,7 +514,7 @@ export interface BootstrapData {
   modules: ModuleSummary[];
   hardware: HardwareDiagnostics;
   updates: UpdateStatus;
-  database: { schemaVersion: number; integrityOk: boolean };
+  database: { schemaVersion: number; integrityOk: boolean | null };
 }
 
 export interface OutpostBridge {
@@ -521,6 +523,7 @@ export interface OutpostBridge {
   updateProfile(displayName: string): Promise<LocalProfile>;
   refreshStorage(): Promise<StorageSummary>;
   refreshHardware(): Promise<HardwareDiagnostics>;
+  checkDatabaseIntegrity(): Promise<boolean>;
   refreshModules(): Promise<ModuleSummary[]>;
   installModule(moduleId: string): Promise<ModuleOperationResult>;
   startModule(moduleId: string): Promise<ModuleOperationResult>;
