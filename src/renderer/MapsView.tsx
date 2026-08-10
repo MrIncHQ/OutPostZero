@@ -84,6 +84,7 @@ export function MapsView({ requestedPlaceId, onRequestHandled }: { requestedPlac
       setMessage(`${item.title} is being served entirely from this drive.`);
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not open this map package.'); }
   }
+  useEffect(() => { if (!selectedPackage && state?.packages[0] && mapRef.current) void loadPackage(state.packages[0]); }, [state, selectedPackage]);
 
   async function savePlace() { const saved = await window.outpost.saveMapPlace(place); const next = await refresh(); setPlace(saved); setState(next); setMessage(`${saved.name} saved on this drive.`); }
   async function deletePlace() { if (!place.id) return; setState(await window.outpost.deleteMapPlace(place.id)); setPlace({ name: '', latitude: cursor[1], longitude: cursor[0], note: '', favorite: false }); }

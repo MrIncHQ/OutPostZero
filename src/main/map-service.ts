@@ -40,6 +40,7 @@ export class MapService {
   private lastLocationRequestAt = 0;
   private readonly pmtilesArchives = new Map<string, PMTiles>();
   private readonly pmtilesDetails = new Map<string, Pick<MapPackage, 'tileType' | 'sourceLayers' | 'minZoom' | 'maxZoom' | 'bounds'>>();
+  private readonly pmtilesFingerprints = new Map<string, string>();
   private currentDownload: MapDownloadStatus = { state: 'idle', percent: 0, downloadedBytes: 0, estimatedBytes: 0, elapsedSeconds: 0, message: 'No map download is active.' };
 
   constructor(private readonly database: DatabaseService, private readonly paths: PortablePathService, options: MapServiceOptions = {}) {
@@ -65,6 +66,19 @@ export class MapService {
       minZoom: header.minZoom, maxZoom: header.maxZoom,
       bounds: header.minLon < header.maxLon && header.minLat < header.maxLat ? [header.minLon, header.minLat, header.maxLon, header.maxLat] : undefined,
     };
+  }
+
+  private async indexPackage(filePath: string, format: MapPackage['format']): Promise<string> {
+    this.validatePackage(filePath, format); const stats = fs.statSync(filePath);
+    const relativePath = path.relative(this.paths.root, filePath).replace(/\\/g, '/');
+    const id = crypto.createHash('sha256').update(relativePath.toLowerCase()).digest('hex').slice(0, 24).toUpperCase();
+    if (format === 'pmtiles') {
+      const fingerprint = `${stats.size}:${stats.mtimeMs}`;
+      if (this.pmtilesFingerprints.get(id) !== fingerprint) { this.pmtilesArchives.delete(id); this.pmtilesDetails.delete(id); this.pmtilesFingerprints.set(id, fingerprint); }
+    }
+    this.database.upsertMapPackage({ id, title: titleFor(path.basename(filePath)), fileName: path.basename(filePath), relativePath, format, size: stats.size, addedAt: new Date().toISOString() });
+    if (format === 'pmtiles' && !this.pmtilesDetails.has(id)) this.pmtilesDetails.set(id, await this.pmtilesInfo(id, filePath));
+    return id;
   }
 
   private mbtilesInfo(filePath: string): Pick<MapPackage, 'tileType' | 'sourceLayers' | 'minZoom' | 'maxZoom' | 'bounds'> {
@@ -101,13 +115,9 @@ export class MapService {
     for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
       if (!entry.isFile() || !['.pmtiles', '.mbtiles'].includes(path.extname(entry.name).toLowerCase())) continue;
       const filePath = path.join(root, entry.name); const format = path.extname(entry.name).toLowerCase().slice(1) as MapPackage['format'];
-      try { this.validatePackage(filePath, format); } catch { continue; }
-      const relativePath = path.relative(this.paths.root, filePath).replace(/\\/g, '/'); seen.add(relativePath.toLowerCase());
-      const id = crypto.createHash('sha256').update(relativePath.toLowerCase()).digest('hex').slice(0, 24).toUpperCase();
-      this.database.upsertMapPackage({ id, title: titleFor(entry.name), fileName: entry.name, relativePath, format, size: fs.statSync(filePath).size, addedAt: new Date().toISOString() });
-      if (format === 'pmtiles') this.pmtilesDetails.set(id, await this.pmtilesInfo(id, filePath));
+      try { await this.indexPackage(filePath, format); seen.add(path.relative(this.paths.root, filePath).replace(/\\/g, '/').toLowerCase()); } catch { continue; }
     }
-    for (const item of this.database.mapPackages()) if (!seen.has(item.relativePath.toLowerCase())) { this.database.removeMapPackageRecord(item.id); this.pmtilesArchives.delete(item.id); this.pmtilesDetails.delete(item.id); }
+    for (const item of this.database.mapPackages()) if (!seen.has(item.relativePath.toLowerCase())) { this.database.removeMapPackageRecord(item.id); this.pmtilesArchives.delete(item.id); this.pmtilesDetails.delete(item.id); this.pmtilesFingerprints.delete(item.id); }
     return this.state();
   }
 
@@ -252,7 +262,7 @@ export class MapService {
       await this.runHelper(['verify', temporary]); this.validatePackage(temporary, 'pmtiles');
       const mapRoot = this.paths.ensureDirectory('Content/Maps'); let destination = path.join(mapRoot, safeName(`${title}.pmtiles`));
       if (fs.existsSync(destination)) destination = path.join(mapRoot, `${path.basename(destination, '.pmtiles')}-${crypto.randomBytes(4).toString('hex')}.pmtiles`);
-      fs.renameSync(temporary, destination); const state = await this.reconcile();
+      fs.renameSync(temporary, destination); await this.indexPackage(destination, 'pmtiles'); const state = this.state();
       this.currentDownload = { ...this.currentDownload, state: 'complete', percent: 100, downloadedBytes: fs.statSync(destination).size, elapsedSeconds: Math.floor((Date.now() - started) / 1000), message: `${title} downloaded, verified, and added to Maps.` };
       return { ok: true, message: this.currentDownload.message, state };
     } catch (error) {
@@ -296,7 +306,8 @@ export class MapService {
 
   removePackage(packageId: string): PhaseFiveOperationResult<MapsState> {
     const file = this.packagePath(packageId); if (fs.existsSync(file)) fs.rmSync(file, { force: true });
-    this.database.removeMapPackageRecord(packageId); return { ok: true, message: 'Offline map package removed from this drive.', state: this.state() };
+    this.database.removeMapPackageRecord(packageId); this.pmtilesArchives.delete(packageId); this.pmtilesDetails.delete(packageId); this.pmtilesFingerprints.delete(packageId);
+    return { ok: true, message: 'Offline map package removed from this drive.', state: this.state() };
   }
 
   savePlace(input: MapPlaceInput): MapPlace {
