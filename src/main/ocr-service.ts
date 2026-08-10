@@ -8,8 +8,8 @@ import { DocumentService } from './document-service';
 import { PortablePathService } from './portable-path';
 
 const dynamicImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<Record<string, unknown>>;
-const MAX_PDF_PAGES = 300;
 const MAX_RENDER_PIXELS = 12_000_000;
+const OCR_CHECKPOINT_PAGES = 10;
 
 interface ActiveOcr {
   cancelled: boolean;
@@ -48,7 +48,7 @@ export class OcrService {
     active.cancelled = true;
     if (active.worker) await active.worker.terminate().catch(() => undefined);
     const current = this.status(documentId);
-    const next: OcrProgress = { ...current, state: 'cancelled', message: 'OCR was cancelled. Existing indexed text was kept.' };
+    const next: OcrProgress = { ...current, state: 'cancelled', message: 'OCR was cancelled. Completed page batches and existing indexed text were kept.' };
     this.progress.set(documentId, next);
     this.database.setDocumentOcrStatus(documentId, 'not-run');
     return next;
@@ -87,17 +87,16 @@ export class OcrService {
     const document = this.documents.details(documentId);
     if (!['image', 'pdf'].includes(document.format)) throw new Error('OCR is available for images and PDF documents.');
     if (this.active.has(documentId)) throw new Error('OCR is already running for this document.');
-    if (document.format === 'pdf' && document.pageCount > MAX_PDF_PAGES) throw new Error(`OCR is limited to ${MAX_PDF_PAGES} PDF pages per document.`);
-
     const active: ActiveOcr = { cancelled: false };
     let pdfRenderer: { render(pageNumber: number): Promise<Buffer>; close(): Promise<void> } | undefined;
     this.active.set(documentId, active);
     this.database.setDocumentOcrStatus(documentId, 'running');
     const originalPages = this.database.documentPages(documentId);
+    const originalText = new Map(originalPages.map((page) => [page.page, page.text.trim()]));
     const totalPages = document.format === 'image' ? 1 : Math.max(1, document.pageCount);
     const pagesToRecognize = document.format === 'image'
       ? [1]
-      : Array.from({ length: totalPages }, (_, index) => index + 1).filter((page) => !(originalPages.find((item) => item.page === page)?.text.trim()));
+      : Array.from({ length: totalPages }, (_, index) => index + 1).filter((page) => !originalText.get(page));
     this.setProgress(documentId, { state: 'preparing', currentPage: 0, totalPages: pagesToRecognize.length, percent: 0, message: pagesToRecognize.length ? 'Preparing the local OCR engine...' : 'Every PDF page already contains searchable text.' });
 
     try {
@@ -123,7 +122,12 @@ export class OcrService {
         },
       });
       active.worker = worker;
-      const recognized = new Map<number, string>();
+      let checkpoint: Array<{ page: number; text: string }> = [];
+      const saveCheckpoint = () => {
+        if (!checkpoint.length) return;
+        this.database.mergeDocumentPages(documentId, checkpoint, totalPages);
+        checkpoint = [];
+      };
       try {
         for (let index = 0; index < pagesToRecognize.length; index += 1) {
           if (active.cancelled) throw new Error('OCR_CANCELLED');
@@ -132,26 +136,23 @@ export class OcrService {
           this.setProgress(documentId, { state: 'recognizing', currentPage, percent: Math.round(index / pagesToRecognize.length * 100), message: `Recognizing page ${currentPage} of ${pagesToRecognize.length}...` });
           const image = imageFile ?? await pdfRenderer!.render(pageNumber);
           const result = await worker.recognize(image, { rotateAuto: true });
-          recognized.set(pageNumber, result.data.text.replace(/\r\n/g, '\n').trim());
+          checkpoint.push({ page: pageNumber, text: result.data.text.replace(/\r\n/g, '\n').trim() });
+          if (checkpoint.length >= OCR_CHECKPOINT_PAGES) saveCheckpoint();
         }
+        saveCheckpoint();
       } finally {
         await worker.terminate().catch(() => undefined);
         active.worker = undefined;
       }
       if (active.cancelled) throw new Error('OCR_CANCELLED');
 
-      const combined = Array.from({ length: totalPages }, (_, index) => {
-        const page = index + 1;
-        return { page, text: originalPages.find((item) => item.page === page)?.text.trim() || recognized.get(page) || '' };
-      });
-      this.database.replaceDocumentPages(documentId, combined, totalPages);
       this.database.setDocumentOcrStatus(documentId, 'complete');
       const progress = this.setProgress(documentId, { state: 'complete', currentPage: pagesToRecognize.length, totalPages: pagesToRecognize.length, percent: 100, message: `${pagesToRecognize.length} page${pagesToRecognize.length === 1 ? '' : 's'} recognized and added to document search.` });
       return { ok: true, message: progress.message, document: this.documents.details(documentId), progress };
     } catch (error) {
       if (active.cancelled || (error instanceof Error && error.message === 'OCR_CANCELLED')) {
         this.database.setDocumentOcrStatus(documentId, 'not-run');
-        const progress = this.setProgress(documentId, { state: 'cancelled', message: 'OCR was cancelled. Existing indexed text was kept.' });
+        const progress = this.setProgress(documentId, { state: 'cancelled', message: 'OCR was cancelled. Completed page batches and existing indexed text were kept.' });
         return { ok: false, message: progress.message, document: this.documents.details(documentId), progress };
       }
       const message = error instanceof Error ? error.message.slice(0, 500) : 'OCR failed.';

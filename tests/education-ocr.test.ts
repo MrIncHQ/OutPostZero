@@ -98,3 +98,37 @@ test('renders and recognizes an image-only PDF page', { timeout: 40_000 }, async
     assert.equal(app.documents.search('shelter repair')[0].documentId, document.id);
   } finally { await app.ocr.cancelAll(); app.database.close(); fs.rmSync(app.root, { recursive: true, force: true }); }
 });
+
+test('accepts PDFs over 300 pages when their pages already contain searchable text', async () => {
+  const app = runtime();
+  try {
+    const canvas = createCanvas(900, 180); const context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff'; context.fillRect(0, 0, canvas.width, canvas.height);
+    fs.writeFileSync(path.join(app.root, 'Content', 'PDFs', 'large-reference.pdf'), imagePdf(canvas.toBuffer('image/jpeg', 95)));
+    await app.documents.reconcile(true);
+    const document = app.documents.library().documents[0];
+    app.database.replaceDocumentPages(document.id, Array.from({ length: 323 }, (_, index) => ({ page: index + 1, text: `Searchable page ${index + 1}` })), 323);
+
+    const result = await app.ocr.run(document.id);
+    assert.equal(result.ok, true, result.message);
+    assert.match(result.message, /No OCR was needed/);
+    assert.equal(result.document.pageCount, 323);
+  } finally { await app.ocr.cancelAll(); app.database.close(); fs.rmSync(app.root, { recursive: true, force: true }); }
+});
+
+test('OCR checkpoints merge recognized pages without replacing existing text', async () => {
+  const app = runtime();
+  try {
+    fs.writeFileSync(path.join(app.root, 'Content', 'Documents', 'checkpoint.png'), textImage('Checkpoint Test'));
+    await app.documents.reconcile(true);
+    const document = app.documents.library().documents[0];
+    app.database.replaceDocumentPages(document.id, [{ page: 1, text: 'Original text' }, { page: 2, text: '' }], 2);
+    app.database.mergeDocumentPages(document.id, [{ page: 2, text: 'Recovered batch text' }], 2);
+
+    assert.deepEqual(app.database.documentPages(document.id), [
+      { page: 1, text: 'Original text' },
+      { page: 2, text: 'Recovered batch text' },
+    ]);
+    assert.equal(app.documents.search('recovered batch')[0].documentId, document.id);
+  } finally { app.database.close(); fs.rmSync(app.root, { recursive: true, force: true }); }
+});

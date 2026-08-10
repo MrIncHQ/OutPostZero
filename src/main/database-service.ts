@@ -376,6 +376,27 @@ export class DatabaseService {
     }
   }
 
+  mergeDocumentPages(documentId: string, pages: Array<{ page: number; text: string }>, pageCount: number): void {
+    if (!pages.length) return;
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const upsertPage = this.database.prepare(`INSERT INTO document_pages (document_id, page_number, text) VALUES (?, ?, ?)
+        ON CONFLICT(document_id, page_number) DO UPDATE SET text = excluded.text`);
+      const deleteSearch = this.database.prepare('DELETE FROM document_pages_fts WHERE document_id = ? AND page_number = ?');
+      const insertSearch = this.database.prepare('INSERT INTO document_pages_fts (document_id, page_number, text) VALUES (?, ?, ?)');
+      for (const page of pages) {
+        upsertPage.run(documentId, page.page, page.text);
+        deleteSearch.run(documentId, page.page);
+        insertSearch.run(documentId, page.page, page.text);
+      }
+      this.database.prepare(`UPDATE documents SET page_count = ?, index_status = 'indexed', index_error = NULL WHERE id = ?`).run(pageCount, documentId);
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   documentText(documentId: string): string {
     return (this.database.prepare('SELECT text FROM document_pages WHERE document_id = ? ORDER BY page_number').all(documentId) as Array<{ text: string }>)
       .map((row) => row.text).join('\n\n');
