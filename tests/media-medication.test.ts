@@ -74,17 +74,13 @@ test('current DailyMed pill characteristics are cached and matched offline by im
 
 test('pill lookup UI uses free FDA data and never presents matches as verified identity', () => {
   const source = fs.readFileSync('src/renderer/MedicationView.tsx', 'utf8');
+  const mainSource = fs.readFileSync('src/main/main.ts', 'utf8');
   assert.match(source, /PILL IMPRINT LOOKUP/);
   assert.match(source, /ADD FROM FDA/);
   assert.match(source, /Possible match only/);
   assert.doesNotMatch(source, /DATA SOURCE REQUIRED/);
-});
-
-test('main process serves cached pill images as bytes instead of a removable-drive file handoff', () => {
-  const source = fs.readFileSync('src/main/main.ts', 'utf8');
-  assert.match(source, /protocol\.handle\('outpost-medication'/);
-  assert.match(source, /fs\.readFileSync\(imagePath\)/);
-  assert.match(source, /'Content-Type'.*'image\/png'.*'image\/jpeg'/s);
+  assert.doesNotMatch(source, /PREPARE OFFLINE IMAGES|REFRESH OFFICIAL IMAGES|downloadPillImages/);
+  assert.doesNotMatch(mainSource, /outpost-medication|download-pill-images/);
 });
 
 test('bundled NLM starter index is searchable offline and survives clearing user downloads', () => {
@@ -98,33 +94,6 @@ test('bundled NLM starter index is searchable offline and survives clearing user
     assert.equal(service.searchPills({ imprint: 'AB 12', color: 'WHITE', shape: 'OVAL' })[0].name, 'Starter tablet');
     assert.equal(service.clear().state.starterPills, 1);
     assert.equal(service.searchPills({ imprint: 'AB12' }).length, 1);
-  } finally { fs.rmSync(app.root, { recursive: true, force: true }); }
-});
-
-test('official DailyMed images are saved on the drive and remain viewable offline', async () => {
-  const app = runtime(); const indexPath = path.join(app.root, 'pill-index.json');
-  const setId = '10b8bf71-4311-41e8-a891-bab8bc86863f';
-  fs.writeFileSync(indexPath, JSON.stringify({ schemaVersion: 1, sourceRelease: '2026-08-03', records: [
-    ['aui-1', setId, 'Example tablet', '72143-262', 'E;311', 'BROWN', 'ROUND', '7 mm', 1],
-  ] }));
-  const fetcher = async (input: string | URL | Request) => {
-    const url = String(input);
-    if (url.includes('/media.json')) return new Response(JSON.stringify({ data: { media: [
-      { name: 'example-pill.jpg', mime_type: 'image/jpeg', url: `https://dailymed.nlm.nih.gov/dailymed/image.cfm?setid=${setId}&name=example-pill.jpg` },
-    ] } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    if (url.includes('/image.cfm')) return new Response(Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]), { status: 200, headers: { 'Content-Type': 'image/jpeg', 'Content-Length': '4' } });
-    return new Response('', { status: 404 });
-  };
-  try {
-    const service = new MedicationService(app.paths, fetcher as typeof fetch, indexPath); service.acknowledge(true);
-    const match = service.searchPills({ imprint: 'E 311' })[0]; assert.equal(match.images.length, 0);
-    const result = await service.downloadPillImages(match.id); assert.equal(result.images.length, 1);
-    assert.match(result.images[0].readerUrl, /^outpost-medication:\/\/image\//);
-    assert.equal(fs.readFileSync(service.imagePath(result.images[0].id)).length, 4);
-    assert.equal(service.state().cachedPillImages, 1);
-    const offline = new MedicationService(app.paths, async () => { throw new Error('offline'); }, indexPath);
-    assert.equal(offline.searchPills({ imprint: 'E311' })[0].images.length, 1);
-    offline.clear(); assert.equal(offline.state().cachedPillImages, 0);
   } finally { fs.rmSync(app.root, { recursive: true, force: true }); }
 });
 

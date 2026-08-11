@@ -26,7 +26,6 @@ export function MedicationView() {
   const [pillColor, setPillColor] = useState('');
   const [pillShape, setPillShape] = useState('');
   const [pillMatches, setPillMatches] = useState<PillMatch[]>([]);
-  const [imageBusyId, setImageBusyId] = useState<string>();
 
   useEffect(() => { void window.outpost.getMedicationState().then(setState).catch((error) => setMessage(String(error))); }, []);
   useEffect(() => {
@@ -74,15 +73,6 @@ export function MedicationView() {
     } catch (error) { setPillMatches([]); setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
-  async function prepareImages(record: PillMatch) {
-    setImageBusyId(record.id); setMessage('Checking DailyMed and saving official label images on this drive...');
-    try {
-      const result = await window.outpost.downloadPillImages(record.id); setMessage(result.message);
-      setPillMatches(await window.outpost.searchPillRecords({ imprint: pillImprint, color: pillColor || undefined, shape: pillShape || undefined }));
-      setState(await window.outpost.getMedicationState());
-    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
-    finally { setImageBusyId(undefined); }
-  }
 
   if (!state) return <section className="page-panel"><p className="section-label">MEDICATION REFERENCE</p><h2>Opening local FDA reference...</h2>{message && <div className="module-result">{message}</div>}</section>;
   if (!state.acknowledged) return <section className="page-panel medication-gate">
@@ -93,7 +83,7 @@ export function MedicationView() {
   </section>;
 
   return <section className="page-panel medication-page">
-    <div className="page-heading"><div><p className="section-label">OFFLINE MEDICATION REFERENCE</p><h2>{tab === 'labels' ? 'Medication information' : 'Possible pill matches'}</h2></div><span className="med-cache-count">{state.cachedRecords} LABELS · {(state.starterPills + state.cachedPills).toLocaleString()} PILLS · {state.cachedPillImages} IMAGES ON DRIVE</span></div>
+    <div className="page-heading"><div><p className="section-label">OFFLINE MEDICATION REFERENCE</p><h2>{tab === 'labels' ? 'Medication information' : 'Possible pill matches'}</h2></div><span className="med-cache-count">{state.cachedRecords} LABELS · {(state.starterPills + state.cachedPills).toLocaleString()} PILLS ON DRIVE</span></div>
     <div className="med-banner" role="note">REFERENCE ONLY · NEVER TAKE AN UNKNOWN PILL BASED ON THIS TOOL</div>
     <div className="med-tabs"><button className={tab === 'labels' ? 'active' : ''} onClick={() => setTab('labels')}>MEDICATION LOOKUP</button><button className={tab === 'pills' ? 'active' : ''} onClick={() => setTab('pills')}>PILL IMPRINT LOOKUP</button></div>
     {message && <div className="module-result" role="status">{message}</div>}
@@ -109,9 +99,9 @@ export function MedicationView() {
       <form className="pill-add" onSubmit={addPillRecords}><label><span>ADD CURRENT PILL RECORDS</span><input value={pillSourceQuery} onChange={(event) => setPillSourceQuery(event.target.value)} placeholder="Medication name, ingredient, or NDC"/></label><button className="secondary-button" disabled={busy || pillSourceQuery.trim().length < 2}>{busy ? 'RETRIEVING...' : 'ADD FROM FDA'}</button></form>
       <form className="pill-find" onSubmit={findPills}><label className="pill-imprint"><span>IMPRINT — REQUIRED</span><input value={pillImprint} onChange={(event) => setPillImprint(event.target.value)} placeholder="Letters or numbers printed on the pill"/></label><label><span>COLOR</span><select value={pillColor} onChange={(event) => setPillColor(event.target.value)}>{COLORS.map((color) => <option value={color} key={color || 'any'}>{color || 'Any color'}</option>)}</select></label><label><span>SHAPE</span><select value={pillShape} onChange={(event) => setPillShape(event.target.value)}>{SHAPES.map((shape) => <option value={shape} key={shape || 'any'}>{shape || 'Any shape'}</option>)}</select></label><button className="primary-button" disabled={busy || !pillImprint.trim()}>FIND POSSIBLE MATCHES</button></form>
       <p className="med-source-note">Enter every character from both sides. Punctuation and spaces are ignored. Remove color or shape filters if the pill may be faded, damaged, or described differently.</p>
-      <div className="pill-results">{pillMatches.map((record) => <article key={record.id}>{record.images.length > 0 && <div className="pill-images">{record.images.map((item) => <figure key={item.id}><img src={item.readerUrl} alt={`Official DailyMed label media for ${record.name}`}/><figcaption>Saved offline · DailyMed</figcaption></figure>)}</div>}<div><span className={record.match === 'exact' ? 'pill-exact' : 'pill-partial'}>{record.match === 'exact' ? 'EXACT IMPRINT' : 'PARTIAL IMPRINT'}</span><h3>{record.name}</h3></div><dl><div><dt>Imprint</dt><dd>{record.imprint}</dd></div><div><dt>Color</dt><dd>{record.color || 'Not supplied'}</dd></div><div><dt>Shape</dt><dd>{record.shape || 'Not supplied'}</dd></div><div><dt>Size</dt><dd>{record.size || 'Not supplied'}</dd></div><div><dt>Score</dt><dd>{record.score ?? 'Not supplied'}</dd></div><div><dt>NDC</dt><dd>{record.productNdc}</dd></div></dl><button className="secondary-button pill-image-button" disabled={Boolean(imageBusyId)} onClick={() => void prepareImages(record)}>{imageBusyId === record.id ? 'DOWNLOADING...' : record.images.length ? 'REFRESH OFFICIAL IMAGES' : 'PREPARE OFFLINE IMAGES'}</button><p>Possible match only. DailyMed media may show the pill, its packaging, or other label imagery. Confirm the original container and ask a pharmacist or Poison Control before acting on this result.</p></article>)}{!pillMatches.length && <div className="empty-state"><b>Search the offline pill index</b><p>Enter the imprint above. Add current FDA records only when you need newer or additional coverage.</p></div>}</div>
+      <div className="pill-results">{pillMatches.map((record) => <article key={record.id}><div><span className={record.match === 'exact' ? 'pill-exact' : 'pill-partial'}>{record.match === 'exact' ? 'EXACT IMPRINT' : 'PARTIAL IMPRINT'}</span><h3>{record.name}</h3></div><dl><div><dt>Imprint</dt><dd>{record.imprint}</dd></div><div><dt>Color</dt><dd>{record.color || 'Not supplied'}</dd></div><div><dt>Shape</dt><dd>{record.shape || 'Not supplied'}</dd></div><div><dt>Size</dt><dd>{record.size || 'Not supplied'}</dd></div><div><dt>Score</dt><dd>{record.score ?? 'Not supplied'}</dd></div><div><dt>NDC</dt><dd>{record.productNdc}</dd></div></dl><p>Possible match only. Confirm the original container and ask a pharmacist or Poison Control before acting on this result.</p></article>)}{!pillMatches.length && <div className="empty-state"><b>Search the offline pill index</b><p>Enter the imprint above. Add current FDA records only when you need newer or additional coverage.</p></div>}</div>
       <p className="med-source-note">This product uses publicly available data courtesy of the U.S. National Library of Medicine, National Institutes of Health, Department of Health and Human Services. NLM is not responsible for this product and does not endorse or recommend it.</p>
     </div>}
-    {(state.cachedRecords > 0 || state.cachedPills > 0 || state.cachedPillImages > 0) && <button className="danger-button med-clear" onClick={() => { if (confirm('Remove user-downloaded FDA labels, pill records, and official images from this drive? The bundled starter index will remain.')) void window.outpost.removeMedicationCache().then((result) => { setState(result.state); setMessage(result.message); setSelected(undefined); setPillMatches([]); }); }}>REMOVE DOWNLOADED MEDICATION DATA</button>}
+    {(state.cachedRecords > 0 || state.cachedPills > 0) && <button className="danger-button med-clear" onClick={() => { if (confirm('Remove user-downloaded FDA label and pill records from this drive? The bundled starter index will remain.')) void window.outpost.removeMedicationCache().then((result) => { setState(result.state); setMessage(result.message); setSelected(undefined); setPillMatches([]); }); }}>REMOVE DOWNLOADED FDA RECORDS</button>}
   </section>;
 }

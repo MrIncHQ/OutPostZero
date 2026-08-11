@@ -60,7 +60,6 @@ const bridge: OutpostBridge = {
   acknowledgeMedicationDisclaimer: (accepted) => ipcRenderer.invoke('outpost:acknowledge-medication-disclaimer', accepted),
   fetchMedicationFromFda: (query) => ipcRenderer.invoke('outpost:fetch-medication-from-fda', query),
   fetchPillRecordsFromFda: (query) => ipcRenderer.invoke('outpost:fetch-pill-records-from-fda', query),
-  downloadPillImages: (pillId) => ipcRenderer.invoke('outpost:download-pill-images', pillId),
   searchPillRecords: (query) => ipcRenderer.invoke('outpost:search-pill-records', query),
   removeMedicationCache: () => ipcRenderer.invoke('outpost:remove-medication-cache'),
   getEducation: () => ipcRenderer.invoke('outpost:get-education'),

@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import type {
   MedicationOperationResult, MedicationRecord, MedicationState, MedicationSuggestion,
-  PillImage, PillImageOperationResult, PillMatch, PillRecord, PillSearchQuery,
+  PillMatch, PillRecord, PillSearchQuery,
 } from '../shared/contracts';
 import { PortablePathService } from './portable-path';
 
@@ -23,22 +22,6 @@ interface StarterPillIndex {
   sourceRelease: string;
   records: Array<[string, string, string, string, string, string, string, string, number | null]>;
 }
-
-interface StoredPillImage {
-  id: string;
-  setId: string;
-  name: string;
-  fileName: string;
-  mimeType: 'image/jpeg' | 'image/png';
-  sourceUrl: string;
-  downloadedAt: string;
-}
-
-interface PillImageIndex { schemaVersion: 1; images: StoredPillImage[]; }
-
-const MAX_PILL_IMAGES = 6;
-const MAX_PILL_IMAGE_BYTES = 5 * 1024 * 1024;
-const MAX_PILL_IMAGE_TOTAL_BYTES = 20 * 1024 * 1024;
 
 function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean) : [];
@@ -102,50 +85,9 @@ function mapDailyMedRows(payload: unknown, retrievedAt: string): PillRecord[] {
 
 export class MedicationService {
   private readonly statePath: string;
-  private readonly imageRoot: string;
-  private readonly imageIndexPath: string;
   private starterCache: { release: string; records: PillRecord[] } | null | undefined;
   constructor(private readonly paths: PortablePathService, private readonly fetcher: typeof globalThis.fetch = globalThis.fetch, private readonly starterIndexPath?: string) {
     this.statePath = paths.resolve('Data/Medication/fda-reference.json');
-    this.imageRoot = paths.resolve('Data/Medication/Images');
-    this.imageIndexPath = paths.resolve('Data/Medication/pill-images.json');
-  }
-
-  private loadImageIndex(): PillImageIndex {
-    try {
-      const value = JSON.parse(fs.readFileSync(this.imageIndexPath, 'utf8')) as Partial<PillImageIndex>;
-      if (value.schemaVersion === 1 && Array.isArray(value.images)) return { schemaVersion: 1, images: value.images };
-    } catch { /* No downloaded images yet, or recoverable metadata damage. */ }
-    return { schemaVersion: 1, images: [] };
-  }
-
-  private saveImageIndex(index: PillImageIndex): void {
-    fs.mkdirSync(path.dirname(this.imageIndexPath), { recursive: true });
-    const temporary = `${this.imageIndexPath}.tmp`;
-    fs.writeFileSync(temporary, `${JSON.stringify(index, null, 2)}\n`, 'utf8');
-    fs.renameSync(temporary, this.imageIndexPath);
-  }
-
-  private publicImage(image: StoredPillImage): PillImage {
-    return {
-      id: image.id, name: image.name, mimeType: image.mimeType,
-      readerUrl: `outpost-medication://image/${image.id}/${encodeURIComponent(image.name)}`,
-      downloadedAt: image.downloadedAt, source: 'DailyMed',
-    };
-  }
-
-  private publicImages(setId: string): PillImage[] {
-    return this.loadImageIndex().images.filter((image) => image.setId === setId && fs.existsSync(path.join(this.imageRoot, image.fileName))).map((image) => this.publicImage(image));
-  }
-
-  imagePath(imageId: string): string {
-    if (!/^[a-f0-9]{24}$/.test(imageId)) throw new Error('Pill image identifier is invalid.');
-    const image = this.loadImageIndex().images.find((item) => item.id === imageId);
-    if (!image) throw new Error('Pill image was not found.');
-    const resolved = path.resolve(this.imageRoot, image.fileName);
-    if (!resolved.startsWith(path.resolve(this.imageRoot) + path.sep)) throw new Error('Pill image path escaped its managed directory.');
-    if (!fs.existsSync(resolved)) throw new Error('Pill image file is missing.');
-    return resolved;
   }
 
   private starter(): { release: string; records: PillRecord[] } | null {
@@ -194,7 +136,6 @@ export class MedicationService {
     return {
       disclaimerVersion: MEDICATION_DISCLAIMER_VERSION, acknowledged: Boolean(store.acknowledgedAt),
       acknowledgedAt: store.acknowledgedAt, cachedRecords: store.records.length, cachedPills: store.pills.length,
-      cachedPillImages: this.loadImageIndex().images.filter((image) => fs.existsSync(path.join(this.imageRoot, image.fileName))).length,
       starterPills: starter?.records.length ?? 0, pillIndexRelease: starter?.release ?? null,
       lastOnlineRefreshAt: store.lastOnlineRefreshAt, records,
     };
@@ -300,11 +241,6 @@ export class MedicationService {
     const color = query.color?.trim().toLocaleUpperCase() ?? '';
     const shape = query.shape?.trim().toLocaleUpperCase() ?? '';
     const combined = new Map<string, PillRecord>();
-    const imagesBySetId = new Map<string, PillImage[]>();
-    for (const image of this.loadImageIndex().images) {
-      if (!fs.existsSync(path.join(this.imageRoot, image.fileName))) continue;
-      const images = imagesBySetId.get(image.setId) ?? []; images.push(this.publicImage(image)); imagesBySetId.set(image.setId, images);
-    }
     for (const record of [...(this.starter()?.records ?? []), ...this.load().pills]) {
       combined.set(`${record.productNdc}|${normalizeImprint(record.imprint)}|${record.color}|${record.shape}|${record.name}`, record);
     }
@@ -313,56 +249,12 @@ export class MedicationService {
       if (!stored || (!stored.includes(target) && !target.includes(stored))) return null;
       if (color && record.color.toLocaleUpperCase() !== color) return null;
       if (shape && record.shape.toLocaleUpperCase() !== shape) return null;
-      return { ...record, match: stored === target ? 'exact' : 'partial', images: imagesBySetId.get(record.setId) ?? [] };
+      return { ...record, match: stored === target ? 'exact' : 'partial' };
     }).filter((record): record is PillMatch => Boolean(record)).sort((a, b) => (a.match === b.match ? a.name.localeCompare(b.name) : a.match === 'exact' ? -1 : 1)).slice(0, 100);
-  }
-
-  async downloadPillImages(pillId: string): Promise<PillImageOperationResult> {
-    const store = this.load();
-    if (!store.acknowledgedAt) throw new Error('Accept the medication-reference warning before retrieving DailyMed images.');
-    const pill = [...(this.starter()?.records ?? []), ...store.pills].find((record) => record.id === pillId);
-    if (!pill || !/^[a-f0-9-]{36}$/i.test(pill.setId)) throw new Error('This result does not have a valid DailyMed label identifier.');
-    const response = await this.fetcher(`https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/${encodeURIComponent(pill.setId)}/media.json`, { headers: { Accept: 'application/json' } });
-    if (response.status === 404) return { ok: true, message: 'DailyMed has no official media for this exact label.', images: this.publicImages(pill.setId) };
-    if (!response.ok) throw new Error(`DailyMed image lookup failed with HTTP ${response.status}. Existing offline images remain available.`);
-    const payload = await response.json() as { data?: { media?: Array<{ name?: unknown; mime_type?: unknown; url?: unknown }> } };
-    const candidates = (payload.data?.media ?? []).filter((item) => typeof item.url === 'string' && typeof item.name === 'string').slice(0, MAX_PILL_IMAGES);
-    const index = this.loadImageIndex(); const retained = index.images.filter((image) => image.setId !== pill.setId); const existing = index.images.filter((image) => image.setId === pill.setId); const downloaded: StoredPillImage[] = [];
-    let totalBytes = 0;
-    fs.mkdirSync(this.imageRoot, { recursive: true });
-    for (const candidate of candidates) {
-      const source = new URL(String(candidate.url));
-      if (source.protocol !== 'https:' || source.hostname !== 'dailymed.nlm.nih.gov' || source.searchParams.get('setid')?.toLocaleLowerCase() !== pill.setId.toLocaleLowerCase()) continue;
-      const declaredMime = String(candidate.mime_type).toLocaleLowerCase();
-      if (declaredMime !== 'image/jpeg' && declaredMime !== 'image/png') continue;
-      const imageResponse = await this.fetcher(source, { headers: { Accept: 'image/jpeg,image/png' } });
-      if (!imageResponse.ok) continue;
-      const declaredLength = Number(imageResponse.headers.get('content-length') ?? 0);
-      if (Number.isFinite(declaredLength) && declaredLength > MAX_PILL_IMAGE_BYTES) continue;
-      const mimeHeader = imageResponse.headers.get('content-type')?.split(';')[0].trim().toLocaleLowerCase();
-      const mimeType = (mimeHeader === 'image/png' ? 'image/png' : mimeHeader === 'image/jpeg' || mimeHeader === 'image/jpg' ? 'image/jpeg' : declaredMime) as 'image/jpeg' | 'image/png';
-      if (mimeType !== 'image/jpeg' && mimeType !== 'image/png') continue;
-      const bytes = Buffer.from(await imageResponse.arrayBuffer());
-      if (!bytes.length || bytes.length > MAX_PILL_IMAGE_BYTES || totalBytes + bytes.length > MAX_PILL_IMAGE_TOTAL_BYTES) continue;
-      totalBytes += bytes.length;
-      const id = createHash('sha256').update(`${pill.setId}\0${source.toString()}`).digest('hex').slice(0, 24);
-      const fileName = `${id}${mimeType === 'image/png' ? '.png' : '.jpg'}`;
-      const temporary = path.join(this.imageRoot, `${fileName}.tmp`); const destination = path.join(this.imageRoot, fileName);
-      fs.writeFileSync(temporary, bytes); fs.renameSync(temporary, destination);
-      downloaded.push({ id, setId: pill.setId, name: String(candidate.name).slice(0, 160), fileName, mimeType, sourceUrl: source.toString(), downloadedAt: new Date().toISOString() });
-    }
-    if (downloaded.length) {
-      this.saveImageIndex({ schemaVersion: 1, images: [...retained, ...downloaded] });
-      for (const prior of existing) if (!downloaded.some((image) => image.fileName === prior.fileName)) fs.rmSync(path.join(this.imageRoot, prior.fileName), { force: true });
-    }
-    const images = this.publicImages(pill.setId);
-    return { ok: true, message: images.length ? `${images.length} official DailyMed label ${images.length === 1 ? 'image was' : 'images were'} saved on this drive for offline viewing.` : 'DailyMed has no downloadable JPEG or PNG media for this exact label.', images };
   }
 
   clear(): MedicationOperationResult {
     const store = this.load(); store.records = []; store.pills = []; store.lastOnlineRefreshAt = null; this.save(store);
-    if (fs.existsSync(this.imageRoot)) fs.rmSync(this.imageRoot, { recursive: true, force: true });
-    if (fs.existsSync(this.imageIndexPath)) fs.rmSync(this.imageIndexPath, { force: true });
-    return { ok: true, message: 'Cached FDA labels, pill characteristics, and downloaded DailyMed images were removed. Your acknowledgment setting was kept.', state: this.state() };
+    return { ok: true, message: 'Cached FDA label and pill-characteristic records were removed. Your acknowledgment setting was kept.', state: this.state() };
   }
 }

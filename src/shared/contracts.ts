@@ -640,15 +640,6 @@ export interface PillRecord {
   retrievedAt: string;
 }
 
-export interface PillImage {
-  id: string;
-  name: string;
-  mimeType: 'image/jpeg' | 'image/png';
-  readerUrl: string;
-  downloadedAt: string;
-  source: 'DailyMed';
-}
-
 export interface PillSearchQuery {
   imprint: string;
   color?: string;
@@ -657,7 +648,6 @@ export interface PillSearchQuery {
 
 export interface PillMatch extends PillRecord {
   match: 'exact' | 'partial';
-  images: PillImage[];
 }
 
 export interface MedicationState {
@@ -666,7 +656,6 @@ export interface MedicationState {
   acknowledgedAt: string | null;
   cachedRecords: number;
   cachedPills: number;
-  cachedPillImages: number;
   starterPills: number;
   pillIndexRelease: string | null;
   lastOnlineRefreshAt: string | null;
@@ -675,7 +664,6 @@ export interface MedicationState {
 
 export interface MedicationOperationResult { ok: boolean; message: string; state: MedicationState; }
 export interface MedicationSuggestion { value: string; label: string; detail: string; source: 'drive' | 'FDA'; }
-export interface PillImageOperationResult { ok: boolean; message: string; images: PillImage[]; }
 
 export interface OutpostBridge {
   getBootstrap(): Promise<BootstrapData>;
@@ -736,7 +724,6 @@ export interface OutpostBridge {
   acknowledgeMedicationDisclaimer(accepted: boolean): Promise<MedicationState>;
   fetchMedicationFromFda(query: string): Promise<MedicationOperationResult>;
   fetchPillRecordsFromFda(query: string): Promise<MedicationOperationResult>;
-  downloadPillImages(pillId: string): Promise<PillImageOperationResult>;
   searchPillRecords(query: PillSearchQuery): Promise<PillMatch[]>;
   removeMedicationCache(): Promise<MedicationOperationResult>;
   getEducation(): Promise<EducationState>;
