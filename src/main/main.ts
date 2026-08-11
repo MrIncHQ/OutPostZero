@@ -29,6 +29,7 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'outpost-attachment', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
   { scheme: 'outpost-map', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
   { scheme: 'outpost-media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+  { scheme: 'outpost-medication', privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
 
 const root = findPortableRoot([path.dirname(process.execPath), process.cwd(), __dirname]);
@@ -354,6 +355,10 @@ ipcMain.handle('outpost:fetch-pill-records-from-fda', (_event, query: unknown) =
   if (typeof query !== 'string' || query.length > 100) throw new Error('Pill-record search is invalid.');
   return medicationService.fetchPillRecords(query);
 });
+ipcMain.handle('outpost:download-pill-images', (_event, pillId: unknown) => {
+  if (typeof pillId !== 'string' || pillId.length > 180) throw new Error('Pill identifier is invalid.');
+  return medicationService.downloadPillImages(pillId);
+});
 ipcMain.handle('outpost:search-pill-records', (_event, query: unknown) => {
   if (!query || typeof query !== 'object') throw new Error('Pill search is invalid.');
   const value = query as Record<string, unknown>;
@@ -554,6 +559,12 @@ app.whenReady().then(() => {
     const url = new URL(request.url); const mediaId = url.pathname.split('/').filter(Boolean)[0];
     if (url.hostname !== 'file' || !mediaId) return new Response('Not found', { status: 404 });
     try { const filePath = mediaService.filePath(mediaId); return rangedFileResponse(filePath, request, mediaMime(filePath)); }
+    catch { return new Response('Not found', { status: 404 }); }
+  });
+  protocol.handle('outpost-medication', (request) => {
+    const url = new URL(request.url); const imageId = url.pathname.split('/').filter(Boolean)[0];
+    if (url.hostname !== 'image' || !imageId) return new Response('Not found', { status: 404 });
+    try { return net.fetch(pathToFileURL(medicationService.imagePath(imageId)).toString()); }
     catch { return new Response('Not found', { status: 404 }); }
   });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {

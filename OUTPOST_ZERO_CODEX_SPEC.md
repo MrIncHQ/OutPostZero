@@ -1959,6 +1959,8 @@ Implementation note: official openFDA drug-label results can be retrieved on exp
 
 Starter-index note: portable Windows builds include a compact index generated from the no-license-required NLM RxNorm Current Prescribable Content release. Only `MTHSPL` physical-characteristic fields needed for matching are retained; full terminology files and pill photographs are excluded. The bundled starter index is runtime-owned and may be replaced by application updates, while user-downloaded medication labels and pill records remain under `Data/Medication` and outside the update boundary.
 
+Offline-image note: a user may explicitly retrieve media attached to the exact DailyMed SPL label for a possible match. Accepted JPEG and PNG files are size-limited, saved under `Data/Medication/Images`, and served later through an internal drive-only protocol. The interface must identify them as official label media because a file may show the dosage form, packaging, or other submitted label imagery; it must not imply that an image verifies pill identity. These user-downloaded files remain outside the application update boundary.
+
 Drugs.com currently provides a polished imprint/color/shape/image pill-finder experience, but its published terms prohibit automated extraction, storage, and dataset creation without prior written consent. Its pill-identification material also combines multiple licensed sources. Do not scrape or redistribute that database. The project will remain free by using FDA/DailyMed factual characteristics and will not redistribute labeler-supplied photographs unless their rights are separately confirmed.
 
 ---

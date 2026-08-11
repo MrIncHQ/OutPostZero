@@ -155,5 +155,6 @@
 - [x] Confirm Drugs.com offers the intended pill-finder workflow but prohibits automated extraction and dataset creation without prior written consent
 - [x] Reject paid and scraping-dependent pill sources in favor of free FDA/DailyMed data
 - [x] Bundle a compact FDA/DailyMed-derived NLM starter index so a new drive begins with broad offline coverage
+- [x] Let users explicitly download available official DailyMed label images to the drive and view the saved copies offline
 - [ ] Add a maintainer refresh check for each monthly no-license-required RxNorm Prescribable Content release
 - [ ] Add automated tests for exact-name lookup, imprint filtering, offline operation, provenance, update verification, and ambiguous/unknown results
