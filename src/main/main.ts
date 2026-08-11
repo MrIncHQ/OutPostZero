@@ -564,7 +564,10 @@ app.whenReady().then(() => {
   protocol.handle('outpost-medication', (request) => {
     const url = new URL(request.url); const imageId = url.pathname.split('/').filter(Boolean)[0];
     if (url.hostname !== 'image' || !imageId) return new Response('Not found', { status: 404 });
-    try { return net.fetch(pathToFileURL(medicationService.imagePath(imageId)).toString()); }
+    try {
+      const imagePath = medicationService.imagePath(imageId); const bytes = fs.readFileSync(imagePath);
+      return new Response(Uint8Array.from(bytes).buffer, { headers: { 'Content-Type': path.extname(imagePath).toLocaleLowerCase() === '.png' ? 'image/png' : 'image/jpeg', 'Cache-Control': 'no-store' } });
+    }
     catch { return new Response('Not found', { status: 404 }); }
   });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {

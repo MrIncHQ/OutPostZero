@@ -80,6 +80,13 @@ test('pill lookup UI uses free FDA data and never presents matches as verified i
   assert.doesNotMatch(source, /DATA SOURCE REQUIRED/);
 });
 
+test('main process serves cached pill images as bytes instead of a removable-drive file handoff', () => {
+  const source = fs.readFileSync('src/main/main.ts', 'utf8');
+  assert.match(source, /protocol\.handle\('outpost-medication'/);
+  assert.match(source, /fs\.readFileSync\(imagePath\)/);
+  assert.match(source, /'Content-Type'.*'image\/png'.*'image\/jpeg'/s);
+});
+
 test('bundled NLM starter index is searchable offline and survives clearing user downloads', () => {
   const app = runtime(); const indexPath = path.join(app.root, 'pill-index.json');
   fs.writeFileSync(indexPath, JSON.stringify({ schemaVersion: 1, sourceRelease: '2026-08-03', records: [
