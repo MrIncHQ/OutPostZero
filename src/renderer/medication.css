@@ -8,8 +8,18 @@
 .med-cache-count { color: #7e8d84; font-size: 9px; letter-spacing: .12em; }
 .med-banner { margin-top: 22px; padding: 11px 14px; border: 1px solid #705738; background: #251f16; color: #e2ba7f; font-size: 9px; letter-spacing: .08em; }
 .med-search { display: grid; grid-template-columns: minmax(260px,1fr) auto auto; gap: 8px; margin-top: 18px; }
-.med-search input { height: 42px; min-width: 0; padding: 0 14px; border: 1px solid #3d4b43; outline: 0; background: #0b100d; color: #eee5d8; }
+.med-search-box { position: relative; min-width: 0; }
+.med-search input { width: 100%; height: 42px; min-width: 0; padding: 0 120px 0 14px; border: 1px solid #3d4b43; outline: 0; background: #0b100d; color: #eee5d8; }
+.med-search input:focus { border-color: #a97942; }
 .med-search .primary-button { margin: 0; }
+.med-suggestion-loading { position: absolute; top: 16px; right: 12px; color: #7c8a82; font-size: 7px; letter-spacing: .1em; pointer-events: none; }
+.med-suggestions { position: absolute; z-index: 20; top: 46px; right: 0; left: 0; max-height: 320px; overflow-y: auto; border: 1px solid #65533a; background: #0a100d; box-shadow: 0 20px 40px #000b; }
+.med-suggestions button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 15px; padding: 12px 14px; border: 0; border-bottom: 1px solid #29342e; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.med-suggestions button:hover, .med-suggestions button:focus { background: #1b251f; outline: none; }
+.med-suggestions span { display: grid; min-width: 0; gap: 4px; }
+.med-suggestions b { overflow: hidden; color: #e8dfd2; font-family: 'Newsreader Variable',serif; font-size: 17px; font-weight: 460; text-overflow: ellipsis; white-space: nowrap; }
+.med-suggestions small { overflow: hidden; color: #86938b; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.med-suggestions i { flex: 0 0 auto; color: #c49757; font-size: 7px; font-style: normal; letter-spacing: .1em; }
 .med-source-note { color: #748178; font-size: 9px; line-height: 1.5; }
 .med-tabs { display: flex; margin-top: 22px; padding: 0; border-bottom: 1px solid #344039; }
 .med-tabs button { padding: 12px 18px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #6f7e75; font-size: 8px; font-weight: 700; letter-spacing: .1em; }
@@ -34,4 +44,4 @@
 .med-section summary { padding: 14px 0; color: #d2a667; font-size: 9px; font-weight: 700; letter-spacing: .09em; cursor: pointer; text-transform: uppercase; }
 .med-section p { max-height: 360px; overflow: auto; color: #a7b1ab; font-size: 11px; line-height: 1.65; white-space: pre-wrap; }
 .med-clear { margin-top: 22px; }
-@media (max-width: 1250px) { .med-workspace.selected { grid-template-columns: 1fr; } .med-search { grid-template-columns: 1fr 1fr; } .med-search input { grid-column: 1 / -1; } }
+@media (max-width: 1250px) { .med-workspace.selected { grid-template-columns: 1fr; } .med-search { grid-template-columns: 1fr 1fr; } .med-search-box { grid-column: 1 / -1; } }

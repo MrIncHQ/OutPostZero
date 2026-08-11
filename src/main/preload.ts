@@ -56,6 +56,7 @@ const bridge: OutpostBridge = {
   updateMediaMetadata: (mediaId, update) => ipcRenderer.invoke('outpost:update-media-metadata', mediaId, update),
   removeMedia: (mediaId) => ipcRenderer.invoke('outpost:remove-media', mediaId),
   getMedicationState: (query) => ipcRenderer.invoke('outpost:get-medication-state', query),
+  getMedicationSuggestions: (query) => ipcRenderer.invoke('outpost:get-medication-suggestions', query),
   acknowledgeMedicationDisclaimer: (accepted) => ipcRenderer.invoke('outpost:acknowledge-medication-disclaimer', accepted),
   fetchMedicationFromFda: (query) => ipcRenderer.invoke('outpost:fetch-medication-from-fda', query),
   removeMedicationCache: () => ipcRenderer.invoke('outpost:remove-medication-cache'),

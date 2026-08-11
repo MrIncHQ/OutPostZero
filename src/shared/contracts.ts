@@ -636,6 +636,7 @@ export interface MedicationState {
 }
 
 export interface MedicationOperationResult { ok: boolean; message: string; state: MedicationState; }
+export interface MedicationSuggestion { value: string; label: string; detail: string; source: 'drive' | 'FDA'; }
 
 export interface OutpostBridge {
   getBootstrap(): Promise<BootstrapData>;
@@ -692,6 +693,7 @@ export interface OutpostBridge {
   updateMediaMetadata(mediaId: string, update: MediaMetadataUpdate): Promise<MediaState>;
   removeMedia(mediaId: string): Promise<MediaOperationResult>;
   getMedicationState(query?: string): Promise<MedicationState>;
+  getMedicationSuggestions(query: string): Promise<MedicationSuggestion[]>;
   acknowledgeMedicationDisclaimer(accepted: boolean): Promise<MedicationState>;
   fetchMedicationFromFda(query: string): Promise<MedicationOperationResult>;
   removeMedicationCache(): Promise<MedicationOperationResult>;

@@ -1957,6 +1957,8 @@ Before implementation, verify dataset licensing, redistribution rights, coverage
 
 Initial implementation note: official openFDA drug-label results can be retrieved on explicit user searches and are cached under `Data/Medication` for later offline use. NLM retired Pillbox and warns that its final static files are not updated and should not be used for pill identification, so Pill ID remains visibly unavailable until a current authoritative and legally redistributable source passes review.
 
+Drugs.com currently provides the intended imprint/color/shape/image pill-finder experience, but its published terms prohibit automated extraction, storage, and dataset creation without prior written consent. Its pill-identification material also combines multiple licensed sources. Do not scrape or redistribute that database; pursue an explicit offline-content license or another current authoritative source with compatible redistribution rights.
+
 ---
 
 # 68. Critical Automated Tests

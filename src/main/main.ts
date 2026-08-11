@@ -337,6 +337,10 @@ ipcMain.handle('outpost:get-medication-state', (_event, query: unknown) => {
   if (query !== undefined && (typeof query !== 'string' || query.length > 100)) throw new Error('Medication search is invalid.');
   return medicationService.state(typeof query === 'string' ? query : '');
 });
+ipcMain.handle('outpost:get-medication-suggestions', (_event, query: unknown) => {
+  if (typeof query !== 'string' || query.length > 100) throw new Error('Medication suggestion query is invalid.');
+  return medicationService.suggestions(query);
+});
 ipcMain.handle('outpost:acknowledge-medication-disclaimer', (_event, accepted: unknown) => {
   if (typeof accepted !== 'boolean') throw new Error('Medication acknowledgment is invalid.');
   return medicationService.acknowledge(accepted);

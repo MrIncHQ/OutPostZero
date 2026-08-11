@@ -35,7 +35,16 @@ test('medication reference requires acknowledgment and caches official label res
     await assert.rejects(() => service.fetch('ExampleMed'), /Accept the medication-reference warning/);
     service.acknowledge(true); const result = await service.fetch('ExampleMed');
     assert.equal(result.ok, true); assert.ok(calls >= 1); assert.equal(service.state('ingredient').records[0].brandNames[0], 'ExampleMed');
+    const suggestions = await service.suggestions('Exam');
+    assert.equal(suggestions[0].label, 'ExampleMed'); assert.ok(['drive', 'FDA'].includes(suggestions[0].source));
     const offline = new MedicationService(app.paths, async () => { throw new Error('offline'); });
     assert.equal(offline.state('ExampleMed').records.length, 1); assert.equal(offline.clear().state.cachedRecords, 0);
   } finally { fs.rmSync(app.root, { recursive: true, force: true }); }
+});
+
+test('medication page uses one primary smart search and an autocomplete list', () => {
+  const source = fs.readFileSync('src/renderer/MedicationView.tsx', 'utf8');
+  assert.match(source, /SEARCH MEDICATION/); assert.match(source, /THIS DRIVE ONLY/);
+  assert.match(source, /getMedicationSuggestions/); assert.match(source, /role="listbox"/);
+  assert.match(source, /automatically falls back|automatically cache|automatically falls back/i);
 });

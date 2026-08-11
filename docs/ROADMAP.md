@@ -139,6 +139,7 @@
 - [x] Add a dedicated Medication Lookup page that works without internet or an installed browser
 - [ ] Package searchable FDA drug-label and drug-listing data as an optional, drive-contained dataset
 - [x] Search cached records by generic name, brand name, active ingredient, NDC, and manufacturer
+- [x] Debounced FDA/local autocomplete with a single online-first search that falls back to saved records offline
 - [x] Show official uses, warnings, contraindications, interactions, storage guidance, and retrieval provenance
 - [ ] Add pill identification by imprint, shape, color, and scored markings when a legally redistributable, authoritative dataset is confirmed
 - [ ] Clearly distinguish exact label matches, possible pill matches, and unknown pills
@@ -151,5 +152,7 @@
 - [x] Keep a visible safety banner on lookup results and pill-identification screens, not only on the initial acknowledgment
 - [ ] Have qualified legal and medical reviewers approve the final disclaimer, emergency guidance, terminology, and user flow before release
 - [x] Confirm NLM Pillbox was retired and explicitly reject its stale static files for operational pill identification
+- [x] Confirm Drugs.com offers the intended pill-finder workflow but prohibits automated extraction and dataset creation without prior written consent
+- [ ] Request or evaluate a Drugs.com pill-data redistribution license, including offline images, update delivery, attribution, and permitted user scope
 - [ ] Finish dataset licensing, redistribution-rights, coverage, and package-size review before shipping a complete bulk FDA dataset or pill identifier
 - [ ] Add automated tests for exact-name lookup, imprint filtering, offline operation, provenance, update verification, and ambiguous/unknown results

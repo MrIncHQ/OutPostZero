@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { MedicationOperationResult, MedicationRecord, MedicationState } from '../shared/contracts';
+import type { MedicationOperationResult, MedicationRecord, MedicationState, MedicationSuggestion } from '../shared/contracts';
 import { PortablePathService } from './portable-path';
 
 export const MEDICATION_DISCLAIMER_VERSION = '2026-08-10.1';
@@ -72,6 +72,33 @@ export class MedicationService {
   acknowledge(accepted: boolean): MedicationState {
     const store = this.load(); store.disclaimerVersion = MEDICATION_DISCLAIMER_VERSION; store.acknowledgedAt = accepted ? new Date().toISOString() : null;
     this.save(store); return this.state();
+  }
+
+  async suggestions(query: string): Promise<MedicationSuggestion[]> {
+    const cleaned = query.trim().replace(/[^\p{L}\p{N} .'-]/gu, '').slice(0, 80);
+    const token = cleaned.split(/\s+/).filter(Boolean).at(-1) ?? '';
+    if (token.length < 2) return [];
+    const suggestions = new Map<string, MedicationSuggestion>();
+    for (const record of this.state(cleaned).records.slice(0, 8)) {
+      const label = record.brandNames[0] ?? record.genericNames[0] ?? record.substances[0]; if (!label) continue;
+      suggestions.set(label.toLocaleLowerCase(), { value: label, label, detail: record.genericNames[0] ?? record.substances[0] ?? 'Saved FDA label', source: 'drive' });
+    }
+    try {
+      const terms = ['openfda.brand_name', 'openfda.generic_name', 'openfda.substance_name']
+        .map((field) => encodeURIComponent(`${field}:${token}*`)).join('+');
+      const response = await this.fetcher(`https://api.fda.gov/drug/label.json?search=${terms}&limit=12`, { headers: { Accept: 'application/json' } });
+      if (response.ok) {
+        const payload = await response.json() as { results?: Array<Record<string, unknown>> };
+        for (const raw of payload.results ?? []) {
+          const openfda = raw.openfda && typeof raw.openfda === 'object' ? raw.openfda as Record<string, unknown> : {};
+          const brands = strings(openfda.brand_name); const generics = strings(openfda.generic_name); const substances = strings(openfda.substance_name);
+          const label = brands[0] ?? generics[0] ?? substances[0]; if (!label) continue;
+          const key = label.toLocaleLowerCase(); if (!suggestions.has(key)) suggestions.set(key, { value: label, label, detail: generics[0] ?? substances[0] ?? 'FDA drug label', source: 'FDA' });
+          if (suggestions.size >= 10) break;
+        }
+      }
+    } catch { /* Suggestions are optional; local matches and normal search still work offline. */ }
+    return [...suggestions.values()].slice(0, 10);
   }
 
   async fetch(query: string): Promise<MedicationOperationResult> {
