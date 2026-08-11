@@ -401,7 +401,7 @@ export interface RelayOperationResult {
 }
 
 export interface UnifiedSearchResult {
-  source: 'document' | 'note' | 'map';
+  source: 'document' | 'note' | 'map' | 'media';
   id: string;
   title: string;
   excerpt: string;
@@ -581,6 +581,62 @@ export interface BootstrapData {
   database: { schemaVersion: number; integrityOk: boolean | null };
 }
 
+export type MediaKind = 'video' | 'audio' | 'image';
+
+export interface MediaItem {
+  id: string;
+  title: string;
+  fileName: string;
+  relativePath: string;
+  kind: MediaKind;
+  size: number;
+  addedAt: string;
+  modifiedAt: string;
+  favorite: boolean;
+  tags: string[];
+  collections: string[];
+  playbackSeconds: number;
+  durationSeconds: number | null;
+  readerUrl: string;
+}
+
+export interface MediaState { items: MediaItem[]; scannedAt: string | null; }
+export interface MediaOperationResult { ok: boolean; message: string; state: MediaState; }
+export interface MediaMetadataUpdate {
+  title?: string; favorite?: boolean; tags?: string[]; collections?: string[];
+  playbackSeconds?: number; durationSeconds?: number;
+}
+
+export interface MedicationRecord {
+  id: string;
+  brandNames: string[];
+  genericNames: string[];
+  substances: string[];
+  manufacturerNames: string[];
+  productNdcs: string[];
+  routes: string[];
+  dosageForms: string[];
+  indications: string;
+  warnings: string;
+  contraindications: string;
+  dosageAndAdministration: string;
+  adverseReactions: string;
+  drugInteractions: string;
+  storage: string;
+  retrievedAt: string;
+}
+
+export interface MedicationState {
+  disclaimerVersion: string;
+  acknowledged: boolean;
+  acknowledgedAt: string | null;
+  cachedRecords: number;
+  lastOnlineRefreshAt: string | null;
+  records: MedicationRecord[];
+}
+
+export interface MedicationOperationResult { ok: boolean; message: string; state: MedicationState; }
+
 export interface OutpostBridge {
   getBootstrap(): Promise<BootstrapData>;
   createProfile(displayName: string): Promise<LocalProfile>;
@@ -630,6 +686,15 @@ export interface OutpostBridge {
   runDocumentOcr(documentId: string): Promise<OcrOperationResult>;
   getDocumentOcrProgress(documentId: string): Promise<OcrProgress>;
   cancelDocumentOcr(documentId: string): Promise<OcrProgress>;
+  getMedia(): Promise<MediaState>;
+  importMedia(): Promise<MediaOperationResult>;
+  scanMedia(): Promise<MediaOperationResult>;
+  updateMediaMetadata(mediaId: string, update: MediaMetadataUpdate): Promise<MediaState>;
+  removeMedia(mediaId: string): Promise<MediaOperationResult>;
+  getMedicationState(query?: string): Promise<MedicationState>;
+  acknowledgeMedicationDisclaimer(accepted: boolean): Promise<MedicationState>;
+  fetchMedicationFromFda(query: string): Promise<MedicationOperationResult>;
+  removeMedicationCache(): Promise<MedicationOperationResult>;
   getEducation(): Promise<EducationState>;
   importEducationCourse(): Promise<EducationOperationResult>;
   addStarterCourse(): Promise<EducationOperationResult>;

@@ -123,21 +123,33 @@
 - [ ] Optional course media and captions
 - [ ] Signed downloadable course catalog
 
+## Phase 9 - Portable media
+
+- [x] Drive-contained video, audio, and image library with native file import and folder rescanning
+- [x] In-app playback and image viewing without an installed browser
+- [x] Search, type filters, editable titles, tags, collections, and favorites
+- [x] Portable playback-position resume for audio and video
+- [x] Confirmed deletion scoped to the selected media file
+- [x] Media files and catalog data remain outside the application update boundary
+- [ ] User-defined ordered playlists
+- [ ] Optional offline thumbnail generation and codec helper package
+
 ## Phase 10 - Offline medication reference
 
-- [ ] Add a dedicated Medication Lookup page that works without internet or an installed browser
+- [x] Add a dedicated Medication Lookup page that works without internet or an installed browser
 - [ ] Package searchable FDA drug-label and drug-listing data as an optional, drive-contained dataset
-- [ ] Search by generic name, brand name, active ingredient, purpose, and manufacturer
-- [ ] Show official uses, warnings, contraindications, interactions, storage guidance, and label provenance
+- [x] Search cached records by generic name, brand name, active ingredient, NDC, and manufacturer
+- [x] Show official uses, warnings, contraindications, interactions, storage guidance, and retrieval provenance
 - [ ] Add pill identification by imprint, shape, color, and scored markings when a legally redistributable, authoritative dataset is confirmed
 - [ ] Clearly distinguish exact label matches, possible pill matches, and unknown pills
 - [ ] Show dataset source, publication date, and last portable update on every record
 - [ ] Use signed, manually initiated dataset updates that never overwrite user data
 - [ ] Keep searches, favorites, and personal reference notes entirely local
-- [ ] Add strong medical-safety messaging: reference only, never guarantee an unknown pill's identity, and never advise taking an unidentified medication
-- [ ] Require an unchecked reference-only acknowledgment before first use; do not enable lookup until the user affirmatively accepts it
-- [ ] Store acknowledgment locally and require it again when the disclaimer text or medication dataset version materially changes
-- [ ] Keep a visible safety banner on lookup results and pill-identification screens, not only on the initial acknowledgment
+- [x] Add strong medical-safety messaging: reference only, never guarantee an unknown pill's identity, and never advise taking an unidentified medication
+- [x] Require an unchecked reference-only acknowledgment before first use; do not enable lookup until the user affirmatively accepts it
+- [x] Store acknowledgment locally and require it again when the disclaimer text materially changes
+- [x] Keep a visible safety banner on lookup results and pill-identification screens, not only on the initial acknowledgment
 - [ ] Have qualified legal and medical reviewers approve the final disclaimer, emergency guidance, terminology, and user flow before release
-- [ ] Research dataset licensing, redistribution rights, coverage, download size, and discontinued sources before implementation
+- [x] Confirm NLM Pillbox was retired and explicitly reject its stale static files for operational pill identification
+- [ ] Finish dataset licensing, redistribution-rights, coverage, and package-size review before shipping a complete bulk FDA dataset or pill identifier
 - [ ] Add automated tests for exact-name lookup, imprint filtering, offline operation, provenance, update verification, and ambiguous/unknown results

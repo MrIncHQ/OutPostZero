@@ -19,6 +19,8 @@ import { UnifiedSearchService } from './unified-search-service';
 import { EducationService } from './education-service';
 import { OcrService } from './ocr-service';
 import { AiService } from './ai-service';
+import { MediaService } from './media-service';
+import { MedicationService } from './medication-service';
 import { responseHeadersForUrl } from './security-policy';
 import type { BootstrapData, ModuleOperationResult, ModuleSummary, PortableStatus } from '../shared/contracts';
 
@@ -26,6 +28,7 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'outpost-doc', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
   { scheme: 'outpost-attachment', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
   { scheme: 'outpost-map', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
+  { scheme: 'outpost-media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ]);
 
 const root = findPortableRoot([path.dirname(process.execPath), process.cwd(), __dirname]);
@@ -55,6 +58,8 @@ const documentService = new DocumentService(databaseService, portablePaths);
 const educationService = new EducationService(databaseService, portablePaths);
 const ocrService = new OcrService(databaseService, portablePaths, documentService);
 const noteService = new NoteService(databaseService, portablePaths);
+const mediaService = new MediaService(portablePaths);
+const medicationService = new MedicationService(portablePaths);
 const mapHelperPath = app.isPackaged ? path.join(process.resourcesPath, 'pmtiles', 'pmtiles.exe') : path.join(app.getAppPath(), 'vendor', 'pmtiles', 'pmtiles.exe');
 const mapFontRoot = path.join(app.getAppPath(), 'vendor', 'map-assets', 'fonts');
 const mapService = new MapService(databaseService, portablePaths, { helperPath: mapHelperPath });
@@ -68,7 +73,7 @@ const aiService = new AiService(portablePaths, () => collectHardwareDiagnostics(
   const kiwix = await kiwixService.searchForAi(query, Math.max(0, 8 - documents.length));
   return [...documents, ...kiwix];
 });
-const unifiedSearchService = new UnifiedSearchService(databaseService, documentService);
+const unifiedSearchService = new UnifiedSearchService(databaseService, documentService, mediaService);
 let isPrepared = false;
 let shutdownInProgress = false;
 
@@ -128,16 +133,23 @@ function createWindow(): void {
   else void window.loadFile(path.join(__dirname, '../../renderer/index.html'));
 }
 
-function rangedFileResponse(filePath: string, request: Request): Response | Promise<Response> {
+function mediaMime(filePath: string): string {
+  const types: Record<string, string> = { '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
+    '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.flac': 'audio/flac',
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' };
+  return types[path.extname(filePath).toLocaleLowerCase()] ?? 'application/octet-stream';
+}
+
+function rangedFileResponse(filePath: string, request: Request, contentType = 'application/octet-stream'): Response | Promise<Response> {
   const range = request.headers.get('range');
   if (!range) return net.fetch(pathToFileURL(filePath).toString());
-  const match = /^bytes=(\d+)-(\d+)$/.exec(range);
+  const match = /^bytes=(\d+)-(\d*)$/.exec(range);
   if (!match) return new Response('Invalid range', { status: 416 });
-  const size = fs.statSync(filePath).size; const start = Number(match[1]); const end = Math.min(Number(match[2]), size - 1);
+  const size = fs.statSync(filePath).size; const start = Number(match[1]); const requestedEnd = match[2] ? Number(match[2]) : start + 32 * 1024 * 1024 - 1; const end = Math.min(requestedEnd, size - 1);
   if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || start >= size || end - start + 1 > 32 * 1024 * 1024) return new Response('Invalid range', { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
   const bytes = Buffer.alloc(end - start + 1); const descriptor = fs.openSync(filePath, 'r');
   try { fs.readSync(descriptor, bytes, 0, bytes.length, start); } finally { fs.closeSync(descriptor); }
-  return new Response(Uint8Array.from(bytes).buffer, { status: 206, headers: { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': String(bytes.length), 'Content-Type': 'application/octet-stream' } });
+  return new Response(Uint8Array.from(bytes).buffer, { status: 206, headers: { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': String(bytes.length), 'Content-Type': contentType } });
 }
 
 ipcMain.handle('outpost:get-bootstrap', async (): Promise<BootstrapData> => {
@@ -306,6 +318,34 @@ ipcMain.handle('outpost:cancel-document-ocr', (_event, documentId: unknown) => {
   if (typeof documentId !== 'string') throw new Error('Document identifier is invalid.');
   return ocrService.cancel(documentId);
 });
+ipcMain.handle('outpost:get-media', () => mediaService.reconcile().state);
+ipcMain.handle('outpost:import-media', async () => {
+  const selection = await dialog.showOpenDialog({ title: 'Add media to Outpost Zero', properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Video, audio, and images', extensions: ['mp4', 'm4v', 'webm', 'mov', 'mp3', 'm4a', 'aac', 'wav', 'ogg', 'flac', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'] }] });
+  return selection.canceled ? { ok: true, message: 'Media import cancelled.', state: mediaService.state() } : mediaService.importFiles(selection.filePaths);
+});
+ipcMain.handle('outpost:scan-media', () => mediaService.reconcile());
+ipcMain.handle('outpost:update-media-metadata', (_event, mediaId: unknown, update: unknown) => {
+  if (typeof mediaId !== 'string' || !update || typeof update !== 'object') throw new Error('Media metadata update is invalid.');
+  return mediaService.update(mediaId, update as Parameters<MediaService['update']>[1]);
+});
+ipcMain.handle('outpost:remove-media', (_event, mediaId: unknown) => {
+  if (typeof mediaId !== 'string') throw new Error('Media identifier is invalid.');
+  return mediaService.remove(mediaId);
+});
+ipcMain.handle('outpost:get-medication-state', (_event, query: unknown) => {
+  if (query !== undefined && (typeof query !== 'string' || query.length > 100)) throw new Error('Medication search is invalid.');
+  return medicationService.state(typeof query === 'string' ? query : '');
+});
+ipcMain.handle('outpost:acknowledge-medication-disclaimer', (_event, accepted: unknown) => {
+  if (typeof accepted !== 'boolean') throw new Error('Medication acknowledgment is invalid.');
+  return medicationService.acknowledge(accepted);
+});
+ipcMain.handle('outpost:fetch-medication-from-fda', (_event, query: unknown) => {
+  if (typeof query !== 'string' || query.length > 100) throw new Error('Medication search is invalid.');
+  return medicationService.fetch(query);
+});
+ipcMain.handle('outpost:remove-medication-cache', () => medicationService.clear());
 ipcMain.handle('outpost:get-education', () => educationService.state());
 ipcMain.handle('outpost:import-education-course', async () => {
   const selection = await dialog.showOpenDialog({ title: 'Add an offline course folder', properties: ['openDirectory'] });
@@ -492,6 +532,12 @@ app.whenReady().then(() => {
       }
     } catch { return new Response('Not found', { status: 404 }); }
     return new Response('Not found', { status: 404 });
+  });
+  protocol.handle('outpost-media', (request) => {
+    const url = new URL(request.url); const mediaId = url.pathname.split('/').filter(Boolean)[0];
+    if (url.hostname !== 'file' || !mediaId) return new Response('Not found', { status: 404 });
+    try { const filePath = mediaService.filePath(mediaId); return rangedFileResponse(filePath, request, mediaMime(filePath)); }
+    catch { return new Response('Not found', { status: 404 }); }
   });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({

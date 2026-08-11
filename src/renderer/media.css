@@ -1,0 +1,25 @@
+.media-page { padding-bottom: 42px; }
+.media-actions, .media-detail-actions { display: flex; gap: 8px; }
+.media-actions .primary-button { margin: 0; }
+.media-toolbar { display: grid; grid-template-columns: minmax(240px,1fr) 170px auto; gap: 9px; align-items: center; margin: 24px 0 18px; }
+.media-toolbar input, .media-toolbar select, .media-player input { min-width: 0; height: 40px; padding: 0 12px; border: 1px solid #3b4942; outline: none; background: #0c110e; color: #e8e0d4; }
+.media-toolbar span { color: #77867e; font-size: 9px; letter-spacing: .1em; }
+.media-workspace { display: grid; grid-template-columns: 1fr; gap: 16px; }
+.media-workspace.playing { grid-template-columns: minmax(350px,1fr) minmax(340px, .85fr); }
+.media-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(210px,1fr)); gap: 10px; align-content: start; }
+.media-card { position: relative; min-width: 0; padding: 0; border: 1px solid #303c35; background: #0d1410; color: inherit; text-align: left; cursor: pointer; overflow: hidden; }
+.media-card.active { border-color: #b78446; }
+.media-thumb { display: grid; height: 118px; place-items: center; overflow: hidden; background: radial-gradient(circle,#293d34,#111814); color: #d4a25e; font-size: 30px; }
+.media-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.media-card > div:nth-child(2) { display: grid; gap: 5px; padding: 13px; }
+.media-card b { overflow: hidden; color: #e4dcd0; font-family: 'Newsreader Variable',serif; font-size: 18px; font-weight: 460; text-overflow: ellipsis; white-space: nowrap; }
+.media-card small { color: #718078; font-size: 8px; letter-spacing: .08em; }
+.media-card i { position: absolute; top: 8px; right: 9px; color: #e1ad61; font-style: normal; }
+.media-player { min-width: 0; padding: 14px; border: 1px solid #3b483f; background: rgba(6,10,8,.42); }
+.media-stage { display: grid; min-height: 220px; margin-bottom: 16px; place-items: center; background: #050706; }
+.media-stage img, .media-stage video { display: block; width: 100%; max-height: 440px; object-fit: contain; }
+.media-stage audio { width: calc(100% - 30px); }
+.media-player label { display: grid; gap: 6px; margin-top: 10px; color: #9a8c71; font-size: 8px; letter-spacing: .13em; }
+.media-detail-actions { justify-content: space-between; margin-top: 16px; }
+.danger-button { padding: 10px 13px; border: 1px solid #785044; background: transparent; color: #dda28e; font-size: 8px; font-weight: 700; letter-spacing: .1em; cursor: pointer; }
+@media (max-width: 1250px) { .media-workspace.playing { grid-template-columns: 1fr; } }

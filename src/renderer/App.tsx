@@ -8,15 +8,17 @@ const MapsView = lazy(() => import('./MapsView').then((module) => ({ default: mo
 const RelayView = lazy(() => import('./RelayView').then((module) => ({ default: module.RelayView })));
 const ToolsView = lazy(() => import('./ToolsView').then((module) => ({ default: module.ToolsView })));
 const LearningView = lazy(() => import('./LearningView').then((module) => ({ default: module.LearningView })));
+const MediaView = lazy(() => import('./MediaView').then((module) => ({ default: module.MediaView })));
+const MedicationView = lazy(() => import('./MedicationView').then((module) => ({ default: module.MedicationView })));
 
 type ViewId = 'home' | 'library' | 'documents' | 'maps' | 'learning' | 'notes' |
-  'media' | 'relay' | 'tools' | 'ai' | 'modules' | 'downloads' | 'storage' | 'settings' | 'updates';
+  'media' | 'medications' | 'relay' | 'tools' | 'ai' | 'modules' | 'downloads' | 'storage' | 'settings' | 'updates';
 
 const navigation: Array<{ id: ViewId; label: string }> = [
   { id: 'home', label: 'Home' }, { id: 'library', label: 'Library' },
   { id: 'documents', label: 'Documents' },
   { id: 'maps', label: 'Maps' }, { id: 'learning', label: 'Learning' },
-  { id: 'notes', label: 'Notes' }, { id: 'media', label: 'Media' },
+  { id: 'notes', label: 'Notes' }, { id: 'media', label: 'Media' }, { id: 'medications', label: 'Medications' },
   { id: 'relay', label: 'Local Relay' }, { id: 'tools', label: 'Tools' },
   { id: 'ai', label: 'Local AI' },
   { id: 'modules', label: 'Modules' }, { id: 'downloads', label: 'Downloads' },
@@ -24,7 +26,6 @@ const navigation: Array<{ id: ViewId; label: string }> = [
 ];
 
 const comingSoon: Partial<Record<ViewId, { title: string; description: string; milestone: string }>> = {
-  media: { title: 'Portable media library', description: 'Video, audio, images, playlists, metadata, and collections are planned after the core library.', milestone: 'LATER PHASE' },
   downloads: { title: 'Download manager', description: 'Queues, resume support, verification, and storage warnings activate with the first content module.', milestone: 'PHASE 4' },
 };
 
@@ -605,9 +606,11 @@ export default function App() {
   const [requestedDocument, setRequestedDocument] = useState<{ id: string; page: number }>();
   const [requestedNote, setRequestedNote] = useState<string>();
   const [requestedPlace, setRequestedPlace] = useState<string>();
+  const [requestedMedia, setRequestedMedia] = useState<string>();
   const clearRequestedDocument = useCallback(() => setRequestedDocument(undefined), []);
   const clearRequestedNote = useCallback(() => setRequestedNote(undefined), []);
   const clearRequestedPlace = useCallback(() => setRequestedPlace(undefined), []);
+  const clearRequestedMedia = useCallback(() => setRequestedMedia(undefined), []);
 
   useEffect(() => { void window.outpost.getBootstrap().then(setData); }, []);
   const title = useMemo(() => navigation.find((item) => item.id === view)?.label ?? (view === 'storage' ? 'Storage' : 'Settings'), [view]);
@@ -636,6 +639,7 @@ export default function App() {
     if (view === 'home') return <HomeView data={activeData} go={setView} onOpenResult={(result) => {
       if (result.source === 'document') { setRequestedDocument({ id: result.id, page: result.page ?? 1 }); setView('documents'); }
       else if (result.source === 'note') { setRequestedNote(result.id); setView('notes'); }
+      else if (result.source === 'media') { setRequestedMedia(result.id); setView('media'); }
       else { setRequestedPlace(result.id); setView('maps'); }
     }} />;
     if (view === 'library') return <LibraryView onModules={(modules) => setData({ ...activeData, modules })} />;
@@ -643,6 +647,8 @@ export default function App() {
     if (view === 'notes') return <Suspense fallback={<section className="page-panel"><h2>Opening Notes...</h2></section>}><NotesView requestedNoteId={requestedNote} onRequestHandled={clearRequestedNote} /></Suspense>;
     if (view === 'maps') return <Suspense fallback={<section className="page-panel"><h2>Opening Maps...</h2></section>}><MapsView requestedPlaceId={requestedPlace} onRequestHandled={clearRequestedPlace} /></Suspense>;
     if (view === 'learning') return <Suspense fallback={<section className="page-panel"><h2>Opening Education Center...</h2></section>}><LearningView /></Suspense>;
+    if (view === 'media') return <Suspense fallback={<section className="page-panel"><h2>Opening Media...</h2></section>}><MediaView requestedMediaId={requestedMedia} onRequestHandled={clearRequestedMedia} /></Suspense>;
+    if (view === 'medications') return <Suspense fallback={<section className="page-panel"><h2>Opening Medication Reference...</h2></section>}><MedicationView /></Suspense>;
     if (view === 'relay') return <Suspense fallback={<section className="page-panel"><h2>Opening Local Relay...</h2></section>}><RelayView /></Suspense>;
     if (view === 'tools') return <Suspense fallback={<section className="page-panel"><h2>Opening Tools...</h2></section>}><ToolsView /></Suspense>;
     if (view === 'ai') return <AiView onModules={(modules) => setData({ ...activeData, modules })} />;

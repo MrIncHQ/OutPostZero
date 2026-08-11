@@ -1057,6 +1057,8 @@ Basic offline media library:
 - favorites
 - collections
 
+Current implementation: media files are copied into `Content/Media`; the portable catalog, tags, collections, favorites, and playback resume state are stored under `Data/Media`. The Electron reader serves them through an internal drive-only protocol and does not require an installed browser. Ordered playlists and optional codec/thumbnail helpers remain follow-up work.
+
 A bundled FFmpeg module may be used where necessary.
 
 Never require host FFmpeg installation.
@@ -1952,6 +1954,8 @@ Implement:
 The acknowledgment must state in plain language that the information is an offline reference, may be incomplete or outdated, does not provide diagnosis or prescribing advice, cannot guarantee pill identity, and must not be used as permission to take an unknown medication. The lookup interface remains inaccessible until the user affirmatively checks the acknowledgment and continues. Acceptance stays local to the portable drive and must be requested again when the disclaimer or underlying medication dataset materially changes.
 
 Before implementation, verify dataset licensing, redistribution rights, coverage, size, update cadence, and whether any proposed pill-identification source has been discontinued or replaced. Medication data must be treated as high-stakes reference material and tested for provenance, offline availability, ambiguous results, acknowledgment enforcement, and update integrity. Qualified legal and medical reviewers must approve the final disclaimer, emergency guidance, terminology, and user flow before release; the acknowledgment is not a substitute for reliable data or safe behavior.
+
+Initial implementation note: official openFDA drug-label results can be retrieved on explicit user searches and are cached under `Data/Medication` for later offline use. NLM retired Pillbox and warns that its final static files are not updated and should not be used for pill identification, so Pill ID remains visibly unavailable until a current authoritative and legally redistributable source passes review.
 
 ---
 
