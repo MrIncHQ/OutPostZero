@@ -59,7 +59,8 @@ const educationService = new EducationService(databaseService, portablePaths);
 const ocrService = new OcrService(databaseService, portablePaths, documentService);
 const noteService = new NoteService(databaseService, portablePaths);
 const mediaService = new MediaService(portablePaths);
-const medicationService = new MedicationService(portablePaths);
+const medicationIndexPath = app.isPackaged ? path.join(process.resourcesPath, 'medication-data', 'pill-index.json') : path.join(app.getAppPath(), 'vendor', 'medication-data', 'pill-index.json');
+const medicationService = new MedicationService(portablePaths, globalThis.fetch, medicationIndexPath);
 const mapHelperPath = app.isPackaged ? path.join(process.resourcesPath, 'pmtiles', 'pmtiles.exe') : path.join(app.getAppPath(), 'vendor', 'pmtiles', 'pmtiles.exe');
 const mapFontRoot = path.join(app.getAppPath(), 'vendor', 'map-assets', 'fonts');
 const mapService = new MapService(databaseService, portablePaths, { helperPath: mapHelperPath });
@@ -348,6 +349,18 @@ ipcMain.handle('outpost:acknowledge-medication-disclaimer', (_event, accepted: u
 ipcMain.handle('outpost:fetch-medication-from-fda', (_event, query: unknown) => {
   if (typeof query !== 'string' || query.length > 100) throw new Error('Medication search is invalid.');
   return medicationService.fetch(query);
+});
+ipcMain.handle('outpost:fetch-pill-records-from-fda', (_event, query: unknown) => {
+  if (typeof query !== 'string' || query.length > 100) throw new Error('Pill-record search is invalid.');
+  return medicationService.fetchPillRecords(query);
+});
+ipcMain.handle('outpost:search-pill-records', (_event, query: unknown) => {
+  if (!query || typeof query !== 'object') throw new Error('Pill search is invalid.');
+  const value = query as Record<string, unknown>;
+  if (typeof value.imprint !== 'string' || value.imprint.length > 40 ||
+      (value.color !== undefined && (typeof value.color !== 'string' || value.color.length > 30)) ||
+      (value.shape !== undefined && (typeof value.shape !== 'string' || value.shape.length > 30))) throw new Error('Pill search is invalid.');
+  return medicationService.searchPills({ imprint: value.imprint, color: value.color as string | undefined, shape: value.shape as string | undefined });
 });
 ipcMain.handle('outpost:remove-medication-cache', () => medicationService.clear());
 ipcMain.handle('outpost:get-education', () => educationService.state());

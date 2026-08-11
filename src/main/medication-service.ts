@@ -1,16 +1,26 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { MedicationOperationResult, MedicationRecord, MedicationState, MedicationSuggestion } from '../shared/contracts';
+import type {
+  MedicationOperationResult, MedicationRecord, MedicationState, MedicationSuggestion,
+  PillMatch, PillRecord, PillSearchQuery,
+} from '../shared/contracts';
 import { PortablePathService } from './portable-path';
 
-export const MEDICATION_DISCLAIMER_VERSION = '2026-08-10.1';
+export const MEDICATION_DISCLAIMER_VERSION = '2026-08-10.2';
 
 interface MedicationStore {
-  schemaVersion: 1;
+  schemaVersion: 2;
   disclaimerVersion: string;
   acknowledgedAt: string | null;
   lastOnlineRefreshAt: string | null;
   records: MedicationRecord[];
+  pills: PillRecord[];
+}
+
+interface StarterPillIndex {
+  schemaVersion: 1;
+  sourceRelease: string;
+  records: Array<[string, string, string, string, string, string, string, string, number | null]>;
 }
 
 function strings(value: unknown): string[] {
@@ -35,22 +45,79 @@ function mapLabel(raw: Record<string, unknown>, retrievedAt: string): Medication
   };
 }
 
+function normalizeImprint(value: string): string {
+  return value.toLocaleUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function stringCell(row: unknown[], index: number): string {
+  const value = row[index];
+  return typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+}
+
+function mapDailyMedRows(payload: unknown, retrievedAt: string): PillRecord[] {
+  if (!payload || typeof payload !== 'object') return [];
+  const value = payload as Record<string, unknown>;
+  const columns = (Array.isArray(value.COLUMNS) ? value.COLUMNS : value.columns) as unknown;
+  const rows = (Array.isArray(value.DATA) ? value.DATA : value.data) as unknown;
+  if (!Array.isArray(columns) || !Array.isArray(rows)) return [];
+  const names = columns.map((column) => String(column).toLocaleUpperCase());
+  const at = (name: string) => names.indexOf(name);
+  return rows.filter((row): row is unknown[] => Array.isArray(row)).map((row) => {
+    const setId = stringCell(row, at('SETID'));
+    const productNdc = stringCell(row, at('PRODUCT_CODE'));
+    const imprint = stringCell(row, at('SPLIMPRINT'));
+    const scoreText = stringCell(row, at('SPLSCORE'));
+    return {
+      id: `${setId || 'daily-med'}:${productNdc}:${normalizeImprint(imprint)}`,
+      setId,
+      name: stringCell(row, at('NAME')) || 'FDA-listed solid oral medication',
+      productNdc,
+      imprint,
+      color: stringCell(row, at('SPLCOLOR')) || stringCell(row, at('COLOR_TEXT')),
+      shape: stringCell(row, at('SPLSHAPE')) || stringCell(row, at('SHAPE_TEXT')),
+      size: stringCell(row, at('SPLSIZE')),
+      score: scoreText && Number.isFinite(Number(scoreText)) ? Number(scoreText) : null,
+      publishedDate: stringCell(row, at('PUBLISHED_DATE')),
+      retrievedAt,
+    };
+  }).filter((record) => Boolean(record.imprint && record.productNdc));
+}
+
 export class MedicationService {
   private readonly statePath: string;
-  constructor(private readonly paths: PortablePathService, private readonly fetcher: typeof globalThis.fetch = globalThis.fetch) {
+  private starterCache: { release: string; records: PillRecord[] } | null | undefined;
+  constructor(private readonly paths: PortablePathService, private readonly fetcher: typeof globalThis.fetch = globalThis.fetch, private readonly starterIndexPath?: string) {
     this.statePath = paths.resolve('Data/Medication/fda-reference.json');
+  }
+
+  private starter(): { release: string; records: PillRecord[] } | null {
+    if (this.starterCache !== undefined) return this.starterCache;
+    try {
+      if (!this.starterIndexPath) return this.starterCache = null;
+      const value = JSON.parse(fs.readFileSync(this.starterIndexPath, 'utf8')) as StarterPillIndex;
+      if (value.schemaVersion !== 1 || !Array.isArray(value.records)) return this.starterCache = null;
+      const retrievedAt = `${value.sourceRelease}T00:00:00.000Z`;
+      const records = value.records.map((row): PillRecord => ({
+        id: `starter:${row[0]}`, setId: row[1], name: row[2], productNdc: row[3], imprint: row[4],
+        color: row[5], shape: row[6], size: row[7], score: row[8], publishedDate: value.sourceRelease, retrievedAt,
+      }));
+      return this.starterCache = { release: value.sourceRelease, records };
+    } catch { return this.starterCache = null; }
   }
 
   private load(): MedicationStore {
     try {
-      const value = JSON.parse(fs.readFileSync(this.statePath, 'utf8')) as Partial<MedicationStore>;
-      if (value.schemaVersion === 1 && Array.isArray(value.records)) return {
-        schemaVersion: 1, disclaimerVersion: value.disclaimerVersion ?? MEDICATION_DISCLAIMER_VERSION,
+      const value = JSON.parse(fs.readFileSync(this.statePath, 'utf8')) as Omit<Partial<MedicationStore>, 'schemaVersion'> & { schemaVersion?: number };
+      if ((value.schemaVersion === 1 || value.schemaVersion === 2) && Array.isArray(value.records)) return {
+        schemaVersion: 2,
+        disclaimerVersion: value.disclaimerVersion ?? MEDICATION_DISCLAIMER_VERSION,
         acknowledgedAt: value.disclaimerVersion === MEDICATION_DISCLAIMER_VERSION ? value.acknowledgedAt ?? null : null,
-        lastOnlineRefreshAt: value.lastOnlineRefreshAt ?? null, records: value.records,
+        lastOnlineRefreshAt: value.lastOnlineRefreshAt ?? null,
+        records: value.records,
+        pills: Array.isArray(value.pills) ? value.pills : [],
       };
     } catch { /* First use or recoverable metadata damage. */ }
-    return { schemaVersion: 1, disclaimerVersion: MEDICATION_DISCLAIMER_VERSION, acknowledgedAt: null, lastOnlineRefreshAt: null, records: [] };
+    return { schemaVersion: 2, disclaimerVersion: MEDICATION_DISCLAIMER_VERSION, acknowledgedAt: null, lastOnlineRefreshAt: null, records: [], pills: [] };
   }
 
   private save(store: MedicationStore): void {
@@ -65,8 +132,13 @@ export class MedicationService {
         ...record.productNdcs, ...record.routes, ...record.dosageForms].join(' ').toLocaleLowerCase();
       return words.every((word) => haystack.includes(word));
     }).sort((a, b) => (a.brandNames[0] ?? a.genericNames[0] ?? '').localeCompare(b.brandNames[0] ?? b.genericNames[0] ?? ''));
-    return { disclaimerVersion: MEDICATION_DISCLAIMER_VERSION, acknowledged: Boolean(store.acknowledgedAt),
-      acknowledgedAt: store.acknowledgedAt, cachedRecords: store.records.length, lastOnlineRefreshAt: store.lastOnlineRefreshAt, records };
+    const starter = this.starter();
+    return {
+      disclaimerVersion: MEDICATION_DISCLAIMER_VERSION, acknowledged: Boolean(store.acknowledgedAt),
+      acknowledgedAt: store.acknowledgedAt, cachedRecords: store.records.length, cachedPills: store.pills.length,
+      starterPills: starter?.records.length ?? 0, pillIndexRelease: starter?.release ?? null,
+      lastOnlineRefreshAt: store.lastOnlineRefreshAt, records,
+    };
   }
 
   acknowledge(accepted: boolean): MedicationState {
@@ -121,8 +193,68 @@ export class MedicationService {
     return { ok: true, message: found.size ? `${found.size} current FDA ${found.size === 1 ? 'label was' : 'labels were'} saved to this drive for offline use.` : 'No FDA label records matched that exact name. Try a generic name, active ingredient, brand, or NDC.', state: this.state(cleaned) };
   }
 
+  private async ndcsFor(query: string): Promise<string[]> {
+    if (/^\d{4,6}-\d{3,4}(?:-\d{1,2})?$/.test(query)) return [query];
+    const ndcs = new Set<string>();
+    for (const record of this.state(query).records) for (const ndc of record.productNdcs) ndcs.add(ndc);
+    const fields = ['brand_name', 'generic_name', 'active_ingredients.name'];
+    for (const field of fields) {
+      const response = await this.fetcher(`https://api.fda.gov/drug/ndc.json?search=${encodeURIComponent(`${field}:\"${query}\"`)}&limit=25`, { headers: { Accept: 'application/json' } });
+      if (response.status === 404) continue;
+      if (!response.ok) throw new Error(`FDA product lookup failed with HTTP ${response.status}.`);
+      const payload = await response.json() as { results?: Array<Record<string, unknown>> };
+      for (const result of payload.results ?? []) if (typeof result.product_ndc === 'string') ndcs.add(result.product_ndc);
+      if (ndcs.size >= 30) break;
+    }
+    return [...ndcs].slice(0, 30);
+  }
+
+  async fetchPillRecords(query: string): Promise<MedicationOperationResult> {
+    const cleaned = query.trim().replace(/["\\]/g, '').slice(0, 100);
+    if (cleaned.length < 2) throw new Error('Enter a medication name, active ingredient, or NDC.');
+    const store = this.load();
+    if (!store.acknowledgedAt) throw new Error('Accept the medication-reference warning before retrieving FDA records.');
+    const ndcs = await this.ndcsFor(cleaned);
+    if (!ndcs.length) return { ok: true, message: 'No current FDA product records matched that name or NDC.', state: this.state() };
+    const retrievedAt = new Date().toISOString(); const found = new Map<string, PillRecord>();
+    for (let offset = 0; offset < ndcs.length; offset += 4) {
+      const batch = await Promise.all(ndcs.slice(offset, offset + 4).map(async (ndc) => {
+        const response = await this.fetcher(`https://dailymed.nlm.nih.gov/dailymed/services/v1/ndc/${encodeURIComponent(ndc)}/imprintdata.json`, { headers: { Accept: 'application/json' } });
+        if (response.status === 404) return [];
+        if (!response.ok) throw new Error(`DailyMed pill-characteristic lookup failed with HTTP ${response.status}.`);
+        return mapDailyMedRows(await response.json(), retrievedAt);
+      }));
+      for (const records of batch) for (const record of records) found.set(record.id, record);
+    }
+    const merged = new Map(store.pills.map((record) => [record.id, record])); for (const [id, record] of found) merged.set(id, record);
+    store.pills = [...merged.values()]; store.lastOnlineRefreshAt = retrievedAt; this.save(store);
+    return {
+      ok: true,
+      message: found.size ? `${found.size} current FDA/DailyMed pill ${found.size === 1 ? 'record was' : 'records were'} saved to this drive. Pill matching now works offline for those records.` : 'FDA found matching products, but no current solid-pill characteristics were supplied for them.',
+      state: this.state(),
+    };
+  }
+
+  searchPills(query: PillSearchQuery): PillMatch[] {
+    const target = normalizeImprint(query.imprint);
+    if (target.length < 1) throw new Error('Enter the letters or numbers printed on the pill.');
+    const color = query.color?.trim().toLocaleUpperCase() ?? '';
+    const shape = query.shape?.trim().toLocaleUpperCase() ?? '';
+    const combined = new Map<string, PillRecord>();
+    for (const record of [...(this.starter()?.records ?? []), ...this.load().pills]) {
+      combined.set(`${record.productNdc}|${normalizeImprint(record.imprint)}|${record.color}|${record.shape}|${record.name}`, record);
+    }
+    return [...combined.values()].map((record): PillMatch | null => {
+      const stored = normalizeImprint(record.imprint);
+      if (!stored || (!stored.includes(target) && !target.includes(stored))) return null;
+      if (color && record.color.toLocaleUpperCase() !== color) return null;
+      if (shape && record.shape.toLocaleUpperCase() !== shape) return null;
+      return { ...record, match: stored === target ? 'exact' : 'partial' };
+    }).filter((record): record is PillMatch => Boolean(record)).sort((a, b) => (a.match === b.match ? a.name.localeCompare(b.name) : a.match === 'exact' ? -1 : 1)).slice(0, 100);
+  }
+
   clear(): MedicationOperationResult {
-    const store = this.load(); store.records = []; store.lastOnlineRefreshAt = null; this.save(store);
-    return { ok: true, message: 'Cached FDA label records were removed. Your acknowledgment setting was kept.', state: this.state() };
+    const store = this.load(); store.records = []; store.pills = []; store.lastOnlineRefreshAt = null; this.save(store);
+    return { ok: true, message: 'Cached FDA label and pill-characteristic records were removed. Your acknowledgment setting was kept.', state: this.state() };
   }
 }

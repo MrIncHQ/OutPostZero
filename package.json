@@ -1,6 +1,6 @@
 {
   "name": "outpost-zero",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "private": true,
   "description": "Portable offline knowledge, tools, and communication platform",
   "main": "dist/main/main/main.js",
@@ -105,6 +105,10 @@
       {
         "from": "vendor/map-assets/Protomaps-BSD-3-Clause.md",
         "to": "resources/map-assets/Protomaps-BSD-3-Clause.md"
+      },
+      {
+        "from": "vendor/medication-data",
+        "to": "resources/medication-data"
       }
     ],
     "win": {

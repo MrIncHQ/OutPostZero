@@ -44,4 +44,23 @@
 .med-section summary { padding: 14px 0; color: #d2a667; font-size: 9px; font-weight: 700; letter-spacing: .09em; cursor: pointer; text-transform: uppercase; }
 .med-section p { max-height: 360px; overflow: auto; color: #a7b1ab; font-size: 11px; line-height: 1.65; white-space: pre-wrap; }
 .med-clear { margin-top: 22px; }
-@media (max-width: 1250px) { .med-workspace.selected { grid-template-columns: 1fr; } .med-search { grid-template-columns: 1fr 1fr; } .med-search-box { grid-column: 1 / -1; } }
+.pill-workspace { display: grid; gap: 16px; }
+.pill-add { display: grid; grid-template-columns: minmax(260px,1fr) auto; align-items: end; gap: 9px; padding: 16px; border: 1px solid #344139; background: #0d1410; }
+.pill-add label, .pill-find label { display: grid; gap: 7px; min-width: 0; }
+.pill-add label > span, .pill-find label > span { color: #a58a61; font-size: 8px; font-weight: 700; letter-spacing: .1em; }
+.pill-add input, .pill-find input, .pill-find select { box-sizing: border-box; width: 100%; height: 42px; min-width: 0; padding: 0 12px; border: 1px solid #3c4b42; outline: 0; background: #0a100d; color: #e9e0d3; }
+.pill-add input:focus, .pill-find input:focus, .pill-find select:focus { border-color: #b48045; }
+.pill-add .secondary-button, .pill-find .primary-button { margin: 0; white-space: nowrap; }
+.pill-find { display: grid; grid-template-columns: minmax(240px,1.4fr) minmax(140px,.65fr) minmax(140px,.65fr) auto; align-items: end; gap: 9px; }
+.pill-results { display: grid; grid-template-columns: repeat(auto-fit,minmax(310px,1fr)); gap: 10px; }
+.pill-results article { padding: 18px; border: 1px solid #3a473f; background: rgba(8,13,10,.45); }
+.pill-results h3 { margin: 7px 0 15px; color: #e9dfd1; font-family: 'Newsreader Variable',serif; font-size: 22px; font-weight: 460; }
+.pill-results dl { margin: 0; }
+.pill-results dl div { display: grid; grid-template-columns: 80px 1fr; gap: 12px; padding: 6px 0; border-bottom: 1px solid #27332c; }
+.pill-results dt { color: #718078; font-size: 8px; letter-spacing: .09em; text-transform: uppercase; }
+.pill-results dd { margin: 0; color: #c6d0ca; font-size: 10px; }
+.pill-results article > p { margin: 14px 0 0; color: #bca071; font-size: 9px; line-height: 1.55; }
+.pill-exact, .pill-partial { color: #6fc2a0; font-size: 7px; font-weight: 700; letter-spacing: .11em; }
+.pill-partial { color: #c99a59; }
+@media (max-width: 1250px) { .med-workspace.selected { grid-template-columns: 1fr; } .med-search { grid-template-columns: 1fr 1fr; } .med-search-box { grid-column: 1 / -1; } .pill-find { grid-template-columns: 1fr 1fr; } .pill-imprint { grid-column: 1 / -1; } }
+@media (max-width: 760px) { .pill-add, .pill-find { grid-template-columns: 1fr; } .pill-imprint { grid-column: auto; } }

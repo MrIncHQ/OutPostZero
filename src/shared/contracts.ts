@@ -626,11 +626,38 @@ export interface MedicationRecord {
   retrievedAt: string;
 }
 
+export interface PillRecord {
+  id: string;
+  setId: string;
+  name: string;
+  productNdc: string;
+  imprint: string;
+  color: string;
+  shape: string;
+  size: string;
+  score: number | null;
+  publishedDate: string;
+  retrievedAt: string;
+}
+
+export interface PillSearchQuery {
+  imprint: string;
+  color?: string;
+  shape?: string;
+}
+
+export interface PillMatch extends PillRecord {
+  match: 'exact' | 'partial';
+}
+
 export interface MedicationState {
   disclaimerVersion: string;
   acknowledged: boolean;
   acknowledgedAt: string | null;
   cachedRecords: number;
+  cachedPills: number;
+  starterPills: number;
+  pillIndexRelease: string | null;
   lastOnlineRefreshAt: string | null;
   records: MedicationRecord[];
 }
@@ -696,6 +723,8 @@ export interface OutpostBridge {
   getMedicationSuggestions(query: string): Promise<MedicationSuggestion[]>;
   acknowledgeMedicationDisclaimer(accepted: boolean): Promise<MedicationState>;
   fetchMedicationFromFda(query: string): Promise<MedicationOperationResult>;
+  fetchPillRecordsFromFda(query: string): Promise<MedicationOperationResult>;
+  searchPillRecords(query: PillSearchQuery): Promise<PillMatch[]>;
   removeMedicationCache(): Promise<MedicationOperationResult>;
   getEducation(): Promise<EducationState>;
   importEducationCourse(): Promise<EducationOperationResult>;

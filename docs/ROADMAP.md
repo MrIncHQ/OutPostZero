@@ -141,8 +141,8 @@
 - [x] Search cached records by generic name, brand name, active ingredient, NDC, and manufacturer
 - [x] Debounced FDA/local autocomplete with a single online-first search that falls back to saved records offline
 - [x] Show official uses, warnings, contraindications, interactions, storage guidance, and retrieval provenance
-- [ ] Add pill identification by imprint, shape, color, and scored markings when a legally redistributable, authoritative dataset is confirmed
-- [ ] Clearly distinguish exact label matches, possible pill matches, and unknown pills
+- [x] Add portable pill matching by imprint, shape, color, and scored markings using current FDA/DailyMed SPL characteristics
+- [x] Clearly distinguish exact imprint matches, partial imprint matches, possible pill matches, and unknown pills
 - [ ] Show dataset source, publication date, and last portable update on every record
 - [ ] Use signed, manually initiated dataset updates that never overwrite user data
 - [ ] Keep searches, favorites, and personal reference notes entirely local
@@ -153,6 +153,7 @@
 - [ ] Have qualified legal and medical reviewers approve the final disclaimer, emergency guidance, terminology, and user flow before release
 - [x] Confirm NLM Pillbox was retired and explicitly reject its stale static files for operational pill identification
 - [x] Confirm Drugs.com offers the intended pill-finder workflow but prohibits automated extraction and dataset creation without prior written consent
-- [ ] Request or evaluate a Drugs.com pill-data redistribution license, including offline images, update delivery, attribution, and permitted user scope
-- [ ] Finish dataset licensing, redistribution-rights, coverage, and package-size review before shipping a complete bulk FDA dataset or pill identifier
+- [x] Reject paid and scraping-dependent pill sources in favor of free FDA/DailyMed data
+- [x] Bundle a compact FDA/DailyMed-derived NLM starter index so a new drive begins with broad offline coverage
+- [ ] Add a maintainer refresh check for each monthly no-license-required RxNorm Prescribable Content release
 - [ ] Add automated tests for exact-name lookup, imprint filtering, offline operation, provenance, update verification, and ambiguous/unknown results
