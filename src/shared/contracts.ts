@@ -511,6 +511,10 @@ export interface AiState {
   hostMessage: string;
   runtimeInstalled: boolean;
   runtimeVersion: string;
+  accelerationSupported: boolean;
+  acceleratorInstalled: boolean;
+  runtimeBackend: 'cpu' | 'vulkan';
+  runtimeMessage: string;
   running: boolean;
   enabled: boolean;
   selectedModelId: string | null;
@@ -537,6 +541,16 @@ export interface AiSource {
 export interface AiChatResult extends AiOperationResult {
   response?: string;
   sources?: AiSource[];
+}
+
+export interface AiChatProgress {
+  phase: 'idle' | 'searching' | 'generating' | 'complete' | 'error';
+  response: string;
+  sources: AiSource[];
+  elapsedMs: number;
+  generatedTokens?: number;
+  tokensPerSecond?: number;
+  message: string;
 }
 
 export interface UpdateStatus {
@@ -681,6 +695,7 @@ export interface OutpostBridge {
   startAi(): Promise<AiOperationResult>;
   stopAi(): Promise<AiOperationResult>;
   chatWithAi(messages: Array<{ role: 'user' | 'assistant'; content: string }>): Promise<AiChatResult>;
+  getAiChatProgress(): Promise<AiChatProgress>;
   checkDatabaseIntegrity(): Promise<boolean>;
   refreshModules(): Promise<ModuleSummary[]>;
   installModule(moduleId: string): Promise<ModuleOperationResult>;

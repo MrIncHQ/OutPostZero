@@ -196,6 +196,7 @@ ipcMain.handle('outpost:remove-ai-model', (_event, value: unknown) => {
 });
 ipcMain.handle('outpost:start-ai', () => aiService.start());
 ipcMain.handle('outpost:stop-ai', () => aiService.stop());
+ipcMain.handle('outpost:get-ai-chat-progress', () => aiService.getChatProgress());
 ipcMain.handle('outpost:chat-with-ai', (_event, value: unknown) => {
   if (!Array.isArray(value)) throw new Error('AI chat history is invalid.');
   return aiService.chat(value as Array<{ role: 'user' | 'assistant'; content: string }>);

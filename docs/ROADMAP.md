@@ -8,6 +8,8 @@
 - Re-check compatibility on every host and lock an installed model when the current computer cannot safely run it.
 - Keep model downloads, selection, and process startup explicit; local AI is never downloaded or enabled automatically.
 - Search indexed documents and installed Kiwix libraries before generation, pass only relevant read-only excerpts, and label the local sources used in each answer.
+- Prefer the verified portable Vulkan runtime on a real GPU, retain CPU fallback across host changes, and never install drivers.
+- Bound offline retrieval time and stream response text with visible search, generation, elapsed-time, and token-speed feedback.
 
 ## Phase 0 - Prove portability
 

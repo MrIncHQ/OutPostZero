@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import type { AiDownloadStatus, AiSource, AiState, ModuleSummary } from '../shared/contracts';
+import type { AiChatProgress, AiDownloadStatus, AiSource, AiState, ModuleSummary } from '../shared/contracts';
 import './ai.css';
 
 function bytes(value: number): string {
@@ -18,6 +18,7 @@ export function AiView({ onModules }: { onModules: (modules: ModuleSummary[]) =>
   const [prompt, setPrompt] = useState('');
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [sources, setSources] = useState<AiSource[]>([]);
+  const [chatProgress, setChatProgress] = useState<AiChatProgress>();
 
   async function refresh() { setState(await window.outpost.getAiState()); }
   useEffect(() => { void refresh(); }, []);
@@ -36,17 +37,22 @@ export function AiView({ onModules }: { onModules: (modules: ModuleSummary[]) =>
 
   async function send(event: FormEvent) {
     event.preventDefault(); const content = prompt.trim(); if (!content || busy) return;
-    const next: ChatMessage[] = [...chat, { role: 'user', content }]; setChat(next); setPrompt(''); setBusy('chat');
+    const next: ChatMessage[] = [...chat, { role: 'user', content }]; setChat([...next, { role: 'assistant', content: '' }]); setPrompt(''); setBusy('chat'); setSources([]);
+    const timer = window.setInterval(() => void window.outpost.getAiChatProgress().then((progress) => {
+      setChatProgress(progress); setSources(progress.sources);
+      setChat([...next, { role: 'assistant', content: progress.response }]);
+    }), 120);
     try {
       const result = await window.outpost.chatWithAi(next); setState(result.state); setMessage(result.message);
       setSources(result.sources ?? []); if (result.response) setChat([...next, { role: 'assistant', content: result.response }]);
     } catch (error) { setMessage(error instanceof Error ? error.message : 'The local AI request failed.'); }
-    finally { setBusy(''); }
+    finally { window.clearInterval(timer); setChatProgress(await window.outpost.getAiChatProgress()); setBusy(''); }
   }
 
   const selected = useMemo(() => state?.models.find((model) => model.selected), [state]);
   if (!state) return <section className="page-panel"><p className="section-label">LOCAL AI</p><h2>Inspecting this computer...</h2></section>;
   const activeDownload = download && !['idle', 'complete', 'cancelled', 'error'].includes(download.state);
+  const needsRuntime = !state.runtimeInstalled || (state.accelerationSupported && !state.acceleratorInstalled);
   const percent = activeDownload && download.totalBytes ? Math.min(100, download.downloadedBytes / download.totalBytes * 100) : 0;
 
   return (
@@ -61,8 +67,8 @@ export function AiView({ onModules }: { onModules: (modules: ModuleSummary[]) =>
       {activeDownload && <div className="ai-download"><div><b>{download.title}</b><span>{percent.toFixed(1)}% · {bytes(download.downloadedBytes)} of {bytes(download.totalBytes)}</span></div><div className="ai-progress"><i style={{ width: `${percent}%` }} /></div><p>{download.message}</p><button className="secondary-button" onClick={() => void window.outpost.cancelAiDownload()}>CANCEL</button></div>}
 
       <div className="ai-runtime">
-        <div><p className="section-label">STEP 1 · PORTABLE ENGINE</p><h3>llama.cpp CPU runtime</h3><p>Runs entirely from this drive over loopback. It does not install drivers or change Windows.</p></div>
-        <div><span className={state.runtimeInstalled ? 'ready' : ''}>{state.runtimeInstalled ? `INSTALLED · ${state.runtimeVersion}` : `NOT INSTALLED · ${bytes(18_423_015)}`}</span>{!state.runtimeInstalled && <button className="primary-button" disabled={Boolean(busy) || !state.supportedHost} onClick={() => void operation('runtime', () => window.outpost.installAiRuntime())}>INSTALL RUNTIME</button>}</div>
+        <div><p className="section-label">STEP 1 · PORTABLE ENGINE</p><h3>llama.cpp portable runtime</h3><p>{state.runtimeMessage} Everything stays on this drive and CPU fallback remains available when the drive moves.</p></div>
+        <div><span className={state.runtimeInstalled ? 'ready' : ''}>{state.runtimeInstalled ? `INSTALLED · ${state.runtimeVersion} · ${state.runtimeBackend.toUpperCase()}` : `NOT INSTALLED · ${bytes(18_423_015)}`}</span>{needsRuntime && <button className="primary-button" disabled={Boolean(busy) || !state.supportedHost} onClick={() => void operation('runtime', () => window.outpost.installAiRuntime())}>{state.runtimeInstalled ? `INSTALL GPU ACCELERATOR · ${bytes(34_172_931)}` : 'INSTALL RUNTIME'}</button>}</div>
       </div>
 
       <div className="ai-model-heading"><div><p className="section-label">STEP 2 · SELECT ONE MODEL</p><h3>Recommended for this computer</h3></div><p>No model downloads until you choose it.</p></div>
@@ -86,7 +92,12 @@ export function AiView({ onModules }: { onModules: (modules: ModuleSummary[]) =>
         <div>{selected && <button className="secondary-button" disabled={Boolean(busy) || state.running} onClick={() => void operation('none', () => window.outpost.selectAiModel(null))}>USE NO MODEL</button>}{!state.running ? <button className="primary-button" disabled={Boolean(busy) || !state.runtimeInstalled || !selected?.installed || !selected.compatible} onClick={() => void operation('start', () => window.outpost.startAi())}>{busy === 'start' ? 'LOADING MODEL...' : 'START LOCAL AI'}</button> : <button className="secondary-button" disabled={Boolean(busy)} onClick={() => void operation('stop', () => window.outpost.stopAi())}>STOP LOCAL AI</button>}</div>
       </div>
 
-      {state.enabled && <div className="ai-chat"><div className="ai-chat-history">{chat.length === 0 ? <div className="ai-empty"><b>Local assistant ready</b><p>Ask a question. Outpost Zero searches indexed documents and installed Kiwix libraries first, then uses model knowledge when local sources do not answer it. Important answers still need verification.</p></div> : chat.map((entry, index) => <div className={`ai-message ${entry.role}`} key={`${entry.role}-${index}`}><small>{entry.role === 'user' ? 'YOU' : selected?.name}</small><p>{entry.content}</p></div>)}</div>{sources.length > 0 && <div className="ai-sources"><small>LOCAL SOURCES USED</small>{sources.map((source, index) => <div key={source.id}><b>[S{index + 1}] {source.title}</b><span>{source.location}</span><p>{source.excerpt}</p></div>)}</div>}<form onSubmit={send}><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} maxLength={12_000} placeholder="Ask the offline assistant..." /><button className="primary-button" disabled={!prompt.trim() || Boolean(busy)}>{busy === 'chat' ? 'SEARCHING LIBRARY + THINKING...' : 'SEND'}</button></form></div>}
+      {state.enabled && <div className="ai-chat">
+        {busy === 'chat' && chatProgress && <div className="ai-chat-progress"><b>{chatProgress.phase === 'searching' ? 'SEARCHING LIBRARY' : 'GENERATING RESPONSE'}</b><span>{(chatProgress.elapsedMs / 1000).toFixed(1)} seconds{chatProgress.tokensPerSecond ? ` · ${chatProgress.tokensPerSecond.toFixed(1)} tokens/sec` : ''}</span><p>{chatProgress.message}</p></div>}
+        <div className="ai-chat-history">{chat.length === 0 ? <div className="ai-empty"><b>Local assistant ready</b><p>Ask a question. Outpost Zero searches indexed documents and installed Kiwix libraries first, then uses model knowledge when local sources do not answer it. Important answers still need verification.</p></div> : chat.map((entry, index) => <div className={`ai-message ${entry.role}`} key={`${entry.role}-${index}`}><small>{entry.role === 'user' ? 'YOU' : selected?.name}</small><p>{entry.content || (busy === 'chat' ? 'Waiting for the first token…' : '')}</p></div>)}</div>
+        {sources.length > 0 && <div className="ai-sources"><small>LOCAL SOURCES USED</small>{sources.map((source, index) => <div key={source.id}><b>[S{index + 1}] {source.title}</b><span>{source.location}</span><p>{source.excerpt}</p></div>)}</div>}
+        <form onSubmit={send}><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} maxLength={12_000} placeholder="Ask the offline assistant..." /><button className="primary-button" disabled={!prompt.trim() || Boolean(busy)}>{busy === 'chat' ? (chatProgress?.phase === 'generating' ? 'GENERATING...' : 'SEARCHING LIBRARY...') : 'SEND'}</button></form>
+      </div>}
     </section>
   );
 }

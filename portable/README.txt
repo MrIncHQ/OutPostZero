@@ -36,12 +36,15 @@ OUTPOST ZERO - PORTABLE WINDOWS BUILD
    only to a selected library folder on this portable drive.
    Local AI is optional and never downloads or starts automatically. Open
    Local AI to inspect the connected computer, install the portable llama.cpp
-   runtime, and choose one verified model. Outpost Zero recommends a safe tier
-   from the current CPU and RAM but still shows every model. If this drive is
+   runtime, optional portable GPU accelerator, and one verified model. Outpost
+   Zero recommends a safe tier from the current CPU and RAM but still shows
+   every model. A real GPU uses the portable Vulkan backend when available and
+   automatically falls back to CPU without installing drivers. If this drive is
    moved to a weaker computer, an incompatible installed model is kept but
    locked until you select a supported lower tier or no model. Questions can
    use read-only matches from indexed documents and installed Kiwix libraries;
-   the answer displays the local sources it received. AI output can be wrong,
+   the answer displays the local sources it received and streams as it is
+   generated with elapsed-time and speed feedback. AI output can be wrong,
    so verify important medical, legal, safety, and technical guidance.
 6. Before unplugging the drive, choose PREPARE DRIVE FOR REMOVAL in the app,
    close Outpost Zero, and use Windows Safely Remove Hardware.

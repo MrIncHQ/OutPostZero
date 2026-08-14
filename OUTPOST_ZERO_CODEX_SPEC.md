@@ -1155,6 +1155,11 @@ Never install drivers.
 
 If GPU acceleration is unavailable, use CPU fallback when practical.
 
+Implementation note: Windows x64 uses the verified portable llama.cpp Vulkan
+runtime when a real display GPU is available and falls back to the verified CPU
+runtime if acceleration cannot start. Retrieval has a strict time budget and
+responses stream into the interface with visible phase and speed feedback.
+
 Models remain portable:
 
 ```text

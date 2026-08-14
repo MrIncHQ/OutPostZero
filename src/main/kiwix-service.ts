@@ -337,10 +337,10 @@ export class KiwixService {
     const cleaned = query.trim().slice(0, 300); if (!cleaned || limit < 1 || !this.scan().length) return [];
     if (!this.active) { const started = await this.start(); if (!started.ok || !this.active) return []; }
     const base = new URL(`http://127.0.0.1:${this.active.port}/`); const candidates: Array<{ title: string; link: string; excerpt: string; library: string }> = [];
-    for (const content of this.scan().slice(0, 6)) {
+    for (const content of this.scan().slice(0, 3)) {
       try {
         const endpoint = new URL('/search', base); endpoint.searchParams.set('pattern', cleaned); endpoint.searchParams.set('content', path.basename(content.fileName, '.zim').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ /g, '_').replace(/\+/g, 'plus')); endpoint.searchParams.set('pageLength', String(Math.min(3, limit))); endpoint.searchParams.set('format', 'xml');
-        const response = await this.fetchImpl(endpoint, { signal: AbortSignal.timeout(15_000) }); if (!response.ok) continue;
+        const response = await this.fetchImpl(endpoint, { signal: AbortSignal.timeout(1_500) }); if (!response.ok) continue;
         for (const result of parseKiwixSearchXml(await response.text())) candidates.push({ ...result, library: content.name });
       } catch { /* A ZIM may not contain a full-text index. */ }
       if (candidates.length >= limit * 2) break;
@@ -350,7 +350,7 @@ export class KiwixService {
       let excerpt = candidate.excerpt;
       try {
         const article = new URL(candidate.link, base); if (article.origin === base.origin) {
-          const response = await this.fetchImpl(article, { signal: AbortSignal.timeout(12_000) });
+          const response = await this.fetchImpl(article, { signal: AbortSignal.timeout(1_000) });
           if (response.ok && (response.headers.get('content-type') ?? '').includes('text/html')) excerpt = plainKiwixText(await response.text()).slice(0, 3500) || excerpt;
         }
       } catch { /* Search snippet remains useful when an article cannot be expanded. */ }

@@ -17,6 +17,7 @@ const bridge: OutpostBridge = {
   startAi: () => ipcRenderer.invoke('outpost:start-ai'),
   stopAi: () => ipcRenderer.invoke('outpost:stop-ai'),
   chatWithAi: (messages) => ipcRenderer.invoke('outpost:chat-with-ai', messages),
+  getAiChatProgress: () => ipcRenderer.invoke('outpost:get-ai-chat-progress'),
   checkDatabaseIntegrity: () => ipcRenderer.invoke('outpost:check-database-integrity'),
   refreshModules: () => ipcRenderer.invoke('outpost:refresh-modules'),
   installModule: (moduleId) => ipcRenderer.invoke('outpost:install-module', moduleId),
