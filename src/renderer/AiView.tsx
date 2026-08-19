@@ -88,7 +88,7 @@ export function AiView({ onModules }: { onModules: (modules: ModuleSummary[]) =>
       </div>
 
       <div className="ai-control">
-        <div><p className="section-label">STEP 3 · ENABLE ONLY WHEN NEEDED</p><h3>{selected ? selected.name : 'No model selected'}</h3><p>{selected && !selected.compatible ? 'This installed model is locked on the current computer. Select a compatible lower tier.' : state.running ? 'The model is active only inside this app.' : 'AI remains off until you explicitly start it.'}</p></div>
+        <div><p className="section-label">STEP 3 · ENABLE ONLY WHEN NEEDED</p><h3>{selected ? selected.name : 'No model selected'}</h3><p>{selected && !selected.compatible ? 'This installed model is locked on the current computer. Select a compatible lower tier.' : selected?.id === 'qwen3-0.6b-q8' ? 'Fastest and lightest, but intended for basic answers. Select the compatible 4B or 8B model when you want stronger knowledge and reasoning.' : state.running ? 'The model is active only inside this app.' : 'AI remains off until you explicitly start it.'}</p></div>
         <div>{selected && <button className="secondary-button" disabled={Boolean(busy) || state.running} onClick={() => void operation('none', () => window.outpost.selectAiModel(null))}>USE NO MODEL</button>}{!state.running ? <button className="primary-button" disabled={Boolean(busy) || !state.runtimeInstalled || !selected?.installed || !selected.compatible} onClick={() => void operation('start', () => window.outpost.startAi())}>{busy === 'start' ? 'LOADING MODEL...' : 'START LOCAL AI'}</button> : <button className="secondary-button" disabled={Boolean(busy)} onClick={() => void operation('stop', () => window.outpost.stopAi())}>STOP LOCAL AI</button>}</div>
       </div>
 

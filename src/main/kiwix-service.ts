@@ -72,6 +72,27 @@ export function parseKiwixSearchXml(xml: string): Array<{ title: string; link: s
   return results;
 }
 
+const AI_SEARCH_STOP_WORDS = new Set(['a', 'about', 'an', 'and', 'are', 'can', 'could', 'do', 'does', 'explain', 'for', 'from', 'give', 'have', 'how', 'i', 'in', 'info', 'information', 'is', 'it', 'me', 'of', 'on', 'please', 'tell', 'that', 'the', 'this', 'to', 'we', 'what', 'when', 'where', 'which', 'with', 'you']);
+
+export function buildAiSearchQueries(query: string): string[] {
+  const tokens = query.toLocaleLowerCase().match(/[\p{L}\p{N}]{2,}/gu)?.filter((token) => !AI_SEARCH_STOP_WORDS.has(token)).slice(0, 8) ?? [];
+  if (!tokens.length) return [];
+  const queries = [tokens.join(' ')];
+  const hasSkinning = tokens.some((token) => ['skin', 'skinning', 'dress', 'dressing'].includes(token));
+  const gameAnimal = tokens.find((token) => ['deer', 'elk', 'moose', 'game', 'animal'].includes(token));
+  if (hasSkinning && gameAnimal) queries.push(`field dressing ${gameAnimal}`, `butchering ${gameAnimal}`);
+  if (tokens.length > 3) queries.push(tokens.slice(-3).join(' '));
+  return [...new Set(queries)].slice(0, 3);
+}
+
+function zimName(fileName: string): string {
+  return path.basename(fileName, '.zim').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ /g, '_').replace(/\+/g, 'plus');
+}
+
+function zimLanguage(fileName: string): string {
+  return path.basename(fileName, '.zim').match(/_([a-z]{2,3})_/i)?.[1].toLowerCase() ?? `single:${zimName(fileName)}`;
+}
+
 function positiveInteger(value: string): number {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
@@ -334,29 +355,43 @@ export class KiwixService {
   }
 
   async searchForAi(query: string, limit = 4): Promise<AiSource[]> {
-    const cleaned = query.trim().slice(0, 300); if (!cleaned || limit < 1 || !this.scan().length) return [];
+    const queries = buildAiSearchQueries(query.trim().slice(0, 300)); const installed = this.scan();
+    if (!queries.length || limit < 1 || !installed.length) return [];
     if (!this.active) { const started = await this.start(); if (!started.ok || !this.active) return []; }
-    const base = new URL(`http://127.0.0.1:${this.active.port}/`); const candidates: Array<{ title: string; link: string; excerpt: string; library: string }> = [];
-    for (const content of this.scan().slice(0, 3)) {
+    const base = new URL(`http://127.0.0.1:${this.active.port}/`);
+    const groups = new Map<string, ZimContentSummary[]>();
+    for (const content of installed) { const language = zimLanguage(content.fileName); groups.set(language, [...(groups.get(language) ?? []), content]); }
+    const searchableGroups = [...groups.values()].sort((left, right) => right.length - left.length).slice(0, 3);
+    const batches = await Promise.all(queries.flatMap((pattern) => searchableGroups.map(async (contents) => {
       try {
-        const endpoint = new URL('/search', base); endpoint.searchParams.set('pattern', cleaned); endpoint.searchParams.set('content', path.basename(content.fileName, '.zim').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ /g, '_').replace(/\+/g, 'plus')); endpoint.searchParams.set('pageLength', String(Math.min(3, limit))); endpoint.searchParams.set('format', 'xml');
-        const response = await this.fetchImpl(endpoint, { signal: AbortSignal.timeout(1_500) }); if (!response.ok) continue;
-        for (const result of parseKiwixSearchXml(await response.text())) candidates.push({ ...result, library: content.name });
-      } catch { /* A ZIM may not contain a full-text index. */ }
-      if (candidates.length >= limit * 2) break;
+        const endpoint = new URL('/search', base); endpoint.searchParams.set('pattern', pattern); endpoint.searchParams.set('pageLength', String(Math.max(6, limit * 2))); endpoint.searchParams.set('format', 'xml');
+        for (const content of contents) endpoint.searchParams.append('books.name', zimName(content.fileName));
+        const response = await this.fetchImpl(endpoint, { signal: AbortSignal.timeout(5_000) }); if (!response.ok) return [];
+        return parseKiwixSearchXml(await response.text());
+      } catch { return []; /* A ZIM or language group may not contain a full-text index. */ }
+    })));
+    const byName = new Map(installed.map((content) => [zimName(content.fileName), content.name]));
+    const terms = queries.flatMap((value) => value.split(' '));
+    const unique = new Map<string, { title: string; link: string; excerpt: string; library: string; score: number }>();
+    for (const candidate of batches.flat()) {
+      if (unique.has(candidate.link)) continue;
+      const name = decodeURIComponent(candidate.link.match(/^\/content\/([^/]+)/)?.[1] ?? '');
+      const haystack = `${candidate.title} ${candidate.excerpt}`.toLocaleLowerCase(); const title = candidate.title.toLocaleLowerCase();
+      const score = terms.reduce((total, term) => total + (title.includes(term) ? 8 : haystack.includes(term) ? 1 : 0), 0);
+      unique.set(candidate.link, { ...candidate, library: byName.get(name) ?? 'Installed library', score });
     }
-    const sources: AiSource[] = [];
-    for (const candidate of candidates.slice(0, limit)) {
+    const candidates = [...unique.values()].sort((left, right) => right.score - left.score).slice(0, limit);
+    const sources = await Promise.all(candidates.map(async (candidate): Promise<AiSource | null> => {
       let excerpt = candidate.excerpt;
       try {
         const article = new URL(candidate.link, base); if (article.origin === base.origin) {
-          const response = await this.fetchImpl(article, { signal: AbortSignal.timeout(1_000) });
+          const response = await this.fetchImpl(article, { signal: AbortSignal.timeout(2_500) });
           if (response.ok && (response.headers.get('content-type') ?? '').includes('text/html')) excerpt = plainKiwixText(await response.text()).slice(0, 3500) || excerpt;
         }
       } catch { /* Search snippet remains useful when an article cannot be expanded. */ }
-      if (excerpt) sources.push({ id: crypto.createHash('sha256').update(`${candidate.library}\0${candidate.link}`).digest('hex').slice(0, 16), kind: 'kiwix', title: candidate.title, location: `Kiwix · ${candidate.library}`, excerpt: excerpt.slice(0, 3500) });
-    }
-    return sources;
+      return excerpt ? { id: crypto.createHash('sha256').update(`${candidate.library}\0${candidate.link}`).digest('hex').slice(0, 16), kind: 'kiwix', title: candidate.title, location: `Kiwix · ${candidate.library}`, excerpt: excerpt.slice(0, 3500) } : null;
+    }));
+    return sources.filter((source): source is AiSource => source !== null);
   }
 
   async removeContent(contentId: string): Promise<LibraryOperationResult> {
@@ -621,7 +656,7 @@ export class KiwixService {
     const port = await availablePort();
     const logPath = this.paths.resolve('Logs/Modules/library-engine.log');
     const log = fs.createWriteStream(logPath, { flags: 'a' });
-    const args = ['--address=127.0.0.1', `--port=${port}`, '--blockexternal', `--attachToProcess=${process.pid}`,
+    const args = ['--address=127.0.0.1', `--port=${port}`, '--blockexternal', '--threads=8', `--attachToProcess=${process.pid}`,
       ...content.map((item) => this.paths.resolve(item.relativePath))];
     const child = spawn(executable, args, {
       cwd: path.dirname(executable), shell: false, windowsHide: true,

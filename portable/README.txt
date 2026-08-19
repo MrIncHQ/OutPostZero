@@ -44,7 +44,11 @@ OUTPOST ZERO - PORTABLE WINDOWS BUILD
    locked until you select a supported lower tier or no model. Questions can
    use read-only matches from indexed documents and installed Kiwix libraries;
    the answer displays the local sources it received and streams as it is
-   generated with elapsed-time and speed feedback. AI output can be wrong,
+   generated with elapsed-time and speed feedback. Conversational questions
+   are reduced to useful offline search phrases across all compatible installed
+   libraries. Current time and date come from the connected computer without
+   internet access. The 0.6B model is fast but basic; use a compatible 4B or 8B
+   model for stronger knowledge and reasoning. AI output can be wrong,
    so verify important medical, legal, safety, and technical guidance.
 6. Before unplugging the drive, choose PREPARE DRIVE FOR REMOVAL in the app,
    close Outpost Zero, and use Windows Safely Remove Hardware.

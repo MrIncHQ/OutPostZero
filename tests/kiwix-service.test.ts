@@ -6,7 +6,7 @@ import test from 'node:test';
 import { MODULE_PACKAGE_PUBLIC_KEY } from '../src/main/module-trust';
 import { DatabaseService } from '../src/main/database-service';
 import { KIWIX_PACKAGE } from '../src/main/kiwix-package';
-import { hashFile, KiwixService, parseKiwixCatalog, parseKiwixCatalogFeed, parseKiwixMetalink, parseKiwixNavigation, parseKiwixSearchXml, validateKiwixPackagePath, verifyKiwixPackage } from '../src/main/kiwix-service';
+import { buildAiSearchQueries, hashFile, KiwixService, parseKiwixCatalog, parseKiwixCatalogFeed, parseKiwixMetalink, parseKiwixNavigation, parseKiwixSearchXml, validateKiwixPackagePath, verifyKiwixPackage } from '../src/main/kiwix-service';
 import { PortablePathService } from '../src/main/portable-path';
 
 const archivePath = path.resolve('VendorCache', 'kiwix-tools_win-x86_64-3.8.1.zip');
@@ -14,6 +14,36 @@ const archivePath = path.resolve('VendorCache', 'kiwix-tools_win-x86_64-3.8.1.zi
 test('parses Kiwix full-text XML results into local AI sources', () => {
   const results = parseKiwixSearchXml('<rss><channel><item><title>Water purification</title><link>/content/wiki/Water</link><description>Methods &amp; safety notes</description></item></channel></rss>');
   assert.deepEqual(results, [{ title: 'Water purification', link: '/content/wiki/Water', excerpt: 'Methods & safety notes' }]);
+});
+
+test('turns conversational AI questions into compact offline search phrases', () => {
+  assert.deepEqual(buildAiSearchQueries('Can you give me info on how to skin a deer?'), ['skin deer', 'field dressing deer', 'butchering deer']);
+  assert.deepEqual(buildAiSearchQueries('How do I purify water after a flood?'), ['purify water after flood', 'water after flood']);
+});
+
+test('searches all same-language installed Kiwix books for local AI context', async () => {
+  const runtime = makeRuntime();
+  const requested: URL[] = [];
+  try {
+    fs.writeFileSync(runtime.paths.resolve('Content/ZIM/field_guide_en_all_2026-08.zim'), Buffer.alloc(10));
+    fs.writeFileSync(runtime.paths.resolve('Content/ZIM/wikipedia_en_all_2026-08.zim'), Buffer.alloc(10));
+    const fetchFixture: typeof fetch = async (input) => {
+      const url = new URL(String(input)); requested.push(url);
+      if (url.pathname === '/search') return new Response('<rss><channel><item><title>Field dressing</title><link>/content/wikipedia_en_all_2026-08/Field_dressing</link><description>Preparing harvested game.</description></item></channel></rss>');
+      return new Response('<html><body><main>Field dressing and skinning safely preserves harvested deer meat.</main></body></html>', { headers: { 'content-type': 'text/html' } });
+    };
+    const service = new KiwixService(runtime.database, runtime.paths, fetchFixture);
+    (service as unknown as { active: unknown }).active = { child: {}, pid: 1, port: 1234, startedAt: new Date().toISOString() };
+    const sources = await service.searchForAi('Can you tell me how to skin a deer?', 2);
+    const searchRequest = requested.find((url) => url.pathname === '/search');
+    assert.ok(searchRequest);
+    assert.deepEqual(searchRequest.searchParams.getAll('books.name').sort(), ['field_guide_en_all_2026-08', 'wikipedia_en_all_2026-08']);
+    assert.equal(searchRequest.searchParams.get('pattern'), 'skin deer');
+    assert.match(sources[0].excerpt, /skinning safely preserves/i);
+  } finally {
+    runtime.database.close();
+    fs.rmSync(runtime.root, { recursive: true, force: true });
+  }
 });
 const samplePath = path.resolve('VendorCache', 'openzim-small.zim');
 

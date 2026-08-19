@@ -53,9 +53,9 @@ test('streams local chat text into observable progress', async (context) => {
   const diagnostics = { ...hardware(16), gpuDevices: ['Test Vulkan GPU'] };
   const evaluated = evaluateAiModels(diagnostics, 'qwen3-0.6b-q8', new Set(['qwen3-0.6b-q8']));
   const state: AiState = { ...evaluated, runtimeInstalled: true, runtimeVersion: 'test', accelerationSupported: true, acceleratorInstalled: true, runtimeBackend: 'vulkan', runtimeMessage: 'GPU ready.', running: true, enabled: true, selectedModelId: 'qwen3-0.6b-q8', hardware: diagnostics, download: { state: 'idle', downloadedBytes: 0, totalBytes: 0, message: '' } };
-  let requestBody = '';
+  let requestBody = ''; let requestHeaders: HeadersInit | undefined;
   const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
-    requestBody = String(init?.body ?? '');
+    requestBody = String(init?.body ?? ''); requestHeaders = init?.headers;
     return new Response([
       'data: {"choices":[{"delta":{"content":"Fast "}}]}',
       'data: {"choices":[{"delta":{"content":"answer"}}]}',
@@ -65,10 +65,11 @@ test('streams local chat text into observable progress', async (context) => {
     ].join('\n'));
   }) as typeof fetch;
   const service = new AiService(paths, async () => diagnostics, fetchImpl, async () => [{ id: 'source', kind: 'document', title: 'Guide', location: 'Page 1', excerpt: 'Relevant local fact.' }]);
-  (service as unknown as { active: unknown }).active = { child: {}, port: 1234, modelId: 'qwen3-0.6b-q8', backend: 'vulkan' };
+  (service as unknown as { active: unknown }).active = { child: {}, port: 1234, modelId: 'qwen3-0.6b-q8', backend: 'vulkan', apiKey: 'test-secret' };
   service.state = async () => state;
   const result = await service.chat([{ role: 'user', content: 'Answer briefly.' }]);
   assert.equal(result.ok, true); assert.equal(result.response, 'Fast answer');
   assert.equal(service.getChatProgress().phase, 'complete'); assert.equal(service.getChatProgress().response, 'Fast answer');
-  assert.equal(service.getChatProgress().generatedTokens, 2); assert.match(requestBody, /"stream":true/); assert.match(requestBody, /"max_tokens":768/);
+  assert.equal(service.getChatProgress().generatedTokens, 2); assert.match(requestBody, /"stream":true/); assert.match(requestBody, /"max_tokens":768/); assert.match(requestBody, /host reports its local date and time/);
+  assert.equal(new Headers(requestHeaders).get('Authorization'), 'Bearer test-secret');
 });

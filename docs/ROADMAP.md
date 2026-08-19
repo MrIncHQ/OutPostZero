@@ -7,9 +7,10 @@
 - Recommend a conservative model tier while still showing every available tier.
 - Re-check compatibility on every host and lock an installed model when the current computer cannot safely run it.
 - Keep model downloads, selection, and process startup explicit; local AI is never downloaded or enabled automatically.
-- Search indexed documents and installed Kiwix libraries before generation, pass only relevant read-only excerpts, and label the local sources used in each answer.
+- Search indexed documents and every language-compatible installed Kiwix library before generation, compact conversational questions into useful offline search phrases, pass only relevant read-only excerpts, and label the local sources used in each answer.
 - Prefer the verified portable Vulkan runtime on a real GPU, retain CPU fallback across host changes, and never install drivers.
 - Bound offline retrieval time and stream response text with visible search, generation, elapsed-time, and token-speed feedback.
+- Supply the current host-reported local date, time, and timezone without requiring internet access; protect the loopback model API with a new random key each time it starts.
 
 ## Phase 0 - Prove portability
 
