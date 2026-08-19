@@ -19,6 +19,7 @@ import { UnifiedSearchService } from './unified-search-service';
 import { EducationService } from './education-service';
 import { OcrService } from './ocr-service';
 import { AiService } from './ai-service';
+import { relevantDocumentMatches } from './ai-retrieval';
 import { MediaService } from './media-service';
 import { MedicationService } from './medication-service';
 import { responseHeadersForUrl } from './security-policy';
@@ -66,11 +67,8 @@ const mapFontRoot = path.join(app.getAppPath(), 'vendor', 'map-assets', 'fonts')
 const mapService = new MapService(databaseService, portablePaths, { helperPath: mapHelperPath });
 const relayService = new RelayService(profileService, portablePaths);
 const aiService = new AiService(portablePaths, () => collectHardwareDiagnostics(app.getGPUInfo('complete')), globalThis.fetch, async (query) => {
-  const documentMatches = documentService.search(query); const seen = new Set(documentMatches.map((result) => `${result.documentId}:${result.page}`));
-  for (const token of query.toLocaleLowerCase().match(/[\p{L}\p{N}]{4,}/gu)?.filter((token) => !['what', 'when', 'where', 'which', 'with', 'from', 'does', 'about', 'have', 'that', 'this'].includes(token)).slice(0, 5) ?? []) {
-    for (const result of documentService.search(token)) { const key = `${result.documentId}:${result.page}`; if (!seen.has(key)) { seen.add(key); documentMatches.push(result); } }
-  }
-  const documents = documentMatches.slice(0, 5).map((result, index) => ({ id: `document-${result.documentId}-${result.page}-${index}`, kind: 'document' as const, title: result.title, location: `Document page ${result.page}`, excerpt: result.excerpt, documentId: result.documentId, page: result.page }));
+  const documentMatches = relevantDocumentMatches(documentService, query);
+  const documents = documentMatches.map((result, index) => ({ id: `document-${result.documentId}-${result.page}-${index}`, kind: 'document' as const, title: result.title, location: `Document page ${result.page}`, excerpt: result.excerpt, documentId: result.documentId, page: result.page }));
   const kiwix = await kiwixService.searchForAi(query, Math.max(0, 8 - documents.length));
   return [...documents, ...kiwix];
 });

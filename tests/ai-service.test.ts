@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { AiService, evaluateAiModels, supportsAiAcceleration } from '../src/main/ai-service';
+import { AiService, buildAiRetrievalQuery, evaluateAiModels, supportsAiAcceleration } from '../src/main/ai-service';
 import { PortablePathService, ROOT_MARKER } from '../src/main/portable-path';
 import type { AiState, HardwareDiagnostics } from '../src/shared/contracts';
 
@@ -45,6 +45,19 @@ test('uses a real display GPU for portable acceleration but rejects software ren
   assert.equal(supportsAiAcceleration({ ...hardware(32), gpuDevices: ['NVIDIA GeForce RTX 5080'] }), true);
   assert.equal(supportsAiAcceleration({ ...hardware(32), gpuDevices: ['AMD Radeon RX 7800 XT'] }), true);
   assert.equal(supportsAiAcceleration({ ...hardware(32), gpuDevices: ['Microsoft Basic Render Driver'] }), false);
+});
+
+test('carries the prior topic into referential follow-up retrieval', () => {
+  assert.equal(buildAiRetrievalQuery([
+    { role: 'user', content: 'Find me a PDF about survival skills.' },
+    { role: 'assistant', content: 'Let me check.' },
+    { role: 'user', content: 'Use the ones we have.' },
+  ]), 'Find me a PDF about survival skills.\nUse the ones we have.');
+  assert.equal(buildAiRetrievalQuery([
+    { role: 'user', content: 'Find survival books.' },
+    { role: 'assistant', content: 'Done.' },
+    { role: 'user', content: 'Explain subnet masks in detail.' },
+  ]), 'Explain subnet masks in detail.');
 });
 
 test('streams local chat text into observable progress', async (context) => {

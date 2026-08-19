@@ -128,6 +128,17 @@
 - [ ] Optional course media and captions
 - [ ] Signed downloadable course catalog
 
+## Planned phase - Printable road atlas and map literacy
+
+- [ ] Add an Atlas mode to Maps that turns a user-selected region or route into printable, paper-style road-map pages from drive-contained map data.
+- [ ] Let the user choose coverage, page size, scale, detail, orientation, and overlap before generating anything.
+- [ ] Include an index grid, road and place labels, page references, north arrow, scale bar, coordinates, legend, and source attribution.
+- [ ] Export and print an offline PDF without requiring an installed browser or an internet connection.
+- [ ] Reuse installed PMTiles/MBTiles packages where coverage permits and clearly identify any additional user-chosen download needed for atlas generation.
+- [ ] Add an Education Center course covering legends, scale, compass direction, coordinates, route planning, distance estimation, contour basics, and orienting a paper map.
+- [ ] Include short offline practice exercises that use generated atlas pages and saved places.
+- [ ] Validate map-data licensing, printed attribution, storage estimates, and legibility before making the feature generally available.
+
 ## Phase 9 - Portable media
 
 - [x] Drive-contained video, audio, and image library with native file import and folder rescanning
