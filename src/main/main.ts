@@ -68,7 +68,7 @@ const mapService = new MapService(databaseService, portablePaths, { helperPath: 
 const relayService = new RelayService(profileService, portablePaths);
 const aiService = new AiService(portablePaths, () => collectHardwareDiagnostics(app.getGPUInfo('complete')), globalThis.fetch, async (query) => {
   const documentMatches = relevantDocumentMatches(documentService, query);
-  const documents = documentMatches.map((result, index) => ({ id: `document-${result.documentId}-${result.page}-${index}`, kind: 'document' as const, title: result.title, location: `Document page ${result.page}`, excerpt: result.excerpt, documentId: result.documentId, page: result.page }));
+  const documents = documentMatches.map((result, index) => ({ id: `document-${result.documentId}-${result.page}-${index}`, kind: 'document' as const, title: result.title, location: `Document page ${result.page}`, excerpt: result.excerpt, context: documentService.aiContext(result.documentId, result.page, query), documentId: result.documentId, page: result.page }));
   const kiwix = await kiwixService.searchForAi(query, Math.max(0, 8 - documents.length));
   return [...documents, ...kiwix];
 });

@@ -13,6 +13,10 @@
 - Supply the current host-reported local date, time, and timezone without requiring internet access; protect the loopback model API with a new random key each time it starts.
 - Open AI document citations at the exact PDF page and Kiwix citations at the exact offline article; submit chat with Enter while retaining Shift+Enter for multiline prompts.
 - Treat model startup as one operation, show its elapsed time, use a single inference slot, and allow slow cold reads from removable drives to finish without forcing a redundant CPU retry.
+- Rank only confident multi-term document matches, recover conservative title misspellings and established related phrases, and reject weak one-word fallbacks.
+- Give the model focused text from the matching PDF page plus adjacent-page context while keeping compact source cards in the interface.
+- Retain the last substantive topic across short follow-ups, validate generated citation markers, and show a plain-language local search summary.
+- Maintain regression prompts across survival, medical, repair, navigation, cybersecurity, follow-up, typo, and no-match cases.
 
 ## Phase 0 - Prove portability
 

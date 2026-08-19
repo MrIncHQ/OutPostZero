@@ -165,5 +165,5 @@ test('confirms updater startup, applies the staged update, and relaunches', {
   assert.deepEqual(fs.readFileSync(paths.resolve('Outpost Zero.exe')), fixture.executable);
   assert.equal(fs.existsSync(paths.resolve('Updates/State/pending-update.json')), false);
   assert.match(fs.readFileSync(paths.resolve('Updates/update.log'), 'utf8'), /Update to 0\.4\.0 completed successfully/);
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 });
 });

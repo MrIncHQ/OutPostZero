@@ -49,6 +49,8 @@ test('scans, indexes, searches, and organizes portable text documents', async ()
     assert.deepEqual(document.collections, ['Field Manuals']);
     assert.deepEqual(document.tags, ['Power', 'repair']);
     assert.match(runtime.service.text(document.id), /Generator startup procedure/);
+    assert.match(runtime.service.aiContext(match[0].documentId, 1, 'fuel valve'), /Page 1:.*fuel valve/s);
+    assert.deepEqual(runtime.service.suggestTerms(['feild']), { feild: ['field'] });
   } finally { runtime.database.close(); fs.rmSync(runtime.root, { recursive: true, force: true }); }
 });
 

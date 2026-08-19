@@ -8,6 +8,7 @@ test('local AI sources open exact documents or Kiwix articles and Enter submits'
   assert.match(ai, /onOpenSource\(source\)/);
   assert.match(ai, /requestSubmit\(\)/);
   assert.match(ai, /event\.shiftKey/);
+  assert.match(ai, /chatProgress\?\.searchSummary/);
   assert.match(app, /source\.documentId/);
   assert.match(app, /source\.articlePath/);
   assert.match(app, /requestedArticlePath/);

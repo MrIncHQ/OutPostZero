@@ -7,6 +7,7 @@ import type {
 } from '../shared/contracts';
 import { DatabaseService } from './database-service';
 import { PortablePathService } from './portable-path';
+import { documentSearchTerms } from './ai-retrieval';
 
 const SUPPORTED_EXTENSIONS = new Set(['.pdf', '.txt', '.md', '.markdown', '.html', '.htm', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']);
 const dynamicImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<Record<string, unknown>>;
@@ -33,6 +34,25 @@ function safeFileName(fileName: string): string {
 function normalizeLabels(values: string[] | undefined): string[] | undefined {
   if (!values) return undefined;
   return [...new Set(values.map((value) => value.trim().replace(/\s+/g, ' ').slice(0, 48)).filter((value) => value.length > 0))].slice(0, 40);
+}
+
+function editDistance(left: string, right: string): number {
+  if (left.length === right.length) {
+    for (let index = 0; index < left.length - 1; index += 1) {
+      if (left[index] === right[index + 1] && left[index + 1] === right[index]
+        && `${left.slice(0, index)}${left[index + 1]}${left[index]}${left.slice(index + 2)}` === right) return 1;
+    }
+  }
+  const row = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    let diagonal = row[0]; row[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const above = row[rightIndex];
+      row[rightIndex] = Math.min(row[rightIndex] + 1, row[rightIndex - 1] + 1, diagonal + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1));
+      diagonal = above;
+    }
+  }
+  return row[right.length];
 }
 
 async function sha256File(filePath: string): Promise<string> {
@@ -189,6 +209,33 @@ export class DocumentService {
     if (!tokens.length) return [];
     const ftsQuery = tokens.map((token) => `"${token.replace(/"/g, '""')}"*`).join(' AND ');
     return this.database.searchDocumentPages(ftsQuery);
+  }
+
+  suggestTerms(tokens: string[], limitPerToken = 1): Record<string, string[]> {
+    const vocabulary = new Set(this.library().documents.flatMap((document) => `${document.title} ${document.tags.join(' ')} ${document.collections.join(' ')}`.toLocaleLowerCase().match(/[\p{L}\p{N}]{4,24}/gu) ?? []));
+    return Object.fromEntries(tokens.map((token) => {
+      const normalized = token.toLocaleLowerCase();
+      if (!/^[\p{L}\p{N}]{5,24}$/u.test(normalized)) return [token, []];
+      const maximumDistance = normalized.length >= 7 ? 2 : 1;
+      const suggestions = [...vocabulary].filter((candidate) => candidate[0] === normalized[0] && Math.abs(candidate.length - normalized.length) <= maximumDistance)
+        .map((candidate) => ({ candidate, distance: editDistance(normalized, candidate) }))
+        .filter((item) => item.distance > 0 && item.distance <= maximumDistance)
+        .sort((left, right) => left.distance - right.distance || left.candidate.localeCompare(right.candidate)).slice(0, limitPerToken).map((item) => item.candidate);
+      return [token, suggestions];
+    }));
+  }
+
+  aiContext(documentId: string, page: number, query: string, maximumCharacters = 4_000): string {
+    const terms = documentSearchTerms(query);
+    const pages = this.database.documentPageRange(documentId, Math.max(1, page - 1), page + 1);
+    const current = pages.find((entry) => entry.page === page)?.text.trim() ?? '';
+    const lower = current.toLocaleLowerCase();
+    const hit = terms.map((term) => lower.indexOf(term)).filter((index) => index >= 0).sort((left, right) => left - right)[0] ?? 0;
+    const currentBudget = Math.min(2_800, maximumCharacters); const start = Math.max(0, Math.min(hit - Math.floor(currentBudget / 3), Math.max(0, current.length - currentBudget)));
+    const focused = current.slice(start, start + currentBudget).trim();
+    const previous = pages.find((entry) => entry.page === page - 1)?.text.trim().slice(-500) ?? '';
+    const next = pages.find((entry) => entry.page === page + 1)?.text.trim().slice(0, 500) ?? '';
+    return [[page - 1, previous], [page, focused], [page + 1, next]].filter(([, text]) => Boolean(text)).map(([number, text]) => `Page ${number}: ${text}`).join('\n\n').slice(0, maximumCharacters);
   }
 
   updateMetadata(documentId: string, update: DocumentMetadataUpdate): DocumentDetails {

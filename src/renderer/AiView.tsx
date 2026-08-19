@@ -53,7 +53,7 @@ export function AiView({ onModules, onOpenSource }: { onModules: (modules: Modul
 
   async function send(event: FormEvent) {
     event.preventDefault(); const content = prompt.trim(); if (!content || busy) return;
-    const next: ChatMessage[] = [...chat, { role: 'user', content }]; setChat([...next, { role: 'assistant', content: '' }]); setPrompt(''); setBusy('chat'); setSources([]);
+    const next: ChatMessage[] = [...chat, { role: 'user', content }]; setChat([...next, { role: 'assistant', content: '' }]); setPrompt(''); setBusy('chat'); setSources([]); setChatProgress(undefined);
     const timer = window.setInterval(() => void window.outpost.getAiChatProgress().then((progress) => {
       setChatProgress(progress); setSources(progress.sources);
       setChat([...next, { role: 'assistant', content: progress.response }]);
@@ -112,6 +112,7 @@ export function AiView({ onModules, onOpenSource }: { onModules: (modules: Modul
         {busy === 'chat' && chatProgress && <div className="ai-chat-progress"><b>{chatProgress.phase === 'searching' ? 'SEARCHING LIBRARY' : 'GENERATING RESPONSE'}</b><span>{(chatProgress.elapsedMs / 1000).toFixed(1)} seconds{chatProgress.tokensPerSecond ? ` · ${chatProgress.tokensPerSecond.toFixed(1)} tokens/sec` : ''}</span><p>{chatProgress.message}</p></div>}
         <div className="ai-chat-history">{chat.length === 0 ? <div className="ai-empty"><b>Local assistant ready</b><p>Ask a question. Outpost Zero searches indexed documents and installed Kiwix libraries first, then uses model knowledge when local sources do not answer it. Important answers still need verification.</p></div> : chat.map((entry, index) => <div className={`ai-message ${entry.role}`} key={`${entry.role}-${index}`}><small>{entry.role === 'user' ? 'YOU' : selected?.name}</small><p>{entry.content || (busy === 'chat' ? 'Waiting for the first token…' : '')}</p></div>)}</div>
         {sources.length > 0 && <div className="ai-sources"><small>LOCAL SOURCES USED · SELECT ONE TO OPEN IT</small>{sources.map((source, index) => <button type="button" key={source.id} onClick={() => onOpenSource(source)} disabled={source.kind === 'document' ? !source.documentId : !source.articlePath}><b>[S{index + 1}] {source.title}</b><span>{source.location} · OPEN →</span><p>{source.excerpt}</p></button>)}</div>}
+        {chatProgress?.searchSummary && <div className="ai-search-summary" role="status">{chatProgress.searchSummary}</div>}
         <form onSubmit={send}><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={submitOnEnter} maxLength={12_000} placeholder="Ask the offline assistant... (Enter to send · Shift+Enter for a new line)" /><button className="primary-button" disabled={!prompt.trim() || Boolean(busy)}>{busy === 'chat' ? (chatProgress?.phase === 'generating' ? 'GENERATING...' : 'SEARCHING LIBRARY...') : 'SEND'}</button></form>
       </div>}
     </section>

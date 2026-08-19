@@ -553,6 +553,7 @@ export interface AiChatProgress {
   elapsedMs: number;
   generatedTokens?: number;
   tokensPerSecond?: number;
+  searchSummary?: string;
   message: string;
 }
 

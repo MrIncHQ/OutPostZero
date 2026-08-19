@@ -19,6 +19,7 @@ test('parses Kiwix full-text XML results into local AI sources', () => {
 test('turns conversational AI questions into compact offline search phrases', () => {
   assert.deepEqual(buildAiSearchQueries('Can you give me info on how to skin a deer?'), ['skin deer', 'field dressing deer', 'butchering deer']);
   assert.deepEqual(buildAiSearchQueries('How do I purify water after a flood?'), ['purify water after flood', 'water after flood']);
+  assert.deepEqual(buildAiSearchQueries('Find me a PDF file about water purification'), ['water purification']);
 });
 
 test('searches all same-language installed Kiwix books for local AI context', async () => {

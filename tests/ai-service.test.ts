@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { AiService, buildAiRetrievalQuery, evaluateAiModels, supportsAiAcceleration } from '../src/main/ai-service';
+import { AiService, buildAiRetrievalQuery, evaluateAiModels, sanitizeAiCitations, supportsAiAcceleration } from '../src/main/ai-service';
 import { PortablePathService, ROOT_MARKER } from '../src/main/portable-path';
 import type { AiState, HardwareDiagnostics } from '../src/shared/contracts';
 
@@ -58,6 +58,20 @@ test('carries the prior topic into referential follow-up retrieval', () => {
     { role: 'assistant', content: 'Done.' },
     { role: 'user', content: 'Explain subnet masks in detail.' },
   ]), 'Explain subnet masks in detail.');
+  assert.equal(buildAiRetrievalQuery([
+    { role: 'user', content: 'Find emergency shelter manuals.' },
+    { role: 'assistant', content: 'I found several.' },
+    { role: 'user', content: 'Tell me more.' },
+    { role: 'assistant', content: 'What would you like to know?' },
+    { role: 'user', content: 'Which one should I open?' },
+  ]), 'Find emergency shelter manuals.\nWhich one should I open?');
+});
+
+test('removes citation markers that do not correspond to supplied sources', () => {
+  assert.deepEqual(sanitizeAiCitations('Supported [S1], invented [S9], and malformed [S0].', 2), {
+    content: 'Supported [S1], invented, and malformed.', removed: 2,
+  });
+  assert.deepEqual(sanitizeAiCitations('General answer [S1].', 0), { content: 'General answer.', removed: 1 });
 });
 
 test('streams local chat text into observable progress', async (context) => {
@@ -77,13 +91,15 @@ test('streams local chat text into observable progress', async (context) => {
       '',
     ].join('\n'));
   }) as typeof fetch;
-  const service = new AiService(paths, async () => diagnostics, fetchImpl, async () => [{ id: 'source', kind: 'document', title: 'Guide', location: 'Page 1', excerpt: 'Relevant local fact.', documentId: 'guide-id', page: 1 }]);
+  const service = new AiService(paths, async () => diagnostics, fetchImpl, async () => [{ id: 'source', kind: 'document', title: 'Guide', location: 'Page 1', excerpt: 'Relevant local fact.', context: 'Expanded matching page and neighboring page context.', documentId: 'guide-id', page: 1 }]);
   (service as unknown as { active: unknown }).active = { child: {}, port: 1234, modelId: 'qwen3-0.6b-q8', backend: 'vulkan', apiKey: 'test-secret' };
   service.state = async () => state;
   const result = await service.chat([{ role: 'user', content: 'Answer briefly.' }]);
   assert.equal(result.ok, true); assert.equal(result.response, 'Fast answer');
   assert.equal(service.getChatProgress().phase, 'complete'); assert.equal(service.getChatProgress().response, 'Fast answer');
   assert.equal(service.getChatProgress().generatedTokens, 2); assert.match(requestBody, /"stream":true/); assert.match(requestBody, /"max_tokens":768/); assert.match(requestBody, /host reports its local date and time/);
+  assert.match(requestBody, /Expanded matching page and neighboring page context/);
   assert.equal(new Headers(requestHeaders).get('Authorization'), 'Bearer test-secret');
   assert.equal(service.getChatProgress().sources[0].documentId, 'guide-id');
+  assert.match(service.getChatProgress().searchSummary ?? '', /1 confident document match/);
 });

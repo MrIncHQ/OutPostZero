@@ -10,6 +10,7 @@ import { MODULE_PACKAGE_PUBLIC_KEY } from './module-trust';
 import { DatabaseService } from './database-service';
 import { KIWIX_PACKAGE } from './kiwix-package';
 import { PortablePathService } from './portable-path';
+import { documentSearchTerms } from './ai-retrieval';
 
 interface PackageFile { path: string; size: number; sha256: string }
 interface DownloadFile extends PackageFile { url: string }
@@ -72,10 +73,8 @@ export function parseKiwixSearchXml(xml: string): Array<{ title: string; link: s
   return results;
 }
 
-const AI_SEARCH_STOP_WORDS = new Set(['a', 'about', 'an', 'and', 'are', 'can', 'could', 'do', 'does', 'explain', 'for', 'from', 'give', 'have', 'how', 'i', 'in', 'info', 'information', 'is', 'it', 'me', 'of', 'on', 'please', 'tell', 'that', 'the', 'this', 'to', 'we', 'what', 'when', 'where', 'which', 'with', 'you']);
-
 export function buildAiSearchQueries(query: string): string[] {
-  const tokens = query.toLocaleLowerCase().match(/[\p{L}\p{N}]{2,}/gu)?.filter((token) => !AI_SEARCH_STOP_WORDS.has(token)).slice(0, 8) ?? [];
+  const tokens = documentSearchTerms(query);
   if (!tokens.length) return [];
   const queries = [tokens.join(' ')];
   const hasSkinning = tokens.some((token) => ['skin', 'skinning', 'dress', 'dressing'].includes(token));
@@ -372,15 +371,17 @@ export class KiwixService {
     })));
     const byName = new Map(installed.map((content) => [zimName(content.fileName), content.name]));
     const terms = queries.flatMap((value) => value.split(' '));
-    const unique = new Map<string, { title: string; link: string; excerpt: string; library: string; score: number }>();
+    const originalTerms = documentSearchTerms(query); const requiredCoverage = Math.min(2, originalTerms.length);
+    const unique = new Map<string, { title: string; link: string; excerpt: string; library: string; score: number; coverage: number }>();
     for (const candidate of batches.flat()) {
       if (unique.has(candidate.link)) continue;
       const name = decodeURIComponent(candidate.link.match(/^\/content\/([^/]+)/)?.[1] ?? '');
       const haystack = `${candidate.title} ${candidate.excerpt}`.toLocaleLowerCase(); const title = candidate.title.toLocaleLowerCase();
-      const score = terms.reduce((total, term) => total + (title.includes(term) ? 8 : haystack.includes(term) ? 1 : 0), 0);
-      unique.set(candidate.link, { ...candidate, library: byName.get(name) ?? 'Installed library', score });
+      const matched = [...new Set(terms.filter((term) => haystack.includes(term)))];
+      const score = matched.reduce((total, term) => total + (title.includes(term) ? 8 : 1), 0);
+      unique.set(candidate.link, { ...candidate, library: byName.get(name) ?? 'Installed library', score, coverage: matched.length });
     }
-    const candidates = [...unique.values()].sort((left, right) => right.score - left.score).slice(0, limit);
+    const candidates = [...unique.values()].filter((candidate) => candidate.coverage >= requiredCoverage).sort((left, right) => right.score - left.score).slice(0, limit);
     const sources = await Promise.all(candidates.map(async (candidate): Promise<AiSource | null> => {
       let excerpt = candidate.excerpt;
       try {

@@ -333,6 +333,12 @@ export class DatabaseService {
       .map((row) => ({ page: row.page_number, text: row.text }));
   }
 
+  documentPageRange(documentId: string, firstPage: number, lastPage: number): Array<{ page: number; text: string }> {
+    return (this.database.prepare(`SELECT page_number, text FROM document_pages
+      WHERE document_id = ? AND CAST(page_number AS INTEGER) BETWEEN ? AND ? ORDER BY CAST(page_number AS INTEGER)`).all(documentId, firstPage, lastPage) as Array<{ page_number: number; text: string }>)
+      .map((row) => ({ page: Number(row.page_number), text: row.text }));
+  }
+
   setDocumentOcrStatus(documentId: string, status: DocumentSummary['ocrStatus'], error: string | null = null): void {
     this.database.prepare('UPDATE documents SET ocr_status = ?, ocr_updated_at = ?, ocr_error = ? WHERE id = ?')
       .run(status, status === 'not-run' ? null : new Date().toISOString(), error, documentId);

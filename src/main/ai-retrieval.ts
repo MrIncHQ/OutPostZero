@@ -10,7 +10,16 @@ const SEARCH_STOP_WORDS = new Set([
 
 export interface DocumentSearchProvider {
   search(query: string): DocumentSearchResult[];
+  suggestTerms?(tokens: string[], limitPerToken?: number): Record<string, string[]>;
 }
+
+const RELATED_SEARCHES: Array<{ terms: string[]; queries: string[] }> = [
+  { terms: ['first', 'aid'], queries: ['emergency medical', 'wound treatment'] },
+  { terms: ['map', 'reading'], queries: ['navigation compass', 'land navigation'] },
+  { terms: ['food', 'preservation'], queries: ['canning food', 'dehydrating food'] },
+  { terms: ['car', 'repair'], queries: ['automotive repair', 'vehicle maintenance'] },
+  { terms: ['wilderness', 'survival'], queries: ['bushcraft survival', 'emergency shelter'] },
+];
 
 export function documentSearchTerms(query: string): string[] {
   const tokens = query.toLocaleLowerCase().match(/[\p{L}\p{N}]{2,}/gu) ?? [];
@@ -28,25 +37,35 @@ export function relevantDocumentMatches(provider: DocumentSearchProvider, query:
   if (!terms.length) return [];
 
   const phrase = terms.join(' ');
-  const candidates = new Map<string, { result: DocumentSearchResult; rank: number }>();
-  const addResults = (results: DocumentSearchResult[], searchWeight: number) => {
+  const suggestions = provider.suggestTerms?.(terms, 1) ?? {};
+  const corrections = new Map(terms.map((term) => [term, suggestions[term]?.[0] ?? term]));
+  const correctedPhrase = terms.map((term) => corrections.get(term)!).join(' ');
+  const relatedQueries = RELATED_SEARCHES.filter((entry) => entry.terms.every((term) => terms.includes(term))).flatMap((entry) => entry.queries);
+  const relevanceTerms = [...new Set([...terms, ...corrections.values(), ...relatedQueries.flatMap((value) => value.split(' '))])];
+  const candidates = new Map<string, { result: DocumentSearchResult; rank: number; strong: boolean }>();
+  const addResults = (results: DocumentSearchResult[], searchWeight: number, strong = false) => {
     results.forEach((result, index) => {
-      const titleMatches = countTermMatches(result.title, terms);
-      const excerptMatches = countTermMatches(result.excerpt, terms);
+      const titleMatches = countTermMatches(result.title, relevanceTerms);
+      const excerptMatches = countTermMatches(result.excerpt, relevanceTerms);
       const fullTitleMatch = terms.length > 1 && result.title.toLocaleLowerCase().includes(phrase);
       const rank = searchWeight - index + titleMatches * 180 + excerptMatches * 35 + (fullTitleMatch ? 500 : 0) + Math.max(0, -result.score);
       const key = `${result.documentId}:${result.page}`;
       const existing = candidates.get(key);
-      if (!existing || rank > existing.rank) candidates.set(key, { result, rank });
+      if (!existing || rank > existing.rank) candidates.set(key, { result, rank, strong: strong || Boolean(existing?.strong) });
     });
   };
 
   // SQLite FTS uses AND for this query, making it the strongest signal when every meaningful topic word is present.
-  addResults(provider.search(phrase), 1_000);
-  for (const term of terms) addResults(provider.search(term), 150);
+  const exactResults = provider.search(phrase); addResults(exactResults, 1_000, true);
+  if (!exactResults.length && correctedPhrase !== phrase) addResults(provider.search(correctedPhrase), 850, true);
+  for (const related of relatedQueries) addResults(provider.search(related), 500, true);
+  const recoveryTerms = exactResults.length ? terms : [...terms, ...corrections.values()];
+  for (const term of [...new Set(recoveryTerms)]) addResults(provider.search(term), 150);
 
-  const bestPerDocument = new Map<string, { result: DocumentSearchResult; rank: number }>();
+  const bestPerDocument = new Map<string, { result: DocumentSearchResult; rank: number; strong: boolean }>();
   for (const candidate of candidates.values()) {
+    const coverage = countTermMatches(`${candidate.result.title} ${candidate.result.excerpt}`, relevanceTerms);
+    if (!candidate.strong && coverage < Math.min(2, terms.length)) continue;
     const existing = bestPerDocument.get(candidate.result.documentId);
     if (!existing || candidate.rank > existing.rank) bestPerDocument.set(candidate.result.documentId, candidate);
   }
