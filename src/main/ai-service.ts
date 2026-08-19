@@ -105,6 +105,7 @@ export class AiService {
   private download: AiDownloadStatus = { state: 'idle', downloadedBytes: 0, totalBytes: 0, message: 'No AI download is active.' };
   private lastError: string | null = null;
   private chatStartedAt = 0;
+  private startPromise: Promise<AiOperationResult> | null = null;
   private chatProgress: AiChatProgress = { phase: 'idle', response: '', sources: [], elapsedMs: 0, message: 'No response is active.' };
 
   constructor(private readonly paths: PortablePathService, private readonly hardware: () => Promise<HardwareDiagnostics>, private readonly fetchImpl: FetchLike = globalThis.fetch, private readonly retrieve: (query: string) => Promise<AiSource[]> = () => Promise.resolve([])) {}
@@ -249,6 +250,13 @@ export class AiService {
   }
 
   async start(): Promise<AiOperationResult> {
+    if (this.startPromise) return this.startPromise;
+    this.startPromise = this.startOnce();
+    try { return await this.startPromise; }
+    finally { this.startPromise = null; }
+  }
+
+  private async startOnce(): Promise<AiOperationResult> {
     if (this.active) return this.result(true, 'Local AI is already running.', await this.state());
     const state = await this.state(); const selected = state.models.find((model) => model.selected);
     if (!state.runtimeInstalled) return this.result(false, 'Install the portable AI runtime first.', state);
@@ -261,7 +269,7 @@ export class AiService {
       let backend = preferred;
       let ready = await this.startBackend(state, model, preferred);
       if (!ready && preferred === 'vulkan') { await this.stop(); backend = 'cpu'; ready = await this.startBackend(state, model, 'cpu'); }
-      if (!ready) { await this.stop(); throw new Error('The local model did not finish starting within 60 seconds.'); }
+      if (!ready) { await this.stop(); throw new Error('The local model did not finish starting within three minutes. Check the Local AI module log.'); }
       this.lastError = null;
       const note = backend === 'vulkan' ? 'GPU acceleration is active.' : preferred === 'vulkan' ? 'The GPU runtime could not start, so safe CPU fallback is active.' : 'CPU mode is active.';
       return this.result(true, `${selected.name} is running locally on this computer. ${note}`, await this.state());
@@ -273,10 +281,10 @@ export class AiService {
     const port = await availablePort(); const log = fs.openSync(this.paths.resolve('Logs/Modules/local-ai.log'), 'a');
     fs.writeSync(log, `\n[${new Date().toISOString()}] Starting ${backend} backend for ${model.name}.\n`);
     const threads = Math.max(2, Math.min(16, Math.ceil(state.hardware.logicalCores / 2))); const apiKey = crypto.randomBytes(32).toString('hex');
-    const child = spawn(this.executablePath(backend), ['-m', this.modelPath(model), '--host', '127.0.0.1', '--port', String(port), '--ctx-size', '4096', '--threads', String(threads), '--n-gpu-layers', backend === 'vulkan' ? '99' : '0', '--api-key', apiKey], { cwd: this.runtimePath(backend), windowsHide: true, stdio: ['ignore', log, log] });
+    const child = spawn(this.executablePath(backend), ['-m', this.modelPath(model), '--host', '127.0.0.1', '--port', String(port), '--ctx-size', '4096', '--parallel', '1', '--threads', String(threads), '--n-gpu-layers', backend === 'vulkan' ? '99' : '0', '--api-key', apiKey], { cwd: this.runtimePath(backend), windowsHide: true, stdio: ['ignore', log, log] });
     this.active = { child, port, modelId: model.id, backend, apiKey }; child.once('exit', () => { if (this.active?.child === child) this.active = null; fs.closeSync(log); });
     child.once('error', (error) => { this.lastError = error.message; });
-    const deadline = Date.now() + 60_000;
+    const deadline = Date.now() + 180_000;
     while (Date.now() < deadline && this.active?.child === child) {
       try { const response = await this.fetchImpl(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(1500), headers: { Authorization: `Bearer ${apiKey}` } }); if (response.ok) return true; } catch { /* model is still loading */ }
       await new Promise((resolve) => setTimeout(resolve, 500));

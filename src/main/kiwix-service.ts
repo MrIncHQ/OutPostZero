@@ -389,7 +389,9 @@ export class KiwixService {
           if (response.ok && (response.headers.get('content-type') ?? '').includes('text/html')) excerpt = plainKiwixText(await response.text()).slice(0, 3500) || excerpt;
         }
       } catch { /* Search snippet remains useful when an article cannot be expanded. */ }
-      return excerpt ? { id: crypto.createHash('sha256').update(`${candidate.library}\0${candidate.link}`).digest('hex').slice(0, 16), kind: 'kiwix', title: candidate.title, location: `Kiwix · ${candidate.library}`, excerpt: excerpt.slice(0, 3500) } : null;
+      const target = new URL(candidate.link, base);
+      const articlePath = target.origin === base.origin && target.pathname.startsWith('/content/') ? `${target.pathname}${target.search}${target.hash}` : undefined;
+      return excerpt ? { id: crypto.createHash('sha256').update(`${candidate.library}\0${candidate.link}`).digest('hex').slice(0, 16), kind: 'kiwix', title: candidate.title, location: `Kiwix · ${candidate.library}`, excerpt: excerpt.slice(0, 3500), articlePath } : null;
     }));
     return sources.filter((source): source is AiSource => source !== null);
   }

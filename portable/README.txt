@@ -48,7 +48,11 @@ OUTPOST ZERO - PORTABLE WINDOWS BUILD
    are reduced to useful offline search phrases across all compatible installed
    libraries. Current time and date come from the connected computer without
    internet access. The 0.6B model is fast but basic; use a compatible 4B or 8B
-   model for stronger knowledge and reasoning. AI output can be wrong,
+   model for stronger knowledge and reasoning. Select a displayed source to
+   open its exact PDF page or offline Kiwix article. Press Enter to send a
+   prompt, or Shift+Enter for a new line. A cold model load from a slower drive
+   can take several minutes; one click starts it and shows elapsed time while
+   it loads. AI output can be wrong,
    so verify important medical, legal, safety, and technical guidance.
 6. Before unplugging the drive, choose PREPARE DRIVE FOR REMOVAL in the app,
    close Outpost Zero, and use Windows Safely Remove Hardware.

@@ -169,7 +169,7 @@ test('portable updater relaunches through the portable batch launcher', {
   assert.equal(result.status, 0, result.stderr);
   await waitForFile(restarted);
   assert.equal(fs.existsSync(restarted), true);
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 test('portable updater rolls back runtime files when a later verification fails', {

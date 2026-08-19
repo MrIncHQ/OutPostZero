@@ -70,7 +70,7 @@ const aiService = new AiService(portablePaths, () => collectHardwareDiagnostics(
   for (const token of query.toLocaleLowerCase().match(/[\p{L}\p{N}]{4,}/gu)?.filter((token) => !['what', 'when', 'where', 'which', 'with', 'from', 'does', 'about', 'have', 'that', 'this'].includes(token)).slice(0, 5) ?? []) {
     for (const result of documentService.search(token)) { const key = `${result.documentId}:${result.page}`; if (!seen.has(key)) { seen.add(key); documentMatches.push(result); } }
   }
-  const documents = documentMatches.slice(0, 5).map((result, index) => ({ id: `document-${result.documentId}-${result.page}-${index}`, kind: 'document' as const, title: result.title, location: `Document page ${result.page}`, excerpt: result.excerpt }));
+  const documents = documentMatches.slice(0, 5).map((result, index) => ({ id: `document-${result.documentId}-${result.page}-${index}`, kind: 'document' as const, title: result.title, location: `Document page ${result.page}`, excerpt: result.excerpt, documentId: result.documentId, page: result.page }));
   const kiwix = await kiwixService.searchForAi(query, Math.max(0, 8 - documents.length));
   return [...documents, ...kiwix];
 });

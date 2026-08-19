@@ -11,6 +11,8 @@
 - Prefer the verified portable Vulkan runtime on a real GPU, retain CPU fallback across host changes, and never install drivers.
 - Bound offline retrieval time and stream response text with visible search, generation, elapsed-time, and token-speed feedback.
 - Supply the current host-reported local date, time, and timezone without requiring internet access; protect the loopback model API with a new random key each time it starts.
+- Open AI document citations at the exact PDF page and Kiwix citations at the exact offline article; submit chat with Enter while retaining Shift+Enter for multiline prompts.
+- Treat model startup as one operation, show its elapsed time, use a single inference slot, and allow slow cold reads from removable drives to finish without forcing a redundant CPU retry.
 
 ## Phase 0 - Prove portability
 

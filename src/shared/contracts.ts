@@ -536,6 +536,9 @@ export interface AiSource {
   title: string;
   location: string;
   excerpt: string;
+  documentId?: string;
+  page?: number;
+  articlePath?: string;
 }
 
 export interface AiChatResult extends AiOperationResult {

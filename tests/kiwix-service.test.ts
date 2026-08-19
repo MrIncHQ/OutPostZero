@@ -40,6 +40,7 @@ test('searches all same-language installed Kiwix books for local AI context', as
     assert.deepEqual(searchRequest.searchParams.getAll('books.name').sort(), ['field_guide_en_all_2026-08', 'wikipedia_en_all_2026-08']);
     assert.equal(searchRequest.searchParams.get('pattern'), 'skin deer');
     assert.match(sources[0].excerpt, /skinning safely preserves/i);
+    assert.equal(sources[0].articlePath, '/content/wikipedia_en_all_2026-08/Field_dressing');
   } finally {
     runtime.database.close();
     fs.rmSync(runtime.root, { recursive: true, force: true });

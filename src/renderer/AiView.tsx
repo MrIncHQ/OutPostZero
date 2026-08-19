@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import type { AiChatProgress, AiDownloadStatus, AiSource, AiState, ModuleSummary } from '../shared/contracts';
 import './ai.css';
 
@@ -10,7 +10,7 @@ function bytes(value: number): string {
 
 interface ChatMessage { role: 'user' | 'assistant'; content: string }
 
-export function AiView({ onModules }: { onModules: (modules: ModuleSummary[]) => void }) {
+export function AiView({ onModules, onOpenSource }: { onModules: (modules: ModuleSummary[]) => void; onOpenSource: (source: AiSource) => void }) {
   const [state, setState] = useState<AiState>();
   const [download, setDownload] = useState<AiDownloadStatus>();
   const [busy, setBusy] = useState('');
@@ -19,6 +19,8 @@ export function AiView({ onModules }: { onModules: (modules: ModuleSummary[]) =>
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [sources, setSources] = useState<AiSource[]>([]);
   const [chatProgress, setChatProgress] = useState<AiChatProgress>();
+  const [startElapsed, setStartElapsed] = useState(0);
+  const operationLock = useRef(false);
 
   async function refresh() { setState(await window.outpost.getAiState()); }
   useEffect(() => { void refresh(); }, []);
@@ -29,10 +31,24 @@ export function AiView({ onModules }: { onModules: (modules: ModuleSummary[]) =>
   }, [busy]);
 
   async function operation(key: string, action: () => Promise<{ message: string; state: AiState }>) {
-    setBusy(key); setMessage('');
+    if (operationLock.current) return;
+    operationLock.current = true; setBusy(key); setMessage(key === 'start' ? 'Loading the model from this drive. One click is enough; keep Outpost Zero open.' : '');
     try { const result = await action(); setState(result.state); setMessage(result.message); }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Local AI action failed.'); }
-    finally { setBusy(''); setDownload(await window.outpost.getAiDownloadStatus()); onModules(await window.outpost.refreshModules()); }
+    finally { operationLock.current = false; setBusy(''); setDownload(await window.outpost.getAiDownloadStatus()); onModules(await window.outpost.refreshModules()); }
+  }
+
+  useEffect(() => {
+    if (busy !== 'start') { setStartElapsed(0); return; }
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => setStartElapsed(Math.floor((Date.now() - startedAt) / 1000)), 500);
+    return () => window.clearInterval(timer);
+  }, [busy]);
+
+  function submitOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
   }
 
   async function send(event: FormEvent) {
@@ -89,14 +105,14 @@ export function AiView({ onModules }: { onModules: (modules: ModuleSummary[]) =>
 
       <div className="ai-control">
         <div><p className="section-label">STEP 3 · ENABLE ONLY WHEN NEEDED</p><h3>{selected ? selected.name : 'No model selected'}</h3><p>{selected && !selected.compatible ? 'This installed model is locked on the current computer. Select a compatible lower tier.' : selected?.id === 'qwen3-0.6b-q8' ? 'Fastest and lightest, but intended for basic answers. Select the compatible 4B or 8B model when you want stronger knowledge and reasoning.' : state.running ? 'The model is active only inside this app.' : 'AI remains off until you explicitly start it.'}</p></div>
-        <div>{selected && <button className="secondary-button" disabled={Boolean(busy) || state.running} onClick={() => void operation('none', () => window.outpost.selectAiModel(null))}>USE NO MODEL</button>}{!state.running ? <button className="primary-button" disabled={Boolean(busy) || !state.runtimeInstalled || !selected?.installed || !selected.compatible} onClick={() => void operation('start', () => window.outpost.startAi())}>{busy === 'start' ? 'LOADING MODEL...' : 'START LOCAL AI'}</button> : <button className="secondary-button" disabled={Boolean(busy)} onClick={() => void operation('stop', () => window.outpost.stopAi())}>STOP LOCAL AI</button>}</div>
+        <div>{selected && <button className="secondary-button" disabled={Boolean(busy) || state.running} onClick={() => void operation('none', () => window.outpost.selectAiModel(null))}>USE NO MODEL</button>}{!state.running ? <button className="primary-button" disabled={Boolean(busy) || !state.runtimeInstalled || !selected?.installed || !selected.compatible} onClick={() => void operation('start', () => window.outpost.startAi())}>{busy === 'start' ? `LOADING MODEL · ${startElapsed}S` : 'START LOCAL AI'}</button> : <button className="secondary-button" disabled={Boolean(busy)} onClick={() => void operation('stop', () => window.outpost.stopAi())}>STOP LOCAL AI</button>}</div>
       </div>
 
       {state.enabled && <div className="ai-chat">
         {busy === 'chat' && chatProgress && <div className="ai-chat-progress"><b>{chatProgress.phase === 'searching' ? 'SEARCHING LIBRARY' : 'GENERATING RESPONSE'}</b><span>{(chatProgress.elapsedMs / 1000).toFixed(1)} seconds{chatProgress.tokensPerSecond ? ` · ${chatProgress.tokensPerSecond.toFixed(1)} tokens/sec` : ''}</span><p>{chatProgress.message}</p></div>}
         <div className="ai-chat-history">{chat.length === 0 ? <div className="ai-empty"><b>Local assistant ready</b><p>Ask a question. Outpost Zero searches indexed documents and installed Kiwix libraries first, then uses model knowledge when local sources do not answer it. Important answers still need verification.</p></div> : chat.map((entry, index) => <div className={`ai-message ${entry.role}`} key={`${entry.role}-${index}`}><small>{entry.role === 'user' ? 'YOU' : selected?.name}</small><p>{entry.content || (busy === 'chat' ? 'Waiting for the first token…' : '')}</p></div>)}</div>
-        {sources.length > 0 && <div className="ai-sources"><small>LOCAL SOURCES USED</small>{sources.map((source, index) => <div key={source.id}><b>[S{index + 1}] {source.title}</b><span>{source.location}</span><p>{source.excerpt}</p></div>)}</div>}
-        <form onSubmit={send}><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} maxLength={12_000} placeholder="Ask the offline assistant..." /><button className="primary-button" disabled={!prompt.trim() || Boolean(busy)}>{busy === 'chat' ? (chatProgress?.phase === 'generating' ? 'GENERATING...' : 'SEARCHING LIBRARY...') : 'SEND'}</button></form>
+        {sources.length > 0 && <div className="ai-sources"><small>LOCAL SOURCES USED · SELECT ONE TO OPEN IT</small>{sources.map((source, index) => <button type="button" key={source.id} onClick={() => onOpenSource(source)} disabled={source.kind === 'document' ? !source.documentId : !source.articlePath}><b>[S{index + 1}] {source.title}</b><span>{source.location} · OPEN →</span><p>{source.excerpt}</p></button>)}</div>}
+        <form onSubmit={send}><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={submitOnEnter} maxLength={12_000} placeholder="Ask the offline assistant... (Enter to send · Shift+Enter for a new line)" /><button className="primary-button" disabled={!prompt.trim() || Boolean(busy)}>{busy === 'chat' ? (chatProgress?.phase === 'generating' ? 'GENERATING...' : 'SEARCHING LIBRARY...') : 'SEND'}</button></form>
       </div>}
     </section>
   );

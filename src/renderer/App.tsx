@@ -1,5 +1,5 @@
 import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import type { BootstrapData, KiwixCatalogEntry, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary, UnifiedSearchResult } from '../shared/contracts';
+import type { AiSource, BootstrapData, KiwixCatalogEntry, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary, UnifiedSearchResult } from '../shared/contracts';
 import { DocumentsView } from './DocumentsView';
 import { AiView } from './AiView';
 
@@ -146,7 +146,7 @@ function HomeView({ data, go, onOpenResult }: { data: BootstrapData; go: (view: 
   );
 }
 
-function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => void }) {
+function LibraryView({ onModules, requestedArticlePath, onRequestHandled }: { onModules: (modules: ModuleSummary[]) => void; requestedArticlePath?: string; onRequestHandled: () => void }) {
   const [library, setLibrary] = useState<OfflineLibraryStatus>();
   const [librarySection, setLibrarySection] = useState<'browse' | 'add' | 'manage'>('browse');
   const [busy, setBusy] = useState<'install' | 'sample' | 'scan' | 'start' | 'stop' | 'catalog' | 'download' | 'remove' | null>(null);
@@ -160,8 +160,13 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
   const [confirmDownload, setConfirmDownload] = useState<KiwixCatalogEntry>();
   const [confirmRemove, setConfirmRemove] = useState<OfflineLibraryStatus['content'][number]>();
   const [download, setDownload] = useState<KiwixDownloadStatus>();
+  const [readerPath, setReaderPath] = useState<string>();
   useEffect(() => { void window.outpost.getLibraryStatus().then((status) => { setLibrary(status); if (!status.content.length) setLibrarySection('add'); }); }, []);
   useEffect(() => { void window.outpost.getKiwixCatalogOptions().then(setCatalogOptions); }, []);
+  useEffect(() => {
+    if (!requestedArticlePath?.startsWith('/content/')) return;
+    setReaderPath(requestedArticlePath); setLibrarySection('browse'); onRequestHandled();
+  }, [requestedArticlePath, onRequestHandled]);
   useEffect(() => {
     let disposed = false;
     const refresh = () => void window.outpost.getKiwixDownloadStatus().then((status) => { if (!disposed) setDownload(status); });
@@ -367,7 +372,7 @@ function LibraryView({ onModules }: { onModules: (modules: ModuleSummary[]) => v
         <div className="library-section-heading"><div><p className="section-label">OFFLINE READER</p><h3>{library.running ? 'Browse your offline knowledge' : library.content.length ? 'Reader is ready' : 'Your library is empty'}</h3></div>{library.engineInstalled && !library.running && library.content.length > 0 && <button className="primary-button" onClick={() => void moduleAction('start')} disabled={busy !== null}>{busy === 'start' ? 'OPENING...' : 'OPEN READER'}</button>}{library.running && <button className="secondary-button" onClick={() => void moduleAction('stop')} disabled={busy !== null}>{busy === 'stop' ? 'CLOSING...' : 'CLOSE READER'}</button>}</div>
         {!library.content.length && <div className="library-empty"><b>Add your first offline knowledge source</b><p>Choose a language, content type, and size. Only the edition you select is downloaded.</p><button className="primary-button" onClick={() => setLibrarySection('add')}>CHOOSE CONTENT</button></div>}
         {library.content.length > 0 && !library.engineInstalled && <div className="library-empty"><b>The offline reader is not installed</b><p>Your downloaded content is safe. Install or repair the Kiwix engine from Manage.</p><button className="secondary-button" onClick={() => setLibrarySection('manage')}>OPEN MANAGE</button></div>}
-        {library.running && library.serverUrl && <div className="kiwix-frame-shell"><div><span>OFFLINE READER</span><code>{library.serverUrl}</code></div><iframe title="Offline Kiwix library" src={library.serverUrl} sandbox="allow-scripts allow-forms allow-same-origin" /></div>}
+        {library.running && library.serverUrl && <div className="kiwix-frame-shell"><div><span>OFFLINE READER</span><code>{readerPath ?? library.serverUrl}</code></div><iframe title="Offline Kiwix library" src={readerPath ? new URL(readerPath, library.serverUrl).toString() : library.serverUrl} sandbox="allow-scripts allow-forms allow-same-origin" /></div>}
       </section>}
     </section>
   );
@@ -607,10 +612,12 @@ export default function App() {
   const [requestedNote, setRequestedNote] = useState<string>();
   const [requestedPlace, setRequestedPlace] = useState<string>();
   const [requestedMedia, setRequestedMedia] = useState<string>();
+  const [requestedArticle, setRequestedArticle] = useState<string>();
   const clearRequestedDocument = useCallback(() => setRequestedDocument(undefined), []);
   const clearRequestedNote = useCallback(() => setRequestedNote(undefined), []);
   const clearRequestedPlace = useCallback(() => setRequestedPlace(undefined), []);
   const clearRequestedMedia = useCallback(() => setRequestedMedia(undefined), []);
+  const clearRequestedArticle = useCallback(() => setRequestedArticle(undefined), []);
 
   useEffect(() => { void window.outpost.getBootstrap().then(setData); }, []);
   const title = useMemo(() => navigation.find((item) => item.id === view)?.label ?? (view === 'storage' ? 'Storage' : 'Settings'), [view]);
@@ -642,7 +649,7 @@ export default function App() {
       else if (result.source === 'media') { setRequestedMedia(result.id); setView('media'); }
       else { setRequestedPlace(result.id); setView('maps'); }
     }} />;
-    if (view === 'library') return <LibraryView onModules={(modules) => setData({ ...activeData, modules })} />;
+    if (view === 'library') return <LibraryView onModules={(modules) => setData({ ...activeData, modules })} requestedArticlePath={requestedArticle} onRequestHandled={clearRequestedArticle} />;
     if (view === 'documents') return <DocumentsView requestedDocument={requestedDocument} onRequestHandled={clearRequestedDocument} />;
     if (view === 'notes') return <Suspense fallback={<section className="page-panel"><h2>Opening Notes...</h2></section>}><NotesView requestedNoteId={requestedNote} onRequestHandled={clearRequestedNote} /></Suspense>;
     if (view === 'maps') return <Suspense fallback={<section className="page-panel"><h2>Opening Maps...</h2></section>}><MapsView requestedPlaceId={requestedPlace} onRequestHandled={clearRequestedPlace} /></Suspense>;
@@ -651,7 +658,10 @@ export default function App() {
     if (view === 'medications') return <Suspense fallback={<section className="page-panel"><h2>Opening Medication Reference...</h2></section>}><MedicationView /></Suspense>;
     if (view === 'relay') return <Suspense fallback={<section className="page-panel"><h2>Opening Local Relay...</h2></section>}><RelayView /></Suspense>;
     if (view === 'tools') return <Suspense fallback={<section className="page-panel"><h2>Opening Tools...</h2></section>}><ToolsView /></Suspense>;
-    if (view === 'ai') return <AiView onModules={(modules) => setData({ ...activeData, modules })} />;
+    if (view === 'ai') return <AiView onModules={(modules) => setData({ ...activeData, modules })} onOpenSource={(source: AiSource) => {
+      if (source.kind === 'document' && source.documentId) { setRequestedDocument({ id: source.documentId, page: source.page ?? 1 }); setView('documents'); }
+      else if (source.kind === 'kiwix' && source.articlePath) { setRequestedArticle(source.articlePath); setView('library'); }
+    }} />;
     if (view === 'storage') return <StorageView storage={activeData.storage} onRefresh={refreshStorage} />;
     if (view === 'modules') return <ModulesView modules={activeData.modules} onModules={(modules) => setData({ ...activeData, modules })} />;
     if (view === 'updates') return <UpdatesView data={activeData} />;

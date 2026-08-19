@@ -64,7 +64,7 @@ test('streams local chat text into observable progress', async (context) => {
       '',
     ].join('\n'));
   }) as typeof fetch;
-  const service = new AiService(paths, async () => diagnostics, fetchImpl, async () => [{ id: 'source', kind: 'document', title: 'Guide', location: 'Page 1', excerpt: 'Relevant local fact.' }]);
+  const service = new AiService(paths, async () => diagnostics, fetchImpl, async () => [{ id: 'source', kind: 'document', title: 'Guide', location: 'Page 1', excerpt: 'Relevant local fact.', documentId: 'guide-id', page: 1 }]);
   (service as unknown as { active: unknown }).active = { child: {}, port: 1234, modelId: 'qwen3-0.6b-q8', backend: 'vulkan', apiKey: 'test-secret' };
   service.state = async () => state;
   const result = await service.chat([{ role: 'user', content: 'Answer briefly.' }]);
@@ -72,4 +72,5 @@ test('streams local chat text into observable progress', async (context) => {
   assert.equal(service.getChatProgress().phase, 'complete'); assert.equal(service.getChatProgress().response, 'Fast answer');
   assert.equal(service.getChatProgress().generatedTokens, 2); assert.match(requestBody, /"stream":true/); assert.match(requestBody, /"max_tokens":768/); assert.match(requestBody, /host reports its local date and time/);
   assert.equal(new Headers(requestHeaders).get('Authorization'), 'Bearer test-secret');
+  assert.equal(service.getChatProgress().sources[0].documentId, 'guide-id');
 });
