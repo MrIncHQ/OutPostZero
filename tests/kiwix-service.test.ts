@@ -6,7 +6,7 @@ import test from 'node:test';
 import { MODULE_PACKAGE_PUBLIC_KEY } from '../src/main/module-trust';
 import { DatabaseService } from '../src/main/database-service';
 import { KIWIX_PACKAGE } from '../src/main/kiwix-package';
-import { buildAiSearchQueries, hashFile, KiwixService, parseKiwixCatalog, parseKiwixCatalogFeed, parseKiwixMetalink, parseKiwixNavigation, parseKiwixSearchXml, validateKiwixPackagePath, verifyKiwixPackage } from '../src/main/kiwix-service';
+import { buildAiSearchQueries, downloadWithLiveSha256, hashFile, KiwixService, parseKiwixCatalog, parseKiwixCatalogFeed, parseKiwixMetalink, parseKiwixNavigation, parseKiwixSearchXml, validateKiwixPackagePath, verifyKiwixPackage } from '../src/main/kiwix-service';
 import { PortablePathService } from '../src/main/portable-path';
 
 const archivePath = path.resolve('VendorCache', 'kiwix-tools_win-x86_64-3.8.1.zip');
@@ -204,6 +204,85 @@ test('loads live catalog choices and applies category, language, search, and pag
   }
 });
 
+test('downloads ordered ranges concurrently and authenticates while writing', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'outpost-kiwix-range-'));
+  const filePath = path.join(root, 'range-test.zim.part');
+  const content = Buffer.from(Array.from({ length: 6_000 }, (_, index) => index % 251));
+  const expectedHash = (await import('node:crypto')).createHash('sha256').update(content).digest('hex').toUpperCase();
+  let active = 0;
+  let maxActive = 0;
+  const requested: string[] = [];
+  const fetchFixture: typeof fetch = async (_input, init) => {
+    const range = new Headers(init?.headers).get('Range');
+    assert.ok(range);
+    const match = /^bytes=(\d+)-(\d+)$/.exec(range);
+    assert.ok(match);
+    const start = Number(match[1]);
+    const end = Number(match[2]);
+    requested.push(range);
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    active -= 1;
+    return new Response(content.subarray(start, end + 1), {
+      status: 206,
+      headers: { 'Content-Range': `bytes ${start}-${end}/${content.length}` },
+    });
+  };
+  try {
+    const progressModes = new Set<string>();
+    const result = await downloadWithLiveSha256({
+      fetchImpl: fetchFixture,
+      url: 'https://download.kiwix.org/range-test.zim',
+      filePath,
+      totalBytes: content.length,
+      offset: 0,
+      signal: new AbortController().signal,
+      segmentBytes: 1_024,
+      connections: 3,
+      onProgress: (_bytes, mode) => progressModes.add(mode),
+    });
+    assert.equal(result.sha256, expectedHash);
+    assert.equal(result.connections, 3);
+    assert.ok(maxActive > 1);
+    assert.ok(requested.length > 1);
+    assert.ok(progressModes.has('parallel'));
+    assert.deepEqual(fs.readFileSync(filePath), content);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('falls back to one stream when a server does not support byte ranges', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'outpost-kiwix-single-'));
+  const filePath = path.join(root, 'single-test.zim.part');
+  const content = Buffer.from('server without range support');
+  const expectedHash = (await import('node:crypto')).createHash('sha256').update(content).digest('hex').toUpperCase();
+  let requests = 0;
+  const fetchFixture: typeof fetch = async () => {
+    requests += 1;
+    return new Response(content);
+  };
+  try {
+    const result = await downloadWithLiveSha256({
+      fetchImpl: fetchFixture,
+      url: 'https://download.kiwix.org/single-test.zim',
+      filePath,
+      totalBytes: content.length,
+      offset: 0,
+      signal: new AbortController().signal,
+      segmentBytes: 1_024,
+      connections: 3,
+    });
+    assert.equal(result.sha256, expectedHash);
+    assert.equal(result.connections, 1);
+    assert.equal(requests, 1);
+    assert.deepEqual(fs.readFileSync(filePath), content);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('resumes a catalog download, verifies SHA-256, and only then installs the ZIM', async () => {
   const runtime = makeRuntime();
   const content = Buffer.from('verified portable zim content');
@@ -233,6 +312,7 @@ test('resumes a catalog download, verifies SHA-256, and only then installs the Z
     assert.deepEqual(fs.readFileSync(runtime.paths.resolve(`Content/ZIM/${fileName}`)), content);
     assert.equal(fs.existsSync(path.join(partialRoot, `${fileName}.part`)), false);
     assert.equal(service.downloadStatus().state, 'complete');
+    assert.match(service.downloadStatus().message, /authenticated during transfer/i);
   } finally {
     await service.shutdown();
     runtime.database.close();

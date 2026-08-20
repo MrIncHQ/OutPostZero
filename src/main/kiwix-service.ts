@@ -191,6 +191,79 @@ export async function hashFile(filePath: string, onProgress?: (verifiedBytes: nu
   return hash.digest('hex').toUpperCase();
 }
 
+interface LiveDownloadOptions {
+  fetchImpl: typeof globalThis.fetch;
+  url: string;
+  filePath: string;
+  totalBytes: number;
+  offset: number;
+  signal: AbortSignal;
+  segmentBytes?: number;
+  connections?: number;
+  onProgress?: (downloadedBytes: number, mode: 'parallel' | 'single' | 'resume-hash') => void;
+}
+
+/** Downloads ordered ranges concurrently, writes sequentially, and computes the official whole-file hash without a second disk pass. */
+export async function downloadWithLiveSha256(options: LiveDownloadOptions): Promise<{ sha256: string; connections: number }> {
+  const segmentBytes = Math.max(1024, options.segmentBytes ?? 32 * 1024 * 1024);
+  const connections = Math.max(1, Math.min(4, options.connections ?? 3));
+  let offset = options.offset; let hash = crypto.createHash('sha256');
+  if (offset > 0) {
+    let hashed = 0;
+    for await (const chunk of fs.createReadStream(options.filePath, { start: 0, end: offset - 1, highWaterMark: 4 * 1024 * 1024 })) {
+      hash.update(chunk as Buffer); hashed += (chunk as Buffer).length; options.onProgress?.(hashed, 'resume-hash');
+    }
+    if (hashed !== offset) throw new Error('The saved partial Kiwix download changed while it was being prepared.');
+  }
+  if (offset === options.totalBytes) return { sha256: hash.digest('hex').toUpperCase(), connections: 0 };
+
+  const rangeHeaders = (start: number, end: number) => ({ 'User-Agent': 'Outpost-Zero-Kiwix', 'Accept-Encoding': 'identity', Range: `bytes=${start}-${end}` });
+  const firstEnd = Math.min(options.totalBytes - 1, offset + segmentBytes - 1);
+  let first = await options.fetchImpl(options.url, { signal: options.signal, cache: 'no-store', headers: rangeHeaders(offset, firstEnd) });
+  if (first.status !== 206) {
+    if (first.status !== 200 || offset > 0) {
+      await first.body?.cancel();
+      offset = 0; hash = crypto.createHash('sha256'); fs.truncateSync(options.filePath, 0);
+      first = await options.fetchImpl(options.url, { signal: options.signal, cache: 'no-store', headers: { 'User-Agent': 'Outpost-Zero-Kiwix', 'Accept-Encoding': 'identity' } });
+    }
+    if (!first.ok || !first.body) throw new Error(`Kiwix download returned HTTP ${first.status}.`);
+    let downloaded = offset;
+    const progress = new Transform({ transform: (chunk: Buffer, _encoding, callback) => {
+      hash.update(chunk); downloaded += chunk.length; options.onProgress?.(downloaded, 'single'); callback(null, chunk);
+    } });
+    await pipeline(Readable.fromWeb(first.body as never), progress, fs.createWriteStream(options.filePath, { flags: offset ? 'a' : 'w', highWaterMark: 4 * 1024 * 1024 }));
+    if (downloaded !== options.totalBytes) throw new Error(`Kiwix download size mismatch: expected ${options.totalBytes}, received ${downloaded}.`);
+    return { sha256: hash.digest('hex').toUpperCase(), connections: 1 };
+  }
+
+  const readRange = async (response: Response, start: number, end: number): Promise<Buffer> => {
+    if (response.status !== 206) { await response.body?.cancel(); throw new Error('Kiwix server stopped supporting accelerated range downloads. Retry to resume safely.'); }
+    const buffer = Buffer.from(await response.arrayBuffer()); const expected = end - start + 1;
+    if (buffer.length !== expected) throw new Error(`Kiwix range size mismatch at byte ${start}.`);
+    const contentRange = response.headers.get('content-range');
+    if (contentRange && contentRange.toLowerCase() !== `bytes ${start}-${end}/${options.totalBytes}`.toLowerCase()) throw new Error(`Kiwix returned an unexpected byte range at ${start}.`);
+    return buffer;
+  };
+  const handle = await fs.promises.open(options.filePath, offset ? 'a' : 'w');
+  try {
+    let nextOffset = offset; let firstResponse: Response | null = first;
+    while (nextOffset < options.totalBytes) {
+      const ranges: Array<{ start: number; end: number; promise: Promise<Buffer> }> = [];
+      for (let index = 0; index < connections && nextOffset < options.totalBytes; index += 1) {
+        const start = nextOffset; const end = Math.min(options.totalBytes - 1, start + segmentBytes - 1); nextOffset = end + 1;
+        if (firstResponse) { const response = firstResponse; firstResponse = null; ranges.push({ start, end, promise: readRange(response, start, end) }); }
+        else ranges.push({ start, end, promise: options.fetchImpl(options.url, { signal: options.signal, cache: 'no-store', headers: rangeHeaders(start, end) }).then((response) => readRange(response, start, end)) });
+      }
+      const buffers = await Promise.all(ranges.map((range) => range.promise));
+      for (let index = 0; index < buffers.length; index += 1) {
+        const buffer = buffers[index]; await handle.write(buffer); hash.update(buffer); offset += buffer.length; options.onProgress?.(offset, 'parallel');
+      }
+    }
+  } finally { await handle.close(); }
+  if (offset !== options.totalBytes) throw new Error(`Kiwix download size mismatch: expected ${options.totalBytes}, received ${offset}.`);
+  return { sha256: hash.digest('hex').toUpperCase(), connections };
+}
+
 function validateHash(value: unknown): string {
   if (typeof value !== 'string' || !/^[A-Fa-f0-9]{64}$/.test(value)) throw new Error('Kiwix package hash is invalid.');
   return value.toUpperCase();
@@ -509,40 +582,63 @@ export class KiwixService {
       if (offset > metadata.size) { fs.rmSync(partial, { force: true }); offset = 0; }
       try {
         const disk = fs.statfsSync(this.paths.root);
-        if (disk.bavail * disk.bsize < metadata.size - offset + 64 * 1024 * 1024) throw new Error(`Not enough free space. This download needs ${metadata.size - offset} more bytes plus verification space.`);
+        if (disk.bavail * disk.bsize < metadata.size - offset + 64 * 1024 * 1024) throw new Error(`Not enough free space. This download needs ${metadata.size - offset} more bytes plus a safety margin.`);
       } catch (error) {
         if (error instanceof Error && error.message.startsWith('Not enough free space')) throw error;
       }
-      const headers: Record<string, string> = { 'User-Agent': 'Outpost-Zero-Kiwix' };
-      if (offset > 0) headers.Range = `bytes=${offset}-`;
-      let response = await this.fetchImpl(metadata.downloadUrl, { signal: controller.signal, cache: 'no-store', headers });
-      if (offset > 0 && response.status !== 206) {
-        await response.body?.cancel();
-        offset = 0;
-        response = await this.fetchImpl(metadata.downloadUrl, { signal: controller.signal, cache: 'no-store', headers: { 'User-Agent': 'Outpost-Zero-Kiwix' } });
-      }
-      if (!response.ok || !response.body) throw new Error(`Kiwix download returned HTTP ${response.status}.`);
-      this.currentDownload = { ...this.currentDownload, downloadedBytes: offset, totalBytes: metadata.size, message: offset ? 'Resuming download on this drive...' : 'Downloading to this drive...' };
-      let downloaded = offset;
-      const progress = new Transform({ transform: (chunk: Buffer, _encoding, callback) => {
-        downloaded += chunk.length;
-        this.currentDownload = { ...this.currentDownload, downloadedBytes: downloaded };
-        callback(null, chunk);
-      } });
-      await pipeline(Readable.fromWeb(response.body as never), progress, fs.createWriteStream(partial, { flags: offset ? 'a' : 'w' }));
-      if (downloaded !== metadata.size) throw new Error(`Kiwix download size mismatch: expected ${metadata.size}, received ${downloaded}.`);
-      this.currentDownload = { ...this.currentDownload, state: 'verifying', downloadedBytes: downloaded, verifiedBytes: 0, message: 'Verifying SHA-256 checksum...' };
-      const verifiedHash = await hashFile(partial, (verifiedBytes) => {
-        this.currentDownload = { ...this.currentDownload, verifiedBytes };
+      this.currentDownload = {
+        ...this.currentDownload,
+        downloadedBytes: offset,
+        totalBytes: metadata.size,
+        verifiedBytes: offset ? 0 : undefined,
+        message: offset
+          ? 'Authenticating the saved portion before an accelerated resume...'
+          : 'Starting an accelerated, authenticated download...',
+      };
+      const transfer = await downloadWithLiveSha256({
+        fetchImpl: this.fetchImpl,
+        url: metadata.downloadUrl,
+        filePath: partial,
+        totalBytes: metadata.size,
+        offset,
+        signal: controller.signal,
+        connections: 3,
+        onProgress: (processedBytes, mode) => {
+          if (mode === 'resume-hash') {
+            this.currentDownload = {
+              ...this.currentDownload,
+              downloadedBytes: offset,
+              verifiedBytes: processedBytes,
+              message: 'Authenticating the saved portion before an accelerated resume...',
+            };
+            return;
+          }
+          this.currentDownload = {
+            ...this.currentDownload,
+            state: 'downloading',
+            downloadedBytes: processedBytes,
+            verifiedBytes: processedBytes,
+            message: mode === 'parallel'
+              ? 'Downloading and authenticating live with up to 3 secure connections...'
+              : 'Downloading and authenticating live with one secure connection...',
+          };
+        },
       });
-      if (verifiedHash !== metadata.sha256) throw new Error('Kiwix download failed SHA-256 verification. The partial file was kept for retry.');
+      this.currentDownload = {
+        ...this.currentDownload,
+        state: 'verifying',
+        downloadedBytes: metadata.size,
+        verifiedBytes: metadata.size,
+        message: 'Finalizing live SHA-256 authentication...',
+      };
+      if (transfer.sha256 !== metadata.sha256) throw new Error('Kiwix download failed SHA-256 verification. The partial file was kept for retry.');
       const wasRunning = Boolean(this.active);
       if (wasRunning) await this.stop(true);
       if (fs.existsSync(destination)) throw new Error('A different file appeared at the verified download destination. It was not overwritten.');
       fs.renameSync(partial, destination);
       entry.installed = true;
       if (wasRunning) await this.start();
-      this.currentDownload = { ...this.currentDownload, state: 'complete', downloadedBytes: metadata.size, totalBytes: metadata.size, message: `${entry.title} downloaded, verified, and added to the offline library.` };
+      this.currentDownload = { ...this.currentDownload, state: 'complete', downloadedBytes: metadata.size, verifiedBytes: metadata.size, totalBytes: metadata.size, message: `${entry.title} downloaded and authenticated during transfer, then added to the offline library.` };
       return this.result(true, this.currentDownload.message);
     } catch (error) {
       if (controller.signal.aborted) {
