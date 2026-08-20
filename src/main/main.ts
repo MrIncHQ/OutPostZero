@@ -503,7 +503,7 @@ ipcMain.handle('outpost:search-outpost', (_event, query: unknown) => {
 ipcMain.handle('outpost:check-updates', () => updateService.check());
 ipcMain.handle('outpost:download-update', () => updateService.download());
 ipcMain.handle('outpost:apply-update', async () => {
-  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), aiService.shutdown(), mapService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
+  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
   await databaseService.createRotatingBackup();
   const result = await updateService.apply(process.pid);
   if (result.status === 'launching') {
@@ -515,7 +515,7 @@ ipcMain.handle('outpost:apply-update', async () => {
   return result;
 });
 ipcMain.handle('outpost:prepare-removal', async () => {
-  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), aiService.shutdown(), mapService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
+  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
   await session.defaultSession.clearCache();
   await databaseService.createRotatingBackup();
   databaseService.close();
@@ -565,10 +565,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', (event) => {
-  if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess() || aiService.hasRunningProcess() || mapService.hasActiveDownload() || relayService.isRunning() || ocrService.hasActiveJobs()) && !shutdownInProgress) {
+  if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess() || aiService.hasRunningProcess() || mapService.hasActiveDownload() || updateService.hasActiveDownload() || relayService.isRunning() || ocrService.hasActiveJobs()) && !shutdownInProgress) {
     event.preventDefault();
     shutdownInProgress = true;
-    void Promise.all([moduleService.stopAll(), kiwixService.shutdown(), aiService.shutdown(), mapService.shutdown(), relayService.stop(), ocrService.cancelAll()]).finally(() => app.quit());
+    void Promise.all([moduleService.stopAll(), kiwixService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]).finally(() => app.quit());
     return;
   }
   databaseService.close();

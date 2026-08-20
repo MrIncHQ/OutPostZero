@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { createReadStream, createWriteStream } from 'node:fs';
 import path from 'node:path';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { spawn } from 'node:child_process';
 import type {
@@ -139,6 +139,9 @@ export class UpdateService {
   private availableManifest: UpdateManifestPayload | null = null;
   private readonly stateDirectory: string;
   private readonly pendingFile: string;
+  private downloadAbort: AbortController | null = null;
+  private downloadSettled: Promise<void> | null = null;
+  private settleDownload: (() => void) | null = null;
 
   constructor(
     private readonly database: DatabaseService,
@@ -152,13 +155,52 @@ export class UpdateService {
   }
 
   status(): UpdateStatus {
-    return this.database.updateStatus(this.currentVersion);
+    return { ...this.database.updateStatus(this.currentVersion), readyVersion: this.readyVersion() };
   }
 
-  private async loadManifest(): Promise<UpdateManifestPayload> {
+  hasActiveDownload(): boolean { return Boolean(this.downloadAbort); }
+
+  async shutdown(): Promise<void> {
+    this.downloadAbort?.abort();
+    await this.downloadSettled;
+  }
+
+  private readPending(): PendingUpdate | null {
+    try {
+      if (!fs.existsSync(this.pendingFile)) return null;
+      const pending = JSON.parse(fs.readFileSync(this.pendingFile, 'utf8')) as PendingUpdate;
+      safeStagingVersion(pending.version);
+      pending.stagingDirectory = safeStagingDirectory(pending.stagingDirectory ?? pending.version);
+      if (!Array.isArray(pending.files)) return null;
+      pending.files = pending.files.map(validateManifestFile);
+      return pending;
+    } catch { return null; }
+  }
+
+  private readyVersion(): string | null {
+    const pending = this.readPending();
+    if (!pending || compareVersions(pending.version, this.currentVersion) <= 0) return null;
+    const stagingRoot = this.paths.resolve(`Updates/Staging/${pending.stagingDirectory}`);
+    return pending.files.every((file) => {
+      const staged = path.join(stagingRoot, ...file.path.split('/'));
+      return fs.existsSync(staged) && fs.statSync(staged).size === file.size;
+    }) ? pending.version : null;
+  }
+
+  private cleanStagingExcept(keptDirectories: Set<string>): void {
+    const stagingRoot = this.paths.ensureDirectory('Updates/Staging');
+    for (const entry of fs.readdirSync(stagingRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory() || keptDirectories.has(entry.name)) continue;
+      try { safeStagingDirectory(entry.name); }
+      catch { continue; }
+      fs.rmSync(path.join(stagingRoot, entry.name), { recursive: true, force: true });
+    }
+  }
+
+  private async loadManifest(cancelSignal?: AbortSignal): Promise<UpdateManifestPayload> {
     const response = await this.fetchImpl(manifestUrl, {
       headers: { Accept: 'application/json', 'User-Agent': 'Outpost-Zero-Updater' },
-      signal: AbortSignal.timeout(15_000),
+      signal: cancelSignal ? AbortSignal.any([cancelSignal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
       cache: 'no-store',
     });
     if (!response.ok) throw new Error(`GitHub returned HTTP ${response.status} for the update manifest.`);
@@ -214,12 +256,16 @@ export class UpdateService {
       if (compareVersions(manifest.version, this.currentVersion) <= 0) {
         return { status: 'up-to-date', message: `Outpost Zero ${this.currentVersion} is current.`, currentVersion: this.currentVersion };
       }
+      const readyToInstall = this.readyVersion() === manifest.version;
       return {
         status: 'available',
-        message: `Outpost Zero ${manifest.version} is available from GitHub.`,
+        message: readyToInstall
+          ? `Outpost Zero ${manifest.version} is already verified and ready to install.`
+          : `Outpost Zero ${manifest.version} is available from GitHub.`,
         currentVersion: this.currentVersion,
         availableVersion: manifest.version,
-        downloadBytes: manifest.files.reduce((sum, file) => sum + file.size, manifest.executable.parts.reduce((sum, part) => sum + part.size, 0)),
+        downloadBytes: readyToInstall ? 0 : manifest.files.reduce((sum, file) => sum + file.size, manifest.executable.parts.reduce((sum, part) => sum + part.size, 0)),
+        readyToInstall,
       };
     } catch (error) {
       this.availableManifest = null;
@@ -227,34 +273,70 @@ export class UpdateService {
     }
   }
 
-  private async downloadFile(file: ManifestFile, destination: string): Promise<void> {
+  private async downloadFile(file: ManifestFile, destination: string, downloadSignal: AbortSignal): Promise<number> {
     fs.mkdirSync(path.dirname(destination), { recursive: true });
-    const response = await this.fetchImpl(remoteUrl(file.path), {
-      headers: { 'User-Agent': 'Outpost-Zero-Updater' },
-      signal: AbortSignal.timeout(300_000),
-      cache: 'no-store',
-    });
-    if (!response.ok || !response.body) throw new Error(`GitHub returned HTTP ${response.status} for ${file.path}.`);
-    const temporary = `${destination}.download`;
-    try {
-      await pipeline(Readable.fromWeb(response.body as never), createWriteStream(temporary));
-      const stats = fs.statSync(temporary);
-      if (stats.size !== file.size || await sha256File(temporary) !== file.sha256) throw new Error(`Downloaded file failed verification: ${file.path}`);
-      fs.renameSync(temporary, destination);
-    } finally {
-      if (fs.existsSync(temporary)) fs.rmSync(temporary, { force: true });
+    if (fs.existsSync(destination)) {
+      if (fs.statSync(destination).size === file.size && await sha256File(destination) === file.sha256) return 0;
+      fs.rmSync(destination, { force: true });
     }
+    const temporary = `${destination}.download`;
+    let offset = fs.existsSync(temporary) ? fs.statSync(temporary).size : 0;
+    if (offset > file.size) { fs.rmSync(temporary, { force: true }); offset = 0; }
+    let hash = crypto.createHash('sha256');
+    if (offset) for await (const chunk of createReadStream(temporary)) {
+      if (downloadSignal.aborted) throw new Error('Update download paused.');
+      hash.update(chunk as Buffer);
+    }
+    if (offset === file.size) {
+      if (hash.digest('hex').toUpperCase() === file.sha256) { fs.renameSync(temporary, destination); return 0; }
+      fs.rmSync(temporary, { force: true }); offset = 0; hash = crypto.createHash('sha256');
+    }
+    const headers: Record<string, string> = { 'User-Agent': 'Outpost-Zero-Updater', 'Accept-Encoding': 'identity' };
+    if (offset) headers.Range = `bytes=${offset}-`;
+    const signal = AbortSignal.any([downloadSignal, AbortSignal.timeout(300_000)]);
+    const response = await this.fetchImpl(remoteUrl(file.path), { headers, signal, cache: 'no-store' });
+    if (!response.ok || !response.body) throw new Error(`GitHub returned HTTP ${response.status} for ${file.path}.`);
+    if (offset && response.status !== 206) {
+      if (response.status !== 200) throw new Error(`GitHub did not honor the saved update range for ${file.path}.`);
+      fs.truncateSync(temporary, 0); offset = 0; hash = crypto.createHash('sha256');
+    }
+    if (response.status === 206) {
+      const contentRange = response.headers.get('content-range');
+      if (contentRange && contentRange.toLowerCase() !== `bytes ${offset}-${file.size - 1}/${file.size}`.toLowerCase()) {
+        await response.body.cancel();
+        throw new Error(`GitHub returned an unexpected saved update range for ${file.path}.`);
+      }
+    }
+    let received = 0;
+    const authenticate = new Transform({ transform: (chunk: Buffer, _encoding, callback) => {
+      hash.update(chunk); received += chunk.length; callback(null, chunk);
+    } });
+    await pipeline(Readable.fromWeb(response.body as never), authenticate, createWriteStream(temporary, { flags: offset ? 'a' : 'w' }));
+    const completedBytes = offset + received;
+    if (completedBytes !== file.size) throw new Error(`Update file size mismatch for ${file.path}. Saved ${completedBytes} of ${file.size} bytes for resume.`);
+    if (hash.digest('hex').toUpperCase() !== file.sha256) {
+      fs.rmSync(temporary, { force: true });
+      throw new Error(`Downloaded file failed verification and its invalid partial was removed: ${file.path}`);
+    }
+    fs.renameSync(temporary, destination);
+    return received;
   }
 
   async download(): Promise<UpdateDownloadResult> {
+    if (this.downloadAbort) return { status: 'error', message: 'An update download is already active.' };
+    const controller = new AbortController();
+    this.downloadAbort = controller;
+    this.downloadSettled = new Promise<void>((resolve) => { this.settleDownload = resolve; });
     try {
-      const manifest = this.availableManifest ?? await this.loadManifest();
+      const manifest = this.availableManifest ?? await this.loadManifest(controller.signal);
       if (compareVersions(manifest.version, this.currentVersion) <= 0) {
         return { status: 'no-update', message: 'No newer update is available.' };
       }
-      const stagingDirectory = `${safeStagingVersion(manifest.version)}-${crypto.randomUUID()}`;
+      const stagingDirectory = safeStagingVersion(manifest.version);
       const stagingRelative = `Updates/Staging/${stagingDirectory}`;
       const stagingRoot = this.paths.resolve(stagingRelative);
+      const previousPending = this.readPending();
+      this.cleanStagingExcept(new Set([stagingDirectory, ...(previousPending?.stagingDirectory ? [previousPending.stagingDirectory] : [])]));
       const conservativeRequiredBytes = manifest.files.reduce((sum, file) => sum + file.size, 0)
         + manifest.executable.parts.reduce((sum, part) => sum + part.size, 0)
         + manifest.executable.size
@@ -278,9 +360,8 @@ export class UpdateService {
         const current = this.paths.resolve(file.path);
         if (fs.existsSync(current) && fs.statSync(current).size === file.size && await sha256File(current) === file.sha256) continue;
         const staged = path.join(stagingRoot, ...file.path.split('/'));
-        await this.downloadFile(file, staged);
+        downloadedBytes += await this.downloadFile(file, staged, controller.signal);
         changed.push(file);
-        downloadedBytes += file.size;
       }
 
       const executable = manifest.executable;
@@ -293,20 +374,23 @@ export class UpdateService {
         fs.mkdirSync(partsRoot, { recursive: true });
         for (const part of executable.parts) {
           const destination = path.join(stagingRoot, ...part.path.split('/'));
-          await this.downloadFile(part, destination);
-          downloadedBytes += part.size;
+          downloadedBytes += await this.downloadFile(part, destination, controller.signal);
         }
         const stagedExecutable = path.join(stagingRoot, executable.path);
         const output = createWriteStream(stagedExecutable);
+        const executableHash = crypto.createHash('sha256');
         for (const part of executable.parts) {
-          await pipeline(createReadStream(path.join(stagingRoot, ...part.path.split('/'))), output, { end: false });
+          const authenticate = new Transform({ transform: (chunk: Buffer, _encoding, callback) => {
+            executableHash.update(chunk); callback(null, chunk);
+          } });
+          await pipeline(createReadStream(path.join(stagingRoot, ...part.path.split('/'))), authenticate, output, { end: false, signal: controller.signal });
         }
         output.end();
         await new Promise<void>((resolve, reject) => {
           output.once('finish', resolve);
           output.once('error', reject);
         });
-        if (fs.statSync(stagedExecutable).size !== executable.size || await sha256File(stagedExecutable) !== executable.sha256) {
+        if (fs.statSync(stagedExecutable).size !== executable.size || executableHash.digest('hex').toUpperCase() !== executable.sha256) {
           throw new Error('Assembled update executable failed verification.');
         }
         fs.rmSync(partsRoot, { recursive: true, force: true });
@@ -323,6 +407,7 @@ export class UpdateService {
       const temporaryPending = `${this.pendingFile}.new`;
       fs.writeFileSync(temporaryPending, `${JSON.stringify(pending, null, 2)}\n`, 'utf8');
       fs.renameSync(temporaryPending, this.pendingFile);
+      this.cleanStagingExcept(new Set([stagingDirectory]));
       return {
         status: 'ready',
         message: `Outpost Zero ${manifest.version} is verified and ready to install.`,
@@ -331,7 +416,12 @@ export class UpdateService {
         downloadedBytes,
       };
     } catch (error) {
-      return { status: 'error', message: error instanceof Error ? error.message : 'Update download failed.' };
+      return { status: 'error', message: controller.signal.aborted ? 'Update download paused. Reopen Outpost Zero and choose Download Update to resume.' : error instanceof Error ? error.message : 'Update download failed.' };
+    } finally {
+      if (this.downloadAbort === controller) this.downloadAbort = null;
+      this.settleDownload?.();
+      this.settleDownload = null;
+      this.downloadSettled = null;
     }
   }
 

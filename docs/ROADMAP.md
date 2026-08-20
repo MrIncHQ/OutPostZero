@@ -92,6 +92,7 @@
 - [x] Simplified Library workspace separating reading, adding content, and engine/file management
 - [x] Live SHA-256 verification progress for large Kiwix downloads
 - [x] Accelerated ordered range downloads with transparent single-stream fallback and SHA-256 authentication during transfer
+- [x] Persistent resumable application-update staging with relaunch recovery and live file authentication
 - [x] Preserve Kiwix article response policies inside the embedded offline reader
 - [x] Confirmed removal of individual ZIM libraries with safe reader restart
 - [x] Reader-only My Library view with downloaded-file controls moved to Manage

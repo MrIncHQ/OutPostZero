@@ -71,6 +71,8 @@ function signedFixture() {
     publicKey: publicKey.export({ format: 'pem', type: 'spki' }).toString(),
     executable,
     readme,
+    envelope,
+    files,
   };
 }
 
@@ -124,12 +126,106 @@ test('downloads, verifies, and assembles an update only in portable staging', as
   assert.equal(fs.existsSync(path.join(root, 'Data', 'outpost-zero.sqlite')), true);
   assert.equal(fs.existsSync(path.join(root, 'Profile', 'profile.json')), false);
   const pending = JSON.parse(fs.readFileSync(path.join(root, 'Updates', 'State', 'pending-update.json'), 'utf8'));
-  assert.match(pending.stagingDirectory, /^0\.4\.0-[0-9a-f-]{36}$/);
+  assert.equal(pending.stagingDirectory, '0.4.0');
   const staging = path.join(root, 'Updates', 'Staging', pending.stagingDirectory);
   assert.equal(fs.readFileSync(path.join(staging, 'README.txt'), 'utf8'), fixture.readme.toString());
   assert.deepEqual(fs.readFileSync(path.join(staging, 'Outpost Zero.exe')), fixture.executable);
   assert.deepEqual(pending.files.map((file: { path: string }) => file.path).sort(), ['Outpost Zero.exe', 'README.txt']);
   database.close();
+});
+
+test('pauses an update on shutdown and resumes its authenticated partial after relaunch', async () => {
+  const fixture = signedFixture();
+  let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+  const interruptedFetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith('/update-manifest.json')) return fixture.fetchImpl(input, init);
+    if (url.endsWith('/README.txt')) {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          streamController = controller;
+          controller.enqueue(fixture.readme.subarray(0, 8));
+          init?.signal?.addEventListener('abort', () => controller.error(new Error('paused')), { once: true });
+        },
+      });
+      return new Response(stream, { status: 200 });
+    }
+    return fixture.fetchImpl(input, init);
+  }) as typeof fetch;
+  const { root, paths, database, updates } = createServices(interruptedFetch, fixture.publicKey);
+  try {
+    assert.equal((await updates.check()).status, 'available');
+    const interrupted = updates.download();
+    const partial = path.join(root, 'Updates', 'Staging', '0.4.0', 'README.txt.download');
+    await waitForFile(partial);
+    await updates.shutdown();
+    const paused = await interrupted;
+    assert.equal(paused.status, 'error');
+    assert.match(paused.message, /paused/i);
+    assert.ok(fs.statSync(partial).size > 0);
+    assert.ok(streamController);
+
+    const ranges: string[] = [];
+    const resumedFetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/update-manifest.json')) return fixture.fetchImpl(input, init);
+      const decodedPath = decodeURIComponent(new URL(url).pathname);
+      const entry = [...fixture.files.entries()].find(([relativePath]) => decodedPath.endsWith(`/${relativePath}`));
+      if (!entry) return new Response('not found', { status: 404 });
+      const range = new Headers(init?.headers).get('Range');
+      if (!range) return new Response(entry[1]);
+      ranges.push(range);
+      const start = Number(/^bytes=(\d+)-$/.exec(range)?.[1]);
+      return new Response(entry[1].subarray(start), {
+        status: 206,
+        headers: { 'Content-Range': `bytes ${start}-${entry[1].length - 1}/${entry[1].length}` },
+      });
+    }) as typeof fetch;
+    const relaunched = new UpdateService(database, '0.3.0', paths, resumedFetch, fixture.publicKey);
+    assert.equal((await relaunched.check()).status, 'available');
+    const completed = await relaunched.download();
+    assert.equal(completed.status, 'ready', completed.message);
+    assert.ok(ranges.some((range) => range === 'bytes=8-'));
+    assert.equal(relaunched.status().readyVersion, '0.4.0');
+  } finally {
+    database.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('restarts only the partial file when an update host ignores ranges', async () => {
+  const fixture = signedFixture();
+  const { root, database, updates } = createServices(fixture.fetchImpl, fixture.publicKey);
+  try {
+    const partial = path.join(root, 'Updates', 'Staging', '0.4.0', 'README.txt.download');
+    fs.mkdirSync(path.dirname(partial), { recursive: true });
+    fs.writeFileSync(partial, fixture.readme.subarray(0, 7));
+    assert.equal((await updates.check()).status, 'available');
+    const result = await updates.download();
+    assert.equal(result.status, 'ready', result.message);
+    assert.deepEqual(fs.readFileSync(path.join(root, 'Updates', 'Staging', '0.4.0', 'README.txt')), fixture.readme);
+    assert.equal(fs.existsSync(partial), false);
+  } finally {
+    database.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a verified staged update remains installable after creating a new service', async () => {
+  const fixture = signedFixture();
+  const { root, paths, database, updates } = createServices(fixture.fetchImpl, fixture.publicKey);
+  try {
+    assert.equal((await updates.check()).status, 'available');
+    assert.equal((await updates.download()).status, 'ready');
+    const relaunched = new UpdateService(database, '0.3.0', paths, fixture.fetchImpl, fixture.publicKey);
+    assert.equal(relaunched.status().readyVersion, '0.4.0');
+    const check = await relaunched.check();
+    assert.equal(check.readyToInstall, true);
+    assert.match(check.message, /already verified and ready/i);
+  } finally {
+    database.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('confirms updater startup, applies the staged update, and relaunches', {

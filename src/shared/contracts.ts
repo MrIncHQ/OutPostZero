@@ -566,6 +566,7 @@ export interface UpdateStatus {
   automaticChecks: boolean;
   lastCheckedAt: string | null;
   configured: boolean;
+  readyVersion: string | null;
 }
 
 export interface UpdateCheckResult {
@@ -574,6 +575,7 @@ export interface UpdateCheckResult {
   currentVersion: string;
   availableVersion?: string;
   downloadBytes?: number;
+  readyToInstall?: boolean;
 }
 
 export interface UpdateDownloadResult {

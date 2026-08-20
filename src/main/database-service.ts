@@ -246,6 +246,7 @@ export class DatabaseService {
       automaticChecks: row.automatic_checks === 1,
       lastCheckedAt: row.last_checked_at,
       configured: row.provider === 'github' && Boolean(row.repository_owner && row.repository_name),
+      readyVersion: null,
     };
   }
 

@@ -543,15 +543,15 @@ function SettingsView({ data, onProfile, onHardware, onDatabaseIntegrity, go }: 
 }
 
 function UpdatesView({ data }: { data: BootstrapData }) {
-  const [result, setResult] = useState('');
+  const [result, setResult] = useState(data.updates.readyVersion ? `Outpost Zero ${data.updates.readyVersion} is verified and ready to install.` : '');
   const [busy, setBusy] = useState<'checking' | 'downloading' | 'applying' | null>(null);
-  const [available, setAvailable] = useState(false);
-  const [ready, setReady] = useState(false);
+  const [available, setAvailable] = useState(Boolean(data.updates.readyVersion));
+  const [ready, setReady] = useState(Boolean(data.updates.readyVersion));
   async function check() {
     setBusy('checking');
-    setReady(false);
     const checkResult = await window.outpost.checkForUpdates();
     setAvailable(checkResult.status === 'available');
+    setReady(Boolean(checkResult.readyToInstall));
     setResult(checkResult.downloadBytes ? `${checkResult.message} Download: ${formatBytes(checkResult.downloadBytes)}.` : checkResult.message);
     setBusy(null);
   }
@@ -585,7 +585,7 @@ function UpdatesView({ data }: { data: BootstrapData }) {
       </div>
       <div className="update-actions">
         <button className="primary-button" onClick={() => void check()} disabled={busy !== null}>{busy === 'checking' ? 'CHECKING...' : 'CHECK FOR UPDATES'}</button>
-        {available && !ready && <button className="secondary-button" onClick={() => void download()} disabled={busy !== null}>{busy === 'downloading' ? 'DOWNLOADING AND VERIFYING...' : 'DOWNLOAD UPDATE'}</button>}
+        {available && !ready && <button className="secondary-button" onClick={() => void download()} disabled={busy !== null}>{busy === 'downloading' ? 'DOWNLOADING AND VERIFYING...' : 'DOWNLOAD OR RESUME UPDATE'}</button>}
         {ready && <button className="primary-button" onClick={() => void apply()} disabled={busy !== null}>{busy === 'applying' ? 'STARTING UPDATER...' : 'INSTALL AND RESTART'}</button>}
       </div>
       {result && <div className="update-result">{result}</div>}
