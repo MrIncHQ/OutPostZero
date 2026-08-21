@@ -1,5 +1,5 @@
 import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import type { AiSource, BootstrapData, KiwixCatalogEntry, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary, UnifiedSearchResult } from '../shared/contracts';
+import type { AiDownloadStatus, AiSource, BootstrapData, KiwixCatalogEntry, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, MapDownloadStatus, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary, UnifiedSearchResult } from '../shared/contracts';
 import { DocumentsView } from './DocumentsView';
 import { AiView } from './AiView';
 
@@ -12,22 +12,29 @@ const MediaView = lazy(() => import('./MediaView').then((module) => ({ default: 
 const MedicationView = lazy(() => import('./MedicationView').then((module) => ({ default: module.MedicationView })));
 
 type ViewId = 'home' | 'library' | 'documents' | 'maps' | 'learning' | 'notes' |
-  'media' | 'medications' | 'relay' | 'tools' | 'ai' | 'modules' | 'downloads' | 'storage' | 'settings' | 'updates';
+  'medications' | 'relay' | 'tools' | 'ai' | 'modules' | 'storage' | 'settings' | 'updates';
+type FileTab = 'documents' | 'media' | 'downloads';
 
-const navigation: Array<{ id: ViewId; label: string }> = [
-  { id: 'home', label: 'Home' }, { id: 'library', label: 'Library' },
-  { id: 'documents', label: 'Documents' },
-  { id: 'maps', label: 'Maps' }, { id: 'learning', label: 'Learning' },
-  { id: 'notes', label: 'Notes' }, { id: 'media', label: 'Media' }, { id: 'medications', label: 'Medications' },
-  { id: 'relay', label: 'Local Relay' }, { id: 'tools', label: 'Tools' },
-  { id: 'ai', label: 'Local AI' },
-  { id: 'modules', label: 'Modules' }, { id: 'downloads', label: 'Downloads' },
-  { id: 'updates', label: 'Updates' },
+interface NavigationItem { id: ViewId; label: string; detail: string; icon: string }
+const navigationGroups: Array<{ label: string; items: NavigationItem[] }> = [
+  { label: 'COMMAND', items: [{ id: 'home', label: 'Home', detail: 'Search and quick access', icon: 'HQ' }] },
+  { label: 'FIELD LIBRARY', items: [
+    { id: 'library', label: 'Library', detail: 'Offline knowledge', icon: 'KB' },
+    { id: 'documents', label: 'Files', detail: 'Documents, media, transfers', icon: 'FL' },
+    { id: 'maps', label: 'Maps', detail: 'Offline navigation', icon: 'MP' },
+    { id: 'learning', label: 'Learning', detail: 'Courses and training', icon: 'TR' },
+    { id: 'notes', label: 'Notes', detail: 'Plans and field notes', icon: 'NT' },
+    { id: 'medications', label: 'Medications', detail: 'Reference only', icon: 'RX' },
+  ] },
+  { label: 'SYSTEMS', items: [
+    { id: 'relay', label: 'Local Relay', detail: 'Nearby communications', icon: 'CM' },
+    { id: 'tools', label: 'Tools', detail: 'Offline utilities', icon: 'TL' },
+    { id: 'ai', label: 'Local AI', detail: 'On-device assistant', icon: 'AI' },
+    { id: 'modules', label: 'Modules', detail: 'Installed capabilities', icon: 'MD' },
+    { id: 'updates', label: 'Updates', detail: 'Signed runtime releases', icon: 'UP' },
+  ] },
 ];
-
-const comingSoon: Partial<Record<ViewId, { title: string; description: string; milestone: string }>> = {
-  downloads: { title: 'Download manager', description: 'Queues, resume support, verification, and storage warnings activate with the first content module.', milestone: 'PHASE 4' },
-};
+const navigation = navigationGroups.flatMap((group) => group.items);
 
 function formatBytes(bytes: number | null): string {
   if (bytes === null) return 'Unavailable';
@@ -379,6 +386,49 @@ function LibraryView({ onModules, requestedArticlePath, onRequestHandled }: { on
   );
 }
 
+function TransfersView({ go }: { go: (view: ViewId) => void }) {
+  const [kiwix, setKiwix] = useState<KiwixDownloadStatus>();
+  const [maps, setMaps] = useState<MapDownloadStatus>();
+  const [ai, setAi] = useState<AiDownloadStatus>();
+  useEffect(() => {
+    let disposed = false;
+    const refresh = () => void Promise.all([
+      window.outpost.getKiwixDownloadStatus(), window.outpost.getMapDownloadStatus(), window.outpost.getAiDownloadStatus(),
+    ]).then(([nextKiwix, nextMaps, nextAi]) => { if (!disposed) { setKiwix(nextKiwix); setMaps(nextMaps); setAi(nextAi); } });
+    refresh(); const timer = window.setInterval(refresh, 750);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, []);
+  const cards = [
+    { id: 'knowledge', title: 'Knowledge downloads', detail: 'Kiwix archives and reference libraries', status: kiwix?.state ?? 'idle', message: kiwix?.message ?? 'Checking library transfers...', current: kiwix?.state === 'verifying' ? kiwix.verifiedBytes ?? 0 : kiwix?.downloadedBytes ?? 0, total: kiwix?.totalBytes ?? 0, active: Boolean(kiwix && ['downloading', 'verifying'].includes(kiwix.state)), open: () => go('library'), cancel: () => window.outpost.cancelKiwixDownload().then(setKiwix) },
+    { id: 'maps', title: 'Map downloads', detail: 'Selected offline regions and street data', status: maps?.state ?? 'idle', message: maps?.message ?? 'Checking map transfers...', current: maps?.downloadedBytes ?? 0, total: maps?.estimatedBytes ?? 0, active: Boolean(maps && ['resolving', 'downloading', 'verifying'].includes(maps.state)), open: () => go('maps'), cancel: () => window.outpost.cancelMapDownload().then(setMaps) },
+    { id: 'ai', title: 'AI packages', detail: 'Portable runtimes and selected models', status: ai?.state ?? 'idle', message: ai?.message ?? 'Checking AI transfers...', current: ai?.downloadedBytes ?? 0, total: ai?.totalBytes ?? 0, active: Boolean(ai && ['downloading-runtime', 'downloading-model', 'verifying', 'installing'].includes(ai.state)), open: () => go('ai'), cancel: () => window.outpost.cancelAiDownload().then(setAi) },
+  ];
+  return <section className="page-panel transfers-page">
+    <div className="page-heading"><div><p className="section-label">TRANSFER CONTROL</p><h2>Downloads on this drive</h2></div><button className="secondary-button" onClick={() => go('updates')}>APPLICATION UPDATES</button></div>
+    <p className="page-intro">Monitor portable content in one place. Downloads stay with their owning tool so the correct verification and resume rules are always used.</p>
+    <div className="transfer-grid">{cards.map((card) => {
+      const percent = card.total ? Math.min(100, card.current / card.total * 100) : card.status === 'complete' ? 100 : 0;
+      return <article className={card.active ? 'transfer-card active' : 'transfer-card'} key={card.id}>
+        <div className="transfer-card-heading"><span><small>{card.detail}</small><b>{card.title}</b></span><i>{card.status.replaceAll('-', ' ').toUpperCase()}</i></div>
+        <p>{card.message}</p><div className="transfer-meter"><span style={{ width: `${percent}%` }} /></div>
+        <div className="transfer-meta"><span>{percent.toFixed(1)}%</span><span>{card.total ? `${formatBytes(card.current)} / ${formatBytes(card.total)}` : 'No active transfer'}</span></div>
+        <div className="transfer-actions"><button className="secondary-button" onClick={card.open}>OPEN TOOL</button>{card.active && <button className="danger-button" onClick={() => void card.cancel()}>PAUSE</button>}</div>
+      </article>;
+    })}</div>
+  </section>;
+}
+
+function FilesWorkspace({ tab, onTab, requestedDocument, requestedMedia, onDocumentHandled, onMediaHandled, go }: { tab: FileTab; onTab: (tab: FileTab) => void; requestedDocument?: { id: string; page: number }; requestedMedia?: string; onDocumentHandled: () => void; onMediaHandled: () => void; go: (view: ViewId) => void }) {
+  useEffect(() => { if (requestedDocument) onTab('documents'); }, [requestedDocument, onTab]);
+  useEffect(() => { if (requestedMedia) onTab('media'); }, [requestedMedia, onTab]);
+  return <section className="files-workspace">
+    <div className="files-command-bar"><div><p className="section-label">CARRIED FILES</p><b>One place for documents, media, and active transfers.</b></div><nav className="files-tabs" aria-label="File workspace sections"><button className={tab === 'documents' ? 'active' : ''} onClick={() => onTab('documents')}>DOCUMENTS</button><button className={tab === 'media' ? 'active' : ''} onClick={() => onTab('media')}>MEDIA</button><button className={tab === 'downloads' ? 'active' : ''} onClick={() => onTab('downloads')}>TRANSFERS</button></nav></div>
+    {tab === 'documents' && <DocumentsView requestedDocument={requestedDocument} onRequestHandled={onDocumentHandled} />}
+    {tab === 'media' && <Suspense fallback={<section className="page-panel"><h2>Opening Media...</h2></section>}><MediaView requestedMediaId={requestedMedia} onRequestHandled={onMediaHandled} /></Suspense>}
+    {tab === 'downloads' && <TransfersView go={go} />}
+  </section>;
+}
+
 function StorageView({ storage, onRefresh }: { storage: StorageSummary; onRefresh: () => Promise<void> }) {
   const [scanning, setScanning] = useState(!storage.scannedAt);
   const largest = Math.max(1, ...storage.categories.map((category) => category.bytes));
@@ -594,20 +644,10 @@ function UpdatesView({ data }: { data: BootstrapData }) {
   );
 }
 
-function PlannedView({ view, go }: { view: ViewId; go: (view: ViewId) => void }) {
-  const content = comingSoon[view]!;
-  return (
-    <section className="page-panel planned-view">
-      <p className="section-label">{content.milestone}</p><h2>{content.title}</h2><p>{content.description}</p>
-      <div className="planned-rule" />
-      <button className="secondary-button" onClick={() => go('home')}>RETURN HOME</button>
-    </section>
-  );
-}
-
 export default function App() {
   const [data, setData] = useState<BootstrapData>();
   const [view, setView] = useState<ViewId>('home');
+  const [fileTab, setFileTab] = useState<FileTab>('documents');
   const [removalMessage, setRemovalMessage] = useState('');
   const [requestedDocument, setRequestedDocument] = useState<{ id: string; page: number }>();
   const [requestedNote, setRequestedNote] = useState<string>();
@@ -621,7 +661,9 @@ export default function App() {
   const clearRequestedArticle = useCallback(() => setRequestedArticle(undefined), []);
 
   useEffect(() => { void window.outpost.getBootstrap().then(setData); }, []);
-  const title = useMemo(() => navigation.find((item) => item.id === view)?.label ?? (view === 'storage' ? 'Storage' : 'Settings'), [view]);
+  const currentNavigation = useMemo(() => navigation.find((item) => item.id === view), [view]);
+  const title = currentNavigation?.label ?? (view === 'storage' ? 'Storage' : 'Settings');
+  const viewDetail = currentNavigation?.detail ?? (view === 'storage' ? 'Drive capacity and content' : 'Identity, hardware, and maintenance');
 
   if (!data) return <div className="loading-screen">PREPARING PORTABLE ENVIRONMENT...</div>;
   if (!data.profile) return <Onboarding onComplete={(profile) => setData({ ...data, profile })} />;
@@ -647,15 +689,14 @@ export default function App() {
     if (view === 'home') return <HomeView data={activeData} go={setView} onOpenResult={(result) => {
       if (result.source === 'document') { setRequestedDocument({ id: result.id, page: result.page ?? 1 }); setView('documents'); }
       else if (result.source === 'note') { setRequestedNote(result.id); setView('notes'); }
-      else if (result.source === 'media') { setRequestedMedia(result.id); setView('media'); }
+      else if (result.source === 'media') { setRequestedMedia(result.id); setFileTab('media'); setView('documents'); }
       else { setRequestedPlace(result.id); setView('maps'); }
     }} />;
     if (view === 'library') return <LibraryView onModules={(modules) => setData({ ...activeData, modules })} requestedArticlePath={requestedArticle} onRequestHandled={clearRequestedArticle} />;
-    if (view === 'documents') return <DocumentsView requestedDocument={requestedDocument} onRequestHandled={clearRequestedDocument} />;
+    if (view === 'documents') return <FilesWorkspace tab={fileTab} onTab={setFileTab} requestedDocument={requestedDocument} requestedMedia={requestedMedia} onDocumentHandled={clearRequestedDocument} onMediaHandled={clearRequestedMedia} go={setView} />;
     if (view === 'notes') return <Suspense fallback={<section className="page-panel"><h2>Opening Notes...</h2></section>}><NotesView requestedNoteId={requestedNote} onRequestHandled={clearRequestedNote} /></Suspense>;
     if (view === 'maps') return <Suspense fallback={<section className="page-panel"><h2>Opening Maps...</h2></section>}><MapsView requestedPlaceId={requestedPlace} onRequestHandled={clearRequestedPlace} /></Suspense>;
     if (view === 'learning') return <Suspense fallback={<section className="page-panel"><h2>Opening Education Center...</h2></section>}><LearningView /></Suspense>;
-    if (view === 'media') return <Suspense fallback={<section className="page-panel"><h2>Opening Media...</h2></section>}><MediaView requestedMediaId={requestedMedia} onRequestHandled={clearRequestedMedia} /></Suspense>;
     if (view === 'medications') return <Suspense fallback={<section className="page-panel"><h2>Opening Medication Reference...</h2></section>}><MedicationView /></Suspense>;
     if (view === 'relay') return <Suspense fallback={<section className="page-panel"><h2>Opening Local Relay...</h2></section>}><RelayView /></Suspense>;
     if (view === 'tools') return <Suspense fallback={<section className="page-panel"><h2>Opening Tools...</h2></section>}><ToolsView /></Suspense>;
@@ -667,26 +708,46 @@ export default function App() {
     if (view === 'modules') return <ModulesView modules={activeData.modules} onModules={(modules) => setData({ ...activeData, modules })} />;
     if (view === 'updates') return <UpdatesView data={activeData} />;
     if (view === 'settings') return <SettingsView data={activeData} onProfile={(profile) => setData({ ...activeData, profile })} onHardware={refreshHardware} onDatabaseIntegrity={checkDatabaseIntegrity} go={setView} />;
-    return <PlannedView view={view} go={setView} />;
+    return null;
   }
 
   return (
     <div className="app-shell">
       <aside className="rail">
-        <button className="brand-mark" onClick={() => setView('home')}><span>O</span><i>ZERO</i></button>
+        <button className="brand-mark" onClick={() => setView('home')}>
+          <span>O</span>
+          <i><b>OUTPOST ZERO</b><small>PORTABLE FIELD SYSTEM</small></i>
+        </button>
+        <div className="rail-readiness"><span /><div><b>DRIVE ONLINE</b><small>LOCAL MODE</small></div></div>
         <nav aria-label="Primary navigation">
-          {navigation.map((item, index) => (
-            <button className={view === item.id ? 'active' : ''} key={item.id} onClick={() => setView(item.id)}>
-              <span className="nav-index">{String(index + 1).padStart(2, '0')}</span>{item.label}
-            </button>
+          {navigationGroups.map((group) => (
+            <section className="nav-group" key={group.label}>
+              <p>{group.label}</p>
+              {group.items.map((item) => (
+                <button className={view === item.id ? 'active' : ''} key={item.id} onClick={() => setView(item.id)}>
+                  <span className="nav-icon">{item.icon}</span>
+                  <span className="nav-copy"><b>{item.label}</b><small>{item.detail}</small></span>
+                  <i aria-hidden="true">›</i>
+                </button>
+              ))}
+            </section>
           ))}
         </nav>
-        <button className={view === 'settings' ? 'settings active' : 'settings'} onClick={() => setView('settings')}><span className="nav-index">••</span>Settings</button>
+        <div className="rail-footer">
+          <span className="rail-identity"><i>{data.profile.displayName.slice(0, 1).toUpperCase()}</i><span><b>{data.profile.displayName}</b><small>LOCAL OPERATOR</small></span></span>
+          <button className={view === 'settings' ? 'settings active' : 'settings'} onClick={() => setView('settings')}>
+            <span className="nav-icon">ST</span><span className="nav-copy"><b>Settings</b><small>System configuration</small></span>
+          </button>
+        </div>
       </aside>
       <main>
-        <header>
-          <div><p className="eyebrow">OUTPOST / {title.toUpperCase()}</p><h1>Hello, <em>{data.profile.displayName}.</em></h1></div>
-          <div className="status-pulse"><span /> SYSTEM READY</div>
+        <header className="command-header">
+          <div>
+            <p className="eyebrow">OUTPOST ZERO / {title.toUpperCase()}</p>
+            <h1>{view === 'home' ? <>Ready, <em>{data.profile.displayName}.</em></> : title}</h1>
+            <p className="header-context">{viewDetail}</p>
+          </div>
+          <div className="command-status"><span><i /> SYSTEM READY</span><small>OFFLINE-FIRST · DRIVE LOCAL</small></div>
         </header>
         {data.status.recoveredFromUncleanShutdown && <div className="warning">The previous session ended unexpectedly. Portable state was recovered.</div>}
         {renderView()}
