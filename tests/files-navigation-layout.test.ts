@@ -32,6 +32,9 @@ test('files workspace exposes live transfer controls for portable content', () =
 test('Library restores paused downloads with direct resume and visible saved-data verification', () => {
   assert.match(app, /'cancelled', 'error'\]\.includes\(download\.state\)\) setLibrarySection\('add'\)/);
   assert.match(app, />RESUME DOWNLOAD<\/button>/);
+  assert.match(app, /resumingSavedDownload/);
+  assert.match(app, /RESUME FROM/);
+  assert.match(app, /if \(resumingSavedDownload\) void downloadEntry\(entry\.id\)/);
   assert.match(app, /CHECKING SAVED DATA/);
   assert.match(app, /download resumes automatically after this finishes/);
   assert.match(app, /GETTING DOWNLOAD DETAILS/);

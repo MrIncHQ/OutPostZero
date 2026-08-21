@@ -277,7 +277,11 @@ function LibraryView({ onModules, requestedArticlePath, onRequestHandled }: { on
   }
 
   function requestDownload(entry: KiwixCatalogEntry) {
-    if (entry.downloadBytes >= 5 * 1024 ** 3) setConfirmDownload(entry);
+    const resumingSavedDownload = download?.entryId === entry.id
+      && ['cancelled', 'error'].includes(download.state)
+      && download.downloadedBytes > 0;
+    if (resumingSavedDownload) void downloadEntry(entry.id);
+    else if (entry.downloadBytes >= 5 * 1024 ** 3) setConfirmDownload(entry);
     else void downloadEntry(entry.id);
   }
 
@@ -380,7 +384,7 @@ function LibraryView({ onModules, requestedArticlePath, onRequestHandled }: { on
               {entry.installed && <i>INSTALLED</i>}
             </label>)}</fieldset>
             <dl><div><dt>Language</dt><dd>{selected.language.toUpperCase()}</dd></div><div><dt>Release</dt><dd>{selected.releaseDate.slice(0, 10)}</dd></div><div><dt>Articles</dt><dd>{selected.articleCount ? selected.articleCount.toLocaleString() : 'Not listed'}</dd></div><div><dt>Free after</dt><dd className={freeAfter !== null && freeAfter < 0 ? 'low-space' : ''}>{formatBytes(freeAfter)}</dd></div></dl>
-            <button className={selected.installed ? 'installed-button' : 'secondary-button'} disabled={selected.installed || busy !== null || (freeAfter !== null && freeAfter < 0)} onClick={() => requestDownload(selected)}>{selected.installed ? 'INSTALLED' : download?.entryId === selected.id && download.state === 'cancelled' ? 'RESUME DOWNLOAD' : `DOWNLOAD ${editionLabel(selected.flavour).toUpperCase()} · ${formatBytes(selected.downloadBytes)}`}</button>
+            <button className={selected.installed ? 'installed-button' : 'secondary-button'} disabled={selected.installed || busy !== null || (freeAfter !== null && freeAfter < 0)} onClick={() => requestDownload(selected)}>{selected.installed ? 'INSTALLED' : download?.entryId === selected.id && ['cancelled', 'error'].includes(download.state) && download.downloadedBytes > 0 ? `RESUME FROM ${Math.min(100, download.downloadedBytes / Math.max(1, download.totalBytes) * 100).toFixed(1)}%` : `DOWNLOAD ${editionLabel(selected.flavour).toUpperCase()} · ${formatBytes(selected.downloadBytes)}`}</button>
           </article>;
         })}</div> : catalog?.ok && <p className="catalog-empty">No matching archives were returned. Try a broader content name or another language.</p>}
         {catalog?.ok && catalog.totalResults > catalog.itemsPerPage && <div className="catalog-pagination"><button disabled={busy !== null || catalog.startIndex === 0} onClick={() => void searchCatalog(Math.max(0, catalog.startIndex - catalog.itemsPerPage))}>PREVIOUS</button><span>{catalog.startIndex + 1}–{Math.min(catalog.totalResults, catalog.startIndex + catalog.entries.length)} OF {catalog.totalResults} EDITIONS</span><button disabled={busy !== null || catalog.startIndex + catalog.itemsPerPage >= catalog.totalResults} onClick={() => void searchCatalog(catalog.startIndex + catalog.itemsPerPage)}>NEXT</button></div>}
