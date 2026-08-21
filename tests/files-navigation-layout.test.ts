@@ -28,6 +28,14 @@ test('files workspace exposes live transfer controls for portable content', () =
   assert.match(styles, /\.transfer-card\.active\s*\{/);
 });
 
+test('Library restores paused downloads with direct resume and visible saved-data verification', () => {
+  assert.match(app, /'cancelled', 'error'\]\.includes\(download\.state\)\) setLibrarySection\('add'\)/);
+  assert.match(app, />RESUME DOWNLOAD<\/button>/);
+  assert.match(app, /CHECKING SAVED DATA/);
+  assert.match(app, /download resumes automatically after this finishes/);
+  assert.match(styles, /\.resume-verification-note\s*\{/);
+});
+
 test('field-console rail is grouped, descriptive, and scoped from page tabs', () => {
   assert.match(app, /COMMAND/);
   assert.match(app, /FIELD LIBRARY/);
@@ -38,4 +46,10 @@ test('field-console rail is grouped, descriptive, and scoped from page tabs', ()
   assert.match(styles, /\.rail > nav\s*\{/);
   assert.match(styles, /\.nav-group\s*\{/);
   assert.doesNotMatch(styles, /^nav button,/m);
+});
+
+test('switching pages or file tabs returns the workspace to its heading', () => {
+  assert.match(app, /mainRef\.current\?\.scrollTo\(\{ top: 0, left: 0/);
+  assert.match(app, /\[view, fileTab\]/);
+  assert.match(app, /<main ref=\{mainRef\}>/);
 });

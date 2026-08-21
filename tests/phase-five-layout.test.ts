@@ -48,6 +48,15 @@ test('Maps and tools expose the core offline controls', () => {
   for (const feature of ['SCIENTIFIC CALCULATOR', 'UNIT CONVERTER', 'SHA-256', 'IPV4 SUBNET', 'COORDINATE CONVERTER', 'REGEX TESTER', 'PASSWORD GENERATOR']) assert.match(tools, new RegExp(feature));
 });
 
+test('PMTiles reads do not block the Electron main process', () => {
+  const mapService = fs.readFileSync('src/main/map-service.ts', 'utf8');
+  const source = mapService.slice(mapService.indexOf('class NodeFileSource'), mapService.indexOf('export class MapService'));
+  assert.match(source, /await fs\.promises\.open/);
+  assert.match(source, /await file\.read/);
+  assert.match(source, /await file\.close/);
+  assert.doesNotMatch(source, /openSync|readSync|closeSync/);
+});
+
 test('map download controls stay inside a two-column responsive grid', () => {
   const styles = fs.readFileSync('src/renderer/phase-five.css', 'utf8');
   assert.match(styles, /\.map-download-form \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);

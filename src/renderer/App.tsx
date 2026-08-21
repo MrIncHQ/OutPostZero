@@ -1,4 +1,4 @@
-import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AiDownloadStatus, AiSource, BootstrapData, KiwixCatalogEntry, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, MapDownloadStatus, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary, UnifiedSearchResult } from '../shared/contracts';
 import { DocumentsView } from './DocumentsView';
 import { AiView } from './AiView';
@@ -181,7 +181,7 @@ function LibraryView({ onModules, requestedArticlePath, onRequestHandled }: { on
     const timer = window.setInterval(refresh, 750);
     return () => { disposed = true; window.clearInterval(timer); };
   }, []);
-  useEffect(() => { if (download && ['downloading', 'verifying'].includes(download.state)) setLibrarySection('add'); }, [download?.state]);
+  useEffect(() => { if (download && ['downloading', 'verifying', 'cancelled', 'error'].includes(download.state)) setLibrarySection('add'); }, [download?.state]);
   const archiveGroups = useMemo(() => {
     const groups = new Map<string, { key: string; title: string; summary: string; variants: KiwixCatalogEntry[] }>();
     for (const entry of catalog?.entries ?? []) {
@@ -301,6 +301,14 @@ function LibraryView({ onModules, requestedArticlePath, onRequestHandled }: { on
     }
   }
 
+  const checkingSavedDownload = Boolean(download && download.state === 'downloading'
+    && download.message.startsWith('Authenticating the saved portion')
+    && download.downloadedBytes > 0 && download.verifiedBytes !== undefined);
+  const displayedDownloadBytes = checkingSavedDownload ? download?.verifiedBytes ?? 0
+    : download?.state === 'verifying' ? download.verifiedBytes ?? 0 : download?.downloadedBytes ?? 0;
+  const displayedDownloadTotal = checkingSavedDownload ? download?.downloadedBytes ?? 0 : download?.totalBytes ?? 0;
+  const displayedDownloadPercent = displayedDownloadTotal ? Math.min(100, displayedDownloadBytes / displayedDownloadTotal * 100) : 0;
+
   if (!library) return <section className="page-panel"><p className="section-label">OFFLINE LIBRARY</p><h2>Scanning portable knowledge...</h2></section>;
   return (
     <section className="page-panel library-panel">
@@ -340,6 +348,16 @@ function LibraryView({ onModules, requestedArticlePath, onRequestHandled }: { on
           <div><p className="section-label">ADD OFFLINE CONTENT</p><h3>What do you want to carry?</h3></div>
           <span>Only your final choice downloads.</span>
         </div>
+        {download && ['downloading', 'verifying', 'cancelled', 'error'].includes(download.state) && (
+          <div className={`download-progress download-${download.state}`}>
+            <div><b>{download.title ?? 'Kiwix content'}</b><span>{download.message}</span></div>
+            <strong>{displayedDownloadTotal ? `${checkingSavedDownload ? 'CHECKING SAVED DATA ' : download.state === 'verifying' ? 'VERIFYING ' : ''}${displayedDownloadPercent.toFixed(1)}%` : 'PREPARING'}</strong>
+            <progress max={Math.max(1, displayedDownloadTotal)} value={displayedDownloadBytes} />
+            {checkingSavedDownload && <small className="resume-verification-note">{formatBytes(displayedDownloadBytes)} of {formatBytes(displayedDownloadTotal)} checked · download resumes automatically after this finishes</small>}
+            {download.state === 'downloading' && <button type="button" onClick={() => void cancelDownload()}>PAUSE</button>}
+            {['cancelled', 'error'].includes(download.state) && download.entryId && <button type="button" onClick={() => void downloadEntry(download.entryId!)}>RESUME DOWNLOAD</button>}
+          </div>
+        )}
         <div className="content-steps"><span className="active"><i>1</i>CHOOSE</span><span><i>2</i>SELECT SIZE</span><span><i>3</i>DOWNLOAD</span></div>
         <div className="catalog-filters simple">
           <label>CONTENT TYPE<select value={catalogCategory} onChange={(event) => { setCatalogQuery(''); setCatalogCategory(event.target.value); }} disabled={!catalogOptions?.ok}>{catalogOptions?.categories.map((option) => <option key={option.id} value={option.id}>{categoryLabel(option.id)}</option>) ?? <option value="wikipedia">Wikipedia</option>}</select></label>
@@ -348,14 +366,6 @@ function LibraryView({ onModules, requestedArticlePath, onRequestHandled }: { on
         <details className="catalog-search"><summary>Looking for something specific?</summary><form onSubmit={(event) => { event.preventDefault(); void searchCatalog(); }}><input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} maxLength={80} placeholder="Search within this content type" /><button className="secondary-button" type="submit" disabled={busy !== null}>SEARCH</button></form></details>
         {catalogOptions && !catalogOptions.ok && <p className="catalog-option-error">Live catalog choices are unavailable: {catalogOptions.message}</p>}
         {busy === 'catalog' && !catalog && <div className="catalog-loading">Loading available editions...</div>}
-        {download && ['downloading', 'verifying', 'cancelled', 'error'].includes(download.state) && (
-          <div className={`download-progress download-${download.state}`}>
-            <div><b>{download.title ?? 'Kiwix content'}</b><span>{download.message}</span></div>
-            <strong>{download.totalBytes ? `${download.state === 'verifying' ? 'VERIFYING ' : ''}${Math.min(100, (download.state === 'verifying' ? download.verifiedBytes ?? 0 : download.downloadedBytes) / download.totalBytes * 100).toFixed(1)}%` : 'PREPARING'}</strong>
-            <progress max={Math.max(1, download.totalBytes)} value={download.state === 'verifying' ? download.verifiedBytes ?? 0 : download.downloadedBytes} />
-            {download.state === 'downloading' && <button type="button" onClick={() => void cancelDownload()}>PAUSE</button>}
-          </div>
-        )}
         {confirmDownload && <div className="download-confirm" role="alertdialog" aria-label="Confirm large download"><div><p className="section-label">LARGE DOWNLOAD</p><b>{confirmDownload.title} · {editionLabel(confirmDownload.flavour)}</b><p>This will use {formatBytes(confirmDownload.downloadBytes)} on this drive. You can pause and resume it later.</p></div><div><button className="secondary-button" onClick={() => setConfirmDownload(undefined)}>GO BACK</button><button className="primary-button" onClick={() => void downloadEntry(confirmDownload.id)}>START DOWNLOAD</button></div></div>}
         {archiveGroups.length ? <div className="catalog-list">{archiveGroups.map((group) => {
           const selected = group.variants.find((entry) => entry.id === selectedEditions[group.key]) ?? group.variants[0];
@@ -645,6 +655,7 @@ function UpdatesView({ data }: { data: BootstrapData }) {
 }
 
 export default function App() {
+  const mainRef = useRef<HTMLElement>(null);
   const [data, setData] = useState<BootstrapData>();
   const [view, setView] = useState<ViewId>('home');
   const [fileTab, setFileTab] = useState<FileTab>('documents');
@@ -661,6 +672,7 @@ export default function App() {
   const clearRequestedArticle = useCallback(() => setRequestedArticle(undefined), []);
 
   useEffect(() => { void window.outpost.getBootstrap().then(setData); }, []);
+  useEffect(() => { mainRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' }); }, [view, fileTab]);
   const currentNavigation = useMemo(() => navigation.find((item) => item.id === view), [view]);
   const title = currentNavigation?.label ?? (view === 'storage' ? 'Storage' : 'Settings');
   const viewDetail = currentNavigation?.detail ?? (view === 'storage' ? 'Drive capacity and content' : 'Identity, hardware, and maintenance');
@@ -740,7 +752,7 @@ export default function App() {
           </button>
         </div>
       </aside>
-      <main>
+      <main ref={mainRef}>
         <header className="command-header">
           <div>
             <p className="eyebrow">OUTPOST ZERO / {title.toUpperCase()}</p>

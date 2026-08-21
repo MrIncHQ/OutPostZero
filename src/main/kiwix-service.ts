@@ -35,6 +35,7 @@ type FetchLike = typeof globalThis.fetch;
 interface CatalogRecord extends KiwixCatalogEntry { meta4Url: string }
 interface MetalinkRecord { fileName: string; size: number; sha256: string; downloadUrl: string }
 interface ParsedCatalog { entries: Array<Omit<CatalogRecord, 'installed'>>; totalResults: number; startIndex: number; itemsPerPage: number }
+interface KiwixDownloadCheckpoint { schemaVersion: 1; entry: CatalogRecord; savedAt: string }
 
 function decodeXml(value: string): string {
   return value.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
@@ -369,6 +370,7 @@ export class KiwixService {
   private catalogOptions: KiwixCatalogOptionsResult | null = null;
   private downloadAbort: AbortController | null = null;
   private currentDownload: KiwixDownloadStatus = { state: 'idle', downloadedBytes: 0, totalBytes: 0, message: 'No Kiwix download is active.' };
+  private recoverableDownload: CatalogRecord | null = null;
 
   constructor(
     private readonly database: DatabaseService,
@@ -376,7 +378,75 @@ export class KiwixService {
     private readonly fetchImpl: FetchLike = globalThis.fetch,
     private readonly packageEnvelope: unknown = KIWIX_PACKAGE,
     private readonly verificationKey: string = MODULE_PACKAGE_PUBLIC_KEY,
-  ) {}
+  ) { this.restoreDownloadCheckpoint(); if (!this.recoverableDownload) this.restoreLegacyPartial(); }
+
+  private checkpointPath(): string { return this.paths.resolve('Downloads/Kiwix/active-download.json'); }
+
+  private validCheckpoint(value: unknown): KiwixDownloadCheckpoint | null {
+    if (!value || typeof value !== 'object') return null;
+    const checkpoint = value as Partial<KiwixDownloadCheckpoint>;
+    const entry = checkpoint.entry as Partial<CatalogRecord> | undefined;
+    if (checkpoint.schemaVersion !== 1 || !entry || typeof entry.id !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(entry.id)) return null;
+    if (typeof entry.fileName !== 'string' || typeof entry.meta4Url !== 'string' || typeof entry.title !== 'string' || !Number.isSafeInteger(entry.downloadBytes) || Number(entry.downloadBytes) <= 0) return null;
+    try {
+      const fileName = safeZimFileName(entry.fileName);
+      const metadataUrl = new URL(entry.meta4Url);
+      if (metadataUrl.protocol !== 'https:' || metadataUrl.hostname !== 'lb.download.kiwix.org' || !metadataUrl.pathname.endsWith(`/${fileName}.meta4`)) return null;
+    } catch { return null; }
+    return checkpoint as KiwixDownloadCheckpoint;
+  }
+
+  private restoreDownloadCheckpoint(): void {
+    const checkpointPath = this.checkpointPath();
+    try {
+      if (!fs.existsSync(checkpointPath)) return;
+      const checkpoint = this.validCheckpoint(JSON.parse(fs.readFileSync(checkpointPath, 'utf8')));
+      if (!checkpoint) { fs.rmSync(checkpointPath, { force: true }); return; }
+      const partial = this.paths.resolve(`Downloads/Kiwix/${checkpoint.entry.fileName}.part`);
+      const downloadedBytes = fs.existsSync(partial) ? fs.statSync(partial).size : 0;
+      this.recoverableDownload = checkpoint.entry;
+      this.catalog.set(checkpoint.entry.id, checkpoint.entry);
+      this.currentDownload = {
+        state: 'cancelled', entryId: checkpoint.entry.id, title: checkpoint.entry.title,
+        fileName: checkpoint.entry.fileName, downloadedBytes, totalBytes: checkpoint.entry.downloadBytes,
+        message: downloadedBytes
+          ? 'This partial download is safely stored on the drive and ready to resume.'
+          : 'This download was interrupted before content was written and is ready to restart.',
+      };
+    } catch { /* A damaged checkpoint never blocks Library startup. */ }
+  }
+
+  private restoreLegacyPartial(): void {
+    try {
+      const stagingRoot = this.paths.ensureDirectory('Downloads/Kiwix');
+      const partials = fs.readdirSync(stagingRoot, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.zim.part'))
+        .map((entry) => ({ name: entry.name.slice(0, -'.part'.length), path: path.join(stagingRoot, entry.name) }))
+        .filter((entry) => { try { safeZimFileName(entry.name); return true; } catch { return false; } })
+        .sort((left, right) => fs.statSync(right.path).mtimeMs - fs.statSync(left.path).mtimeMs);
+      const partial = partials[0];
+      if (!partial) return;
+      this.currentDownload = {
+        state: 'cancelled', title: path.basename(partial.name, '.zim').replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()),
+        fileName: partial.name, downloadedBytes: fs.statSync(partial.path).size, totalBytes: 0,
+        message: 'A saved partial download was found. Identifying its catalog record so it can resume...',
+      };
+    } catch { /* Legacy partial discovery is best effort. */ }
+  }
+
+  private saveDownloadCheckpoint(entry: CatalogRecord): void {
+    const destination = this.checkpointPath();
+    this.paths.ensureDirectory('Downloads/Kiwix');
+    const temporary = `${destination}.tmp`;
+    fs.writeFileSync(temporary, JSON.stringify({ schemaVersion: 1, entry, savedAt: new Date().toISOString() } satisfies KiwixDownloadCheckpoint), 'utf8');
+    fs.renameSync(temporary, destination);
+    this.recoverableDownload = entry;
+  }
+
+  private clearDownloadCheckpoint(): void {
+    fs.rmSync(this.checkpointPath(), { force: true });
+    this.recoverableDownload = null;
+  }
 
   private manifest(): KiwixManifest { return verifyKiwixPackage(this.packageEnvelope, this.verificationKey); }
 
@@ -529,8 +599,20 @@ export class KiwixService {
       const parsed = parseKiwixCatalogFeed(await response.text());
       const records = parsed.entries;
       const installed = new Set(this.scan().map((item) => item.fileName.toLowerCase()));
+      if (!this.recoverableDownload && this.currentDownload.fileName) {
+        const recovered = records.find((record) => record.fileName.toLowerCase() === this.currentDownload.fileName!.toLowerCase());
+        if (recovered) {
+          const entry = { ...recovered, installed: installed.has(recovered.fileName.toLowerCase()) };
+          this.saveDownloadCheckpoint(entry);
+          this.currentDownload = {
+            ...this.currentDownload, entryId: entry.id, title: entry.title, totalBytes: entry.downloadBytes,
+            message: 'This partial download is safely stored on the drive and ready to resume.',
+          };
+        }
+      }
       this.catalog.clear();
       for (const record of records) this.catalog.set(record.id, { ...record, installed: installed.has(record.fileName.toLowerCase()) });
+      if (this.recoverableDownload && !this.catalog.has(this.recoverableDownload.id)) this.catalog.set(this.recoverableDownload.id, this.recoverableDownload);
       this.catalogFetchedAt = new Date().toISOString();
       let freeBytes: number | null = null;
       try { const disk = fs.statfsSync(this.paths.root); freeBytes = disk.bavail * disk.bsize; } catch { /* Drive capacity can be unavailable. */ }
@@ -557,6 +639,7 @@ export class KiwixService {
     const controller = new AbortController();
     this.downloadAbort = controller;
     this.currentDownload = { state: 'downloading', entryId, title: entry.title, fileName: entry.fileName, downloadedBytes: 0, totalBytes: entry.downloadBytes, message: 'Loading verified download metadata...' };
+    this.saveDownloadCheckpoint(entry);
     try {
       const metadataResponse = await this.fetchImpl(entry.meta4Url, { signal: controller.signal, cache: 'no-store', headers: { Accept: 'application/metalink4+xml', 'User-Agent': 'Outpost-Zero-Kiwix' } });
       if (!metadataResponse.ok) throw new Error(`Kiwix metadata returned HTTP ${metadataResponse.status}.`);
@@ -638,6 +721,7 @@ export class KiwixService {
       if (fs.existsSync(destination)) throw new Error('A different file appeared at the verified download destination. It was not overwritten.');
       fs.renameSync(partial, destination);
       entry.installed = true;
+      this.clearDownloadCheckpoint();
       if (wasRunning) await this.start();
       this.currentDownload = { ...this.currentDownload, state: 'complete', downloadedBytes: metadata.size, verifiedBytes: metadata.size, totalBytes: metadata.size, message: `${entry.title} downloaded and authenticated during transfer, then added to the offline library.` };
       return this.result(true, this.currentDownload.message);

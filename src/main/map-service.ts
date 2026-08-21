@@ -23,11 +23,11 @@ class NodeFileSource implements Source {
   constructor(private readonly filePath: string) {}
   getKey(): string { return this.filePath; }
   async getBytes(offset: number, length: number): Promise<RangeResponse> {
-    const bytes = Buffer.alloc(length); const descriptor = fs.openSync(this.filePath, 'r');
+    const bytes = Buffer.alloc(length); const file = await fs.promises.open(this.filePath, 'r');
     try {
-      const read = fs.readSync(descriptor, bytes, 0, length, offset);
-      return { data: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + read) as ArrayBuffer };
-    } finally { fs.closeSync(descriptor); }
+      const { bytesRead } = await file.read(bytes, 0, length, offset);
+      return { data: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytesRead) as ArrayBuffer };
+    } finally { await file.close(); }
   }
 }
 

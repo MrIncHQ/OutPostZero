@@ -320,6 +320,83 @@ test('resumes a catalog download, verifies SHA-256, and only then installs the Z
   }
 });
 
+test('restores an exact paused catalog download after application restart', async () => {
+  const runtime = makeRuntime();
+  const content = Buffer.from('persistent verified portable zim content');
+  const sha256 = (await import('node:crypto')).createHash('sha256').update(content).digest('hex');
+  const fileName = 'persistent_en_2026-08.zim';
+  const metaUrl = `https://lb.download.kiwix.org/zim/reference/${fileName}.meta4`;
+  const catalogXml = `<feed><entry><id>urn:uuid:persistent-entry-123</id><title>Persistent Reference</title><summary>Fixture</summary><language>eng</language><flavour>mini</flavour><category>reference</category><updated>2026-08-01T00:00:00Z</updated><link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="${metaUrl}" length="${content.length}" /></entry></feed>`;
+  const metalinkXml = `<metalink><file name="${fileName}"><size>${content.length}</size><hash type="sha-256">${sha256}</hash></file></metalink>`;
+  let markDownloadStarted!: () => void;
+  const downloadStarted = new Promise<void>((resolve) => { markDownloadStarted = resolve; });
+  const stalledFetch: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes('/catalog/v2/entries')) return new Response(catalogXml);
+    if (url.endsWith('.meta4')) return new Response(metalinkXml);
+    markDownloadStarted();
+    return await new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('Paused', 'AbortError')), { once: true }));
+  };
+  const first = new KiwixService(runtime.database, runtime.paths, stalledFetch);
+  try {
+    await first.fetchCatalog('persistent', 'eng');
+    const pending = first.downloadCatalogEntry('persistent-entry-123');
+    const partial = runtime.paths.resolve(`Downloads/Kiwix/${fileName}.part`);
+    fs.writeFileSync(partial, content.subarray(0, 11));
+    await downloadStarted;
+    first.cancelDownload();
+    await pending;
+
+    let resumedAt = -1;
+    const resumedFetch: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('.meta4')) return new Response(metalinkXml);
+      const range = new Headers(init?.headers).get('Range');
+      resumedAt = range ? Number(range.match(/bytes=(\d+)-/)?.[1]) : 0;
+      return new Response(content.subarray(resumedAt), { status: resumedAt ? 206 : 200 });
+    };
+    const relaunched = new KiwixService(runtime.database, runtime.paths, resumedFetch);
+    const restored = relaunched.downloadStatus();
+    assert.equal(restored.state, 'cancelled');
+    assert.equal(restored.entryId, 'persistent-entry-123');
+    assert.equal(restored.downloadedBytes, 11);
+    assert.match(restored.message, /ready to resume/i);
+    const result = await relaunched.downloadCatalogEntry(restored.entryId!);
+    assert.equal(result.ok, true, result.message);
+    assert.equal(resumedAt, 11);
+    assert.equal(fs.existsSync(runtime.paths.resolve('Downloads/Kiwix/active-download.json')), false);
+    await relaunched.shutdown();
+  } finally {
+    await first.shutdown();
+    runtime.database.close();
+    fs.rmSync(runtime.root, { recursive: true, force: true });
+  }
+});
+
+test('adopts a pre-checkpoint partial after its catalog page loads', async () => {
+  const runtime = makeRuntime();
+  const fileName = 'legacy_en_2026-08.zim';
+  const metaUrl = `https://lb.download.kiwix.org/zim/reference/${fileName}.meta4`;
+  const catalogXml = `<feed><entry><id>urn:uuid:legacy-entry-123</id><title>Legacy Reference</title><language>eng</language><link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="${metaUrl}" length="500" /></entry></feed>`;
+  runtime.paths.ensureDirectory('Downloads/Kiwix');
+  fs.writeFileSync(runtime.paths.resolve(`Downloads/Kiwix/${fileName}.part`), Buffer.alloc(123));
+  const service = new KiwixService(runtime.database, runtime.paths, async () => new Response(catalogXml));
+  try {
+    assert.equal(service.downloadStatus().entryId, undefined);
+    assert.match(service.downloadStatus().message, /identifying its catalog record/i);
+    await service.fetchCatalog('legacy', 'eng', 'reference');
+    assert.equal(service.downloadStatus().entryId, 'legacy-entry-123');
+    assert.equal(service.downloadStatus().downloadedBytes, 123);
+    assert.equal(service.downloadStatus().totalBytes, 500);
+    assert.match(service.downloadStatus().message, /ready to resume/i);
+    assert.equal(fs.existsSync(runtime.paths.resolve('Downloads/Kiwix/active-download.json')), true);
+  } finally {
+    await service.shutdown();
+    runtime.database.close();
+    fs.rmSync(runtime.root, { recursive: true, force: true });
+  }
+});
+
 test('keeps a same-named user ZIM when installing verified catalog content', async () => {
   const runtime = makeRuntime();
   const userContent = Buffer.from('user supplied content');
