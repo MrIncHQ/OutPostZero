@@ -208,7 +208,7 @@ function LibraryView({ onModules, requestedArticlePath, onRequestHandled }: { on
         : action === 'start' ? await window.outpost.startModule('library-engine')
           : await window.outpost.stopModule('library-engine');
       onModules(result.modules);
-      setMessage(result.message);
+      setMessage(action === 'start' && result.ok ? '' : result.message);
       setLibrary(await window.outpost.getLibraryStatus());
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : 'Kiwix action failed.');
@@ -306,7 +306,7 @@ function LibraryView({ onModules, requestedArticlePath, onRequestHandled }: { on
         <button className={librarySection === 'add' ? 'active' : ''} onClick={() => setLibrarySection('add')}>ADD CONTENT</button>
         <button className={librarySection === 'manage' ? 'active' : ''} onClick={() => setLibrarySection('manage')}>MANAGE <span>{library.content.length}</span></button>
       </nav>
-      {message && librarySection !== 'browse' && <div className="module-result" role="status">{message}</div>}
+      {message && <div className="module-result" role="status">{message}</div>}
       {librarySection === 'manage' && <section className="library-manage">
       <div className="library-section-heading"><div><p className="section-label">LIBRARY MANAGEMENT</p><h3>Engine and downloaded content</h3></div><button className="secondary-button" onClick={() => void scan()} disabled={busy !== null}>{busy === 'scan' ? 'SCANNING...' : 'SCAN FOR ZIM FILES'}</button></div>
       <p className="page-intro">Kiwix runs from this drive, serves only on 127.0.0.1, and blocks direct external-resource navigation. ZIM files remain separate from the removable engine.</p>
@@ -369,7 +369,8 @@ function LibraryView({ onModules, requestedArticlePath, onRequestHandled }: { on
       </section>}
 
       {librarySection === 'browse' && <section className="library-browse">
-        <div className="library-section-heading"><div><p className="section-label">OFFLINE READER</p><h3>{library.running ? 'Browse your offline knowledge' : library.content.length ? 'Reader is ready' : 'Your library is empty'}</h3></div>{library.engineInstalled && !library.running && library.content.length > 0 && <button className="primary-button" onClick={() => void moduleAction('start')} disabled={busy !== null}>{busy === 'start' ? 'OPENING...' : 'OPEN READER'}</button>}{library.running && <button className="secondary-button" onClick={() => void moduleAction('stop')} disabled={busy !== null}>{busy === 'stop' ? 'CLOSING...' : 'CLOSE READER'}</button>}</div>
+        <div className="library-section-heading"><div><p className="section-label">OFFLINE READER</p><h3>{busy === 'start' ? 'Starting Kiwix from this drive...' : library.running ? 'Browse your offline knowledge' : library.content.length ? 'Reader is ready' : 'Your library is empty'}</h3></div>{library.engineInstalled && !library.running && library.content.length > 0 && <button className="primary-button" onClick={() => void moduleAction('start')} disabled={busy !== null}>{busy === 'start' ? 'OPENING READER...' : 'OPEN READER'}</button>}{library.running && <button className="secondary-button" onClick={() => void moduleAction('stop')} disabled={busy !== null}>{busy === 'stop' ? 'CLOSING...' : 'CLOSE READER'}</button>}</div>
+        {busy === 'start' && <div className="module-result" role="status">Opening the offline reader. Large libraries and slower portable drives can take a little longer on the first start.</div>}
         {!library.content.length && <div className="library-empty"><b>Add your first offline knowledge source</b><p>Choose a language, content type, and size. Only the edition you select is downloaded.</p><button className="primary-button" onClick={() => setLibrarySection('add')}>CHOOSE CONTENT</button></div>}
         {library.content.length > 0 && !library.engineInstalled && <div className="library-empty"><b>The offline reader is not installed</b><p>Your downloaded content is safe. Install or repair the Kiwix engine from Manage.</p><button className="secondary-button" onClick={() => setLibrarySection('manage')}>OPEN MANAGE</button></div>}
         {library.running && library.serverUrl && <div className="kiwix-frame-shell"><div><span>OFFLINE READER</span><code>{readerPath ?? library.serverUrl}</code></div><iframe title="Offline Kiwix library" src={readerPath ? new URL(readerPath, library.serverUrl).toString() : library.serverUrl} sandbox="allow-scripts allow-forms allow-same-origin" /></div>}

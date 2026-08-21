@@ -362,6 +362,7 @@ async function availablePort(): Promise<number> {
 
 export class KiwixService {
   private active: ActiveKiwix | null = null;
+  private startPromise: Promise<{ ok: boolean; message: string }> | null = null;
   private lastError: string | null = null;
   private catalog = new Map<string, CatalogRecord>();
   private catalogFetchedAt: string | null = null;
@@ -745,6 +746,14 @@ export class KiwixService {
   }
 
   async start(): Promise<{ ok: boolean; message: string }> {
+    if (this.startPromise) return this.startPromise;
+    const starting = this.startProcess();
+    this.startPromise = starting;
+    try { return await starting; }
+    finally { if (this.startPromise === starting) this.startPromise = null; }
+  }
+
+  private async startProcess(): Promise<{ ok: boolean; message: string }> {
     if (this.active) return { ok: true, message: 'Offline Library Engine is already running.' };
     const record = this.database.moduleRecords().find((candidate) => candidate.moduleId === 'library-engine');
     if (!record) return { ok: false, message: 'Install the Offline Library Engine first.' };
@@ -774,7 +783,8 @@ export class KiwixService {
     });
     try {
       let ready = false;
-      for (let attempt = 0; attempt < 50; attempt += 1) {
+      const startupDeadline = Date.now() + 90_000;
+      while (Date.now() < startupDeadline) {
         await new Promise((resolve) => setTimeout(resolve, 200));
         if (child.exitCode !== null) break;
         try {
@@ -782,7 +792,7 @@ export class KiwixService {
           if (response.ok) { ready = true; break; }
         } catch { /* Continue polling until startup deadline. */ }
       }
-      if (!ready) throw new Error('Kiwix did not become healthy on loopback. Check the module log or repair the engine.');
+      if (!ready) throw new Error('Kiwix did not become healthy on loopback within 90 seconds. Check the module log or repair the engine.');
       this.lastError = null;
       return { ok: true, message: `Kiwix is serving ${content.length} ZIM file${content.length === 1 ? '' : 's'} on 127.0.0.1:${port}.` };
     } catch (error) {

@@ -375,8 +375,10 @@ test('installs and runs the official Kiwix engine with an official small ZIM', {
     const marker = runtime.paths.resolve('Content/ZIM/user-marker.txt');
     fs.writeFileSync(marker, 'preserve');
 
-    const started = await service.start();
+    const [started, joinedStart] = await Promise.all([service.start(), service.start()]);
     assert.equal(started.ok, true, started.message);
+    assert.equal(joinedStart.ok, true, joinedStart.message);
+    assert.equal(joinedStart.message, started.message);
     const running = service.status();
     assert.equal(running.running, true);
     const response = await fetch(running.serverUrl!);

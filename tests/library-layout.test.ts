@@ -17,3 +17,14 @@ test('shared page sections use the available width in full screen', () => {
   }
   assert.doesNotMatch(styles, /\.(?:module-result|detail-list|update-explainer|update-result)\s*\{[^}]*max-width:\s*820px/s);
 });
+
+test('Library reader uses one patient startup attempt for portable drives', () => {
+  const service = fs.readFileSync('src/main/kiwix-service.ts', 'utf8');
+  const app = fs.readFileSync('src/renderer/App.tsx', 'utf8');
+  assert.match(service, /private startPromise: Promise<\{ ok: boolean; message: string \}> \| null/);
+  assert.match(service, /if \(this\.startPromise\) return this\.startPromise/);
+  assert.match(service, /startupDeadline = Date\.now\(\) \+ 90_000/);
+  assert.match(app, /OPENING READER\.\.\./);
+  assert.match(app, /Large libraries and slower portable drives can take a little longer/);
+  assert.doesNotMatch(app, /message && librarySection !== 'browse'/);
+});

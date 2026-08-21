@@ -94,6 +94,7 @@
 - [x] Accelerated ordered range downloads with transparent single-stream fallback and SHA-256 authentication during transfer
 - [x] Persistent resumable application-update staging with relaunch recovery and live file authentication
 - [x] Preserve Kiwix article response policies inside the embedded offline reader
+- [x] Single-click reader startup that waits through slower portable-drive initialization without spawning competing attempts
 - [x] Confirmed removal of individual ZIM libraries with safe reader restart
 - [x] Reader-only My Library view with downloaded-file controls moved to Manage
 - [x] Fluid full-screen Library layout with responsive catalog and management grids
