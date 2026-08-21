@@ -33,7 +33,7 @@ test('Notes exposes autosave, Markdown, templates, attachments, and export', () 
 });
 
 test('Maps and tools expose the core offline controls', () => {
-  for (const feature of ['PMTiles', 'outpost-tile://package', 'COPY COORDINATES', 'MEASURE', 'IMPORT GPX', 'EXPORT GPX', 'SAVE THIS PLACE', 'DOWNLOAD MAP', 'DOWNLOAD THIS CONFIRMED REGION', 'SEARCH LOCATIONS', 'LOCATION REQUIRED', 'ROUGH SIZE ESTIMATE', 'CANCEL DOWNLOAD']) assert.match(maps, new RegExp(feature));
+  for (const feature of ['PMTiles', 'outpost-tile://package', 'COPY COORDINATES', 'MEASURE', 'IMPORT GPX', 'EXPORT GPX', 'SAVE PLACE', 'DOWNLOAD MAP', 'DOWNLOAD THIS CONFIRMED REGION', 'SEARCH LOCATIONS', 'LOCATION REQUIRED', 'ROUGH SIZE ESTIMATE', 'CANCEL DOWNLOAD']) assert.match(maps, new RegExp(feature));
   assert.match(maps, /maplibre-gl-worker\.mjs\?worker&url/);
   assert.match(maps, /setWorkerUrl\(maplibreWorkerUrl\)/);
   assert.match(maps, /addProtocol\('outpost-tile'/);
@@ -62,6 +62,19 @@ test('map download controls stay inside a two-column responsive grid', () => {
   assert.match(styles, /\.map-download-form \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(styles, /\.map-download-form label:first-child \{ grid-column: 1 \/ -1; \}/);
   assert.match(styles, /\.map-coordinate-actions \{[^}]*flex-wrap: wrap/);
+});
+
+test('map view gives the map full width and keeps packages in a separate tab', () => {
+  const styles = fs.readFileSync('src/renderer/phase-five.css', 'utf8');
+  assert.match(maps, /MAP VIEW/);
+  assert.match(maps, /MAP PACKAGES/);
+  assert.match(maps, /className="map-place-panel"[\s\S]*className="map-main"/);
+  assert.match(maps, /className="map-packages-section"/);
+  assert.match(maps, /mapRef\.current\?\.resize\(\)/);
+  assert.doesNotMatch(maps, /className="map-workspace"|className="map-sidebar"|className="place-editor"/);
+  assert.match(styles, /\.map-view-section \{[^}]*display: grid;[^}]*gap:/);
+  assert.match(styles, /\.map-package-grid \{[^}]*grid-template-columns: repeat\(auto-fit/);
+  assert.doesNotMatch(styles, /\.map-workspace \{|\.map-sidebar \{|\.place-editor \{/);
 });
 
 test('Windows packaging includes the pinned offline map extractor and its license', () => {
