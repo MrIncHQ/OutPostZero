@@ -351,9 +351,10 @@ function LibraryView({ onModules, requestedArticlePath, onRequestHandled }: { on
         {download && ['downloading', 'verifying', 'cancelled', 'error'].includes(download.state) && (
           <div className={`download-progress download-${download.state}`}>
             <div><b>{download.title ?? 'Kiwix content'}</b><span>{download.message}</span></div>
-            <strong>{displayedDownloadTotal ? `${checkingSavedDownload ? 'CHECKING SAVED DATA ' : download.state === 'verifying' ? 'VERIFYING ' : ''}${displayedDownloadPercent.toFixed(1)}%` : 'PREPARING'}</strong>
+            <strong>{displayedDownloadTotal ? `${checkingSavedDownload ? 'CHECKING SAVED DATA ' : download.state === 'verifying' ? 'VERIFYING ' : ''}${displayedDownloadPercent.toFixed(1)}%` : download.message.startsWith('Loading verified download metadata') ? 'GETTING DOWNLOAD DETAILS' : 'PREPARING'}</strong>
             <progress max={Math.max(1, displayedDownloadTotal)} value={displayedDownloadBytes} />
             {checkingSavedDownload && <small className="resume-verification-note">{formatBytes(displayedDownloadBytes)} of {formatBytes(displayedDownloadTotal)} checked · download resumes automatically after this finishes</small>}
+            {!displayedDownloadTotal && download.state === 'downloading' && <small className="resume-verification-note">Waiting for Kiwix to provide the signed file details · this stops with a resumable error after 45 seconds if the server does not respond</small>}
             {download.state === 'downloading' && <button type="button" onClick={() => void cancelDownload()}>PAUSE</button>}
             {['cancelled', 'error'].includes(download.state) && download.entryId && <button type="button" onClick={() => void downloadEntry(download.entryId!)}>RESUME DOWNLOAD</button>}
           </div>

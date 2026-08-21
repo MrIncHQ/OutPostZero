@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const app = fs.readFileSync('src/renderer/App.tsx', 'utf8');
 const styles = fs.readFileSync('src/renderer/styles.css', 'utf8');
+const kiwixService = fs.readFileSync('src/main/kiwix-service.ts', 'utf8');
 
 test('primary navigation groups files and removes standalone media and downloads', () => {
   const navigationBlock = app.slice(app.indexOf('const navigationGroups'), app.indexOf('const navigation ='));
@@ -33,6 +34,10 @@ test('Library restores paused downloads with direct resume and visible saved-dat
   assert.match(app, />RESUME DOWNLOAD<\/button>/);
   assert.match(app, /CHECKING SAVED DATA/);
   assert.match(app, /download resumes automatically after this finishes/);
+  assert.match(app, /GETTING DOWNLOAD DETAILS/);
+  assert.match(app, /resumable error after 45 seconds/);
+  assert.match(kiwixService, /AbortSignal\.any\(\[controller\.signal, AbortSignal\.timeout\(45_000\)\]\)/);
+  assert.match(kiwixService, /saved partial is safe; choose Resume Download/i);
   assert.match(styles, /\.resume-verification-note\s*\{/);
 });
 

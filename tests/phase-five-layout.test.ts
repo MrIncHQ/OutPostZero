@@ -19,7 +19,9 @@ test('Phase 5 pages replace their planned placeholders', () => {
 
 test('Education and OCR replace their module placeholders with offline controls', () => {
   assert.match(app, /view === 'learning'.*<Suspense.*<LearningView/s);
-  for (const feature of ['IMPORT COURSE FOLDER', 'ADD STARTER COURSE', 'MARK LESSON COMPLETE']) assert.match(learning, new RegExp(feature));
+  for (const feature of ['IMPORT COURSE FOLDER', 'ADD STARTER COURSE', 'MARK LESSON COMPLETE', 'HOW TO ADD COURSES', 'COURSE BUILDER GUIDE', 'COPY COURSE.JSON EXAMPLE']) assert.match(learning, new RegExp(feature));
+  assert.match(learning, /"schemaVersion": 1/);
+  assert.match(learning, /Content\/Education\/outpost-zero-basics/);
   const documents = fs.readFileSync('src/renderer/DocumentsView.tsx', 'utf8');
   for (const feature of ['OFFLINE TEXT RECOGNITION', 'RECOGNIZE TEXT', 'CANCEL OCR']) assert.match(documents, new RegExp(feature));
 });
@@ -46,6 +48,14 @@ test('Maps and tools expose the core offline controls', () => {
   assert.match(maps, /if \(added\) await loadPackage\(added\)/);
   assert.match(maps, /if \(!selectedPackage && state\?\.packages\[0\] && mapRef\.current && mapReady\) void loadPackage\(state\.packages\[0\]\)/);
   for (const feature of ['SCIENTIFIC CALCULATOR', 'UNIT CONVERTER', 'SHA-256', 'IPV4 SUBNET', 'COORDINATE CONVERTER', 'REGEX TESTER', 'PASSWORD GENERATOR']) assert.match(tools, new RegExp(feature));
+  assert.match(tools, /All 118 elements/);
+  assert.match(tools, /\['Og', 'Oganesson', 118\]/);
+});
+
+test('periodic reference contains every atomic number from 1 through 118', () => {
+  const block = tools.slice(tools.indexOf('const elements:'), tools.indexOf('function dms'));
+  const atomicNumbers = [...block.matchAll(/\['[A-Z][a-z]?', '[A-Za-z]+', (\d+)\]/g)].map((match) => Number(match[1]));
+  assert.deepEqual(atomicNumbers, Array.from({ length: 118 }, (_, index) => index + 1));
 });
 
 test('PMTiles reads do not block the Electron main process', () => {

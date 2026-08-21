@@ -641,7 +641,8 @@ export class KiwixService {
     this.currentDownload = { state: 'downloading', entryId, title: entry.title, fileName: entry.fileName, downloadedBytes: 0, totalBytes: entry.downloadBytes, message: 'Loading verified download metadata...' };
     this.saveDownloadCheckpoint(entry);
     try {
-      const metadataResponse = await this.fetchImpl(entry.meta4Url, { signal: controller.signal, cache: 'no-store', headers: { Accept: 'application/metalink4+xml', 'User-Agent': 'Outpost-Zero-Kiwix' } });
+      const metadataSignal = AbortSignal.any([controller.signal, AbortSignal.timeout(45_000)]);
+      const metadataResponse = await this.fetchImpl(entry.meta4Url, { signal: metadataSignal, cache: 'no-store', headers: { Accept: 'application/metalink4+xml', 'User-Agent': 'Outpost-Zero-Kiwix' } });
       if (!metadataResponse.ok) throw new Error(`Kiwix metadata returned HTTP ${metadataResponse.status}.`);
       const metadata = parseKiwixMetalink(await metadataResponse.text(), entry.meta4Url);
       if (metadata.fileName !== entry.fileName) throw new Error('Kiwix catalog filename does not match its download metadata.');
@@ -730,7 +731,9 @@ export class KiwixService {
         this.currentDownload = { ...this.currentDownload, state: 'cancelled', message: 'Download paused. Choose it again to resume.' };
         return this.result(false, this.currentDownload.message);
       }
-      const message = error instanceof Error ? error.message : 'Kiwix content download failed.';
+      const message = error instanceof Error && error.name === 'TimeoutError'
+        ? 'Kiwix did not return the download details within 45 seconds. The saved partial is safe; choose Resume Download to try again.'
+        : error instanceof Error ? error.message : 'Kiwix content download failed.';
       this.currentDownload = { ...this.currentDownload, state: 'error', message };
       return this.result(false, message);
     } finally {
