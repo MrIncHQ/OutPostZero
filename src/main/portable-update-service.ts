@@ -154,6 +154,8 @@ export class UpdateService {
   ) {
     this.stateDirectory = paths.ensureDirectory('Updates/State');
     this.pendingFile = path.join(this.stateDirectory, 'pending-update.json');
+    try { this.cleanRollbackHistory(); }
+    catch { /* A locked rollback is retried on the next launch or successful update. */ }
   }
 
   status(): UpdateStatus {
@@ -202,6 +204,18 @@ export class UpdateService {
       try { safeStagingDirectory(entry.name); }
       catch { continue; }
       fs.rmSync(path.join(stagingRoot, entry.name), { recursive: true, force: true });
+    }
+  }
+
+  private cleanRollbackHistory(keep = 1): void {
+    const rollbackRoot = this.paths.ensureDirectory('Updates/Rollback');
+    const ownedName = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?-\d{8}-\d{6}$/;
+    const owned = fs.readdirSync(rollbackRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && ownedName.test(entry.name))
+      .map((entry) => ({ name: entry.name, modified: fs.statSync(path.join(rollbackRoot, entry.name)).mtimeMs }))
+      .sort((left, right) => right.modified - left.modified);
+    for (const obsolete of owned.slice(Math.max(1, keep))) {
+      fs.rmSync(path.join(rollbackRoot, obsolete.name), { recursive: true, force: true });
     }
   }
 

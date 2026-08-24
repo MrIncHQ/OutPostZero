@@ -97,6 +97,27 @@ test('rejects update paths that could overwrite portable user data', () => {
   assert.throws(() => validateRuntimePath('Extract_Kiwix.ps1'));
 });
 
+test('startup keeps one updater-owned rollback and ignores unrelated folders', () => {
+  const fixture = signedFixture();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'outpost zero rollback retention-'));
+  fs.writeFileSync(path.join(root, ROOT_MARKER), 'test');
+  const paths = new PortablePathService(root); paths.initializeLayout();
+  const rollbackRoot = paths.ensureDirectory('Updates/Rollback');
+  const oldNames = ['0.13.0-20260101-010101', '0.13.1-20260102-010101'];
+  for (const name of [...oldNames, 'operator-notes']) {
+    const directory = path.join(rollbackRoot, name); fs.mkdirSync(directory); fs.writeFileSync(path.join(directory, 'saved.txt'), name);
+  }
+  const oldTime = new Date('2026-01-01T00:00:00Z');
+  for (const name of oldNames) fs.utimesSync(path.join(rollbackRoot, name), oldTime, oldTime);
+  const newest = path.join(rollbackRoot, '0.13.2-20260103-010101'); fs.mkdirSync(newest); fs.writeFileSync(path.join(newest, 'saved.txt'), 'newest');
+
+  const database = new DatabaseService(paths);
+  new UpdateService(database, '0.13.3', paths, fixture.fetchImpl, fixture.publicKey);
+  const remaining = fs.readdirSync(rollbackRoot).sort();
+  assert.deepEqual(remaining, ['0.13.2-20260103-010101', 'operator-notes']);
+  database.close();
+});
+
 test('verifies a signed GitHub manifest and detects a newer version', async () => {
   const fixture = signedFixture();
   const { database, updates } = createServices(fixture.fetchImpl, fixture.publicKey);

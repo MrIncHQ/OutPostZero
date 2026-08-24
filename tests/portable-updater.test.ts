@@ -89,6 +89,41 @@ test('portable updater installs runtime files without changing user content', {
   assert.equal(fs.existsSync(pendingFile), false);
 });
 
+test('portable updater retains only the newest updater-owned rollback after success', {
+  skip: process.platform !== 'win32',
+}, () => {
+  const { root, staging, pendingFile } = makeUpdateRoot();
+  const rollbackRoot = path.join(root, 'Updates', 'Rollback');
+  const oldRollbacks = [
+    path.join(rollbackRoot, '0.3.0-20260101-010101'),
+    path.join(rollbackRoot, '0.3.1-20260102-010101'),
+  ];
+  const unrelatedDirectory = path.join(rollbackRoot, 'notes-do-not-delete');
+  for (const directory of [...oldRollbacks, unrelatedDirectory]) {
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(path.join(directory, 'README.txt'), 'old bytes');
+  }
+  const oldTime = new Date('2026-01-01T00:00:00Z');
+  for (const directory of oldRollbacks) fs.utimesSync(directory, oldTime, oldTime);
+
+  const original = Buffer.from('current runtime');
+  const runtime = Buffer.from('new runtime');
+  fs.writeFileSync(path.join(root, 'README.txt'), original);
+  fs.writeFileSync(path.join(staging, 'README.txt'), runtime);
+  fs.writeFileSync(pendingFile, JSON.stringify({
+    version: '0.4.1', previousVersion: '0.4.0',
+    files: [{ path: 'README.txt', size: runtime.length, sha256: hash(runtime) }],
+  }));
+
+  const result = runUpdater(root, staging, pendingFile);
+  assert.equal(result.status, 0, result.stderr);
+  const ownedRollbacks = fs.readdirSync(rollbackRoot).filter((name) => /^\d+\.\d+\.\d+-\d{8}-\d{6}$/.test(name));
+  assert.equal(ownedRollbacks.length, 1);
+  assert.match(ownedRollbacks[0], /^0\.4\.0-/);
+  assert.equal(fs.existsSync(unrelatedDirectory), true);
+  assert.deepEqual(fs.readFileSync(path.join(rollbackRoot, ownedRollbacks[0], 'README.txt')), original);
+});
+
 test('portable updater refuses to overwrite user data even with a malicious pending file', {
   skip: process.platform !== 'win32',
 }, () => {
