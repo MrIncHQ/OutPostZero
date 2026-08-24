@@ -19,6 +19,7 @@ $protectedRoots = @(
     'AI', 'Backups', 'Cache', 'Config', 'Content', 'Data', 'Downloads',
     'Exports', 'Logs', 'Modules', 'Profile', 'Temp', 'Updates'
 )
+$rollbackRetentionCount = 1
 
 if (-not (Test-Path -LiteralPath (Join-Path $portableRootPath '.outpost-zero-root'))) {
     throw 'Portable root marker is missing.'
@@ -101,6 +102,29 @@ function Ensure-ParentDirectory([string]$FilePath) {
     }
 }
 
+function Remove-OldRollbackDirectories {
+    $rollbackParent = Join-Path $portableRootPath 'Updates\Rollback'
+    if (-not (Test-Path -LiteralPath $rollbackParent -PathType Container)) {
+        return
+    }
+
+    $rollbackParentPrefix = $rollbackParent + [System.IO.Path]::DirectorySeparatorChar
+    $ownedNamePattern = '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?-\d{8}-\d{6}$'
+    $ownedRollbacks = @(Get-ChildItem -LiteralPath $rollbackParent -Directory -Force | Where-Object {
+        $_.Name -match $ownedNamePattern -and -not ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+    } | Sort-Object LastWriteTimeUtc -Descending)
+
+    foreach ($obsolete in @($ownedRollbacks | Select-Object -Skip $rollbackRetentionCount)) {
+        $obsoletePath = [System.IO.Path]::GetFullPath($obsolete.FullName)
+        if (-not $obsoletePath.StartsWith($rollbackParentPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            Write-UpdateLog "Skipped rollback cleanup outside the owned directory: $obsoletePath"
+            continue
+        }
+        Remove-Item -LiteralPath $obsoletePath -Recurse -Force
+        Write-UpdateLog "Removed obsolete rollback $($obsolete.Name)."
+    }
+}
+
 try {
     foreach ($file in $pending.files) {
         $relativePath = [string]$file.path
@@ -155,6 +179,13 @@ catch {
         }
     }
     throw
+}
+
+try {
+    Remove-OldRollbackDirectories
+}
+catch {
+    Write-UpdateLog "Update succeeded, but old rollback cleanup was deferred: $($_.Exception.Message)"
 }
 
 try {
