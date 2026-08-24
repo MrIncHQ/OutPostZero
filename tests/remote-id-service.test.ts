@@ -103,3 +103,9 @@ test('map workspace keeps Remote ID Radar isolated in a dedicated tab', () => {
   assert.match(radar, /MAKE PRIORITY CONTACT/);
   assert.match(radar, /cannot make a drone broadcast faster/i);
 });
+
+test('receiver guide ships inside the updater-owned resources boundary', () => {
+  const manifest = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { build: { extraFiles: Array<{ from: string; to: string }> } };
+  const guide = manifest.build.extraFiles.find((entry) => entry.from === 'portable/REMOTE_ID_RECEIVER.txt');
+  assert.equal(guide?.to, 'resources/REMOTE_ID_RECEIVER.txt');
+});

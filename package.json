@@ -1,6 +1,6 @@
 {
   "name": "outpost-zero",
-  "version": "0.13.9",
+  "version": "0.13.10",
   "private": true,
   "description": "Portable offline knowledge, tools, and communication platform",
   "main": "dist/main/main/main.js",
@@ -79,7 +79,7 @@
       },
       {
         "from": "portable/REMOTE_ID_RECEIVER.txt",
-        "to": "REMOTE_ID_RECEIVER.txt"
+        "to": "resources/REMOTE_ID_RECEIVER.txt"
       },
       {
         "from": "portable/Run_Outpost_Zero.bat",
