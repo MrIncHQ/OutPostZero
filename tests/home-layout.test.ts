@@ -33,5 +33,7 @@ test('Updates rehydrate active and completed downloads after navigation', () => 
   assert.match(app, /setInterval\(refresh, 750\)/);
   assert.match(app, /activity\.state === 'downloading'/);
   assert.match(app, /activity\.state === 'verifying'/);
+  assert.match(app, /activity\.state === 'preparing-install'/);
+  assert.match(app, /PREPARING INSTALL/);
   assert.match(app, /INSTALL AND RESTART/);
 });

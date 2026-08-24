@@ -24,7 +24,7 @@ import { MediaService } from './media-service';
 import { MedicationService } from './medication-service';
 import { responseHeadersForUrl } from './security-policy';
 import { RemoteIdService } from './remote-id-service';
-import type { BootstrapData, ModuleOperationResult, ModuleSummary, PortableStatus } from '../shared/contracts';
+import type { BootstrapData, ModuleOperationResult, ModuleSummary, PortableStatus, UpdateApplyResult } from '../shared/contracts';
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'outpost-doc', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
@@ -79,6 +79,7 @@ const aiService = new AiService(portablePaths, () => collectHardwareDiagnostics(
 const unifiedSearchService = new UnifiedSearchService(databaseService, documentService, mediaService);
 let isPrepared = false;
 let shutdownInProgress = false;
+let applyUpdatePromise: Promise<UpdateApplyResult> | null = null;
 
 function modules(): ModuleSummary[] {
   return [kiwixService.summary(), remoteIdService.summary(), aiService.summary(), ...moduleService.modules()];
@@ -544,15 +545,30 @@ ipcMain.handle('outpost:check-updates', () => updateService.check());
 ipcMain.handle('outpost:get-update-activity', () => updateService.activityStatus());
 ipcMain.handle('outpost:download-update', () => updateService.download());
 ipcMain.handle('outpost:apply-update', async () => {
-  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), remoteIdService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
-  await databaseService.createRotatingBackup();
-  const result = await updateService.apply(process.pid);
-  if (result.status === 'launching') {
-    databaseService.close();
-    sessionState.markClean();
-    isPrepared = true;
-    setTimeout(() => app.quit(), 250);
-  }
+  if (applyUpdatePromise) return applyUpdatePromise;
+  const preparation = updateService.prepareInstall();
+  if (preparation.status !== 'preparing') return preparation;
+  const operation = (async (): Promise<UpdateApplyResult> => {
+    try {
+      await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), remoteIdService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
+      await databaseService.createRotatingBackup();
+      const result = await updateService.apply(process.pid);
+      if (result.status === 'launching') {
+        databaseService.close();
+        sessionState.markClean();
+        isPrepared = true;
+        setTimeout(() => app.quit(), 250);
+      }
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not prepare the portable update.';
+      updateService.failInstall(message);
+      return { status: 'error', message };
+    }
+  })();
+  applyUpdatePromise = operation;
+  const result = await operation;
+  if (result.status !== 'launching') applyUpdatePromise = null;
   return result;
 });
 ipcMain.handle('outpost:prepare-removal', async () => {

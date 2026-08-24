@@ -729,7 +729,7 @@ export interface UpdateDownloadResult {
 }
 
 export interface UpdateActivity {
-  state: 'idle' | 'available' | 'downloading' | 'verifying' | 'ready' | 'paused' | 'error';
+  state: 'idle' | 'available' | 'downloading' | 'verifying' | 'ready' | 'preparing-install' | 'paused' | 'error';
   message: string;
   version?: string;
   downloadedBytes: number;
@@ -737,7 +737,7 @@ export interface UpdateActivity {
 }
 
 export interface UpdateApplyResult {
-  status: 'launching' | 'not-ready' | 'error';
+  status: 'preparing' | 'launching' | 'not-ready' | 'error';
   message: string;
 }
 

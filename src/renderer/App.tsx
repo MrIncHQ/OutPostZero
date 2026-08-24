@@ -616,7 +616,8 @@ function UpdatesView({ data }: { data: BootstrapData }) {
   const [activity, setActivity] = useState<UpdateActivity>({ state: data.updates.readyVersion ? 'ready' : 'idle', version: data.updates.readyVersion ?? undefined, message: data.updates.readyVersion ? `Outpost Zero ${data.updates.readyVersion} is verified and ready to install.` : 'No update activity.', downloadedBytes: 0, totalBytes: 0 });
   function acceptActivity(next: UpdateActivity) {
     setActivity(next);
-    if (next.state === 'downloading' || next.state === 'verifying') { setBusy('downloading'); setAvailable(true); setReady(false); setResult(next.message); }
+    if (next.state === 'preparing-install') { setBusy('applying'); setAvailable(true); setReady(true); setResult(next.message); }
+    else if (next.state === 'downloading' || next.state === 'verifying') { setBusy('downloading'); setAvailable(true); setReady(false); setResult(next.message); }
     else if (next.state === 'ready') { setBusy(null); setAvailable(true); setReady(true); setResult(next.message); }
     else if (next.state === 'available') { setBusy(null); setAvailable(true); setReady(false); setResult(next.message); }
     else if (next.state === 'paused' || next.state === 'error') { setBusy(null); setAvailable(Boolean(next.version)); setReady(false); setResult(next.message); }
@@ -646,9 +647,15 @@ function UpdatesView({ data }: { data: BootstrapData }) {
   }
   async function apply() {
     setBusy('applying');
-    const applyResult = await window.outpost.applyUpdate();
-    setResult(applyResult.message);
-    if (applyResult.status !== 'launching') setBusy(null);
+    setResult('Preparing the portable update. Outpost Zero will close automatically; do not click again or remove the drive.');
+    try {
+      const applyResult = await window.outpost.applyUpdate();
+      setResult(applyResult.message);
+      if (applyResult.status !== 'launching' && applyResult.status !== 'preparing') setBusy(null);
+    } catch (error) {
+      setResult(error instanceof Error ? error.message : 'Could not prepare the portable update.');
+      setBusy(null);
+    }
   }
   return (
     <section className="page-panel">
@@ -668,9 +675,9 @@ function UpdatesView({ data }: { data: BootstrapData }) {
       <div className="update-actions">
         <button className="primary-button" onClick={() => void check()} disabled={busy !== null}>{busy === 'checking' ? 'CHECKING...' : 'CHECK FOR UPDATES'}</button>
         {available && !ready && <button className="secondary-button" onClick={() => void download()} disabled={busy !== null}>{activity.state === 'verifying' ? 'VERIFYING UPDATE...' : busy === 'downloading' ? 'DOWNLOADING UPDATE...' : activity.state === 'paused' ? 'RESUME UPDATE' : 'DOWNLOAD UPDATE'}</button>}
-        {ready && <button className="primary-button" onClick={() => void apply()} disabled={busy !== null}>{busy === 'applying' ? 'STARTING UPDATER...' : 'INSTALL AND RESTART'}</button>}
+        {ready && <button className="primary-button" onClick={() => void apply()} disabled={busy !== null}>{busy === 'applying' ? 'PREPARING INSTALL...' : 'INSTALL AND RESTART'}</button>}
       </div>
-      {(activity.state === 'downloading' || activity.state === 'verifying') && <div className="update-activity"><div><b>{activity.state === 'verifying' ? 'VERIFYING UPDATE' : 'UPDATE DOWNLOAD ACTIVE'}</b><span>{activity.version ? `v${activity.version}` : ''}</span></div><p>{activity.message}</p>{activity.downloadedBytes > 0 && <small>{formatBytes(activity.downloadedBytes)} downloaded and authenticated</small>}</div>}
+      {(activity.state === 'downloading' || activity.state === 'verifying' || activity.state === 'preparing-install') && <div className="update-activity"><div><b>{activity.state === 'preparing-install' ? 'INSTALL PREPARATION ACTIVE' : activity.state === 'verifying' ? 'VERIFYING UPDATE' : 'UPDATE DOWNLOAD ACTIVE'}</b><span>{activity.version ? `v${activity.version}` : ''}</span></div><p>{activity.message}</p>{activity.downloadedBytes > 0 && activity.state !== 'preparing-install' && <small>{formatBytes(activity.downloadedBytes)} downloaded and authenticated</small>}</div>}
       {result && <div className="update-result">{result}</div>}
     </section>
   );

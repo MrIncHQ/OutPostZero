@@ -153,6 +153,8 @@ test('downloads, verifies, and assembles an update only in portable staging', as
   assert.equal(fs.readFileSync(path.join(staging, 'README.txt'), 'utf8'), fixture.readme.toString());
   assert.deepEqual(fs.readFileSync(path.join(staging, 'Outpost Zero.exe')), fixture.executable);
   assert.deepEqual(pending.files.map((file: { path: string }) => file.path).sort(), ['Outpost Zero.exe', 'README.txt']);
+  assert.equal(updates.prepareInstall().status, 'preparing');
+  assert.equal(updates.activityStatus().state, 'preparing-install');
   database.close();
 });
 

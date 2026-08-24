@@ -163,12 +163,29 @@ export class UpdateService {
   }
 
   activityStatus(): UpdateActivity {
+    if (this.activity.state === 'preparing-install') return { ...this.activity };
     const readyVersion = this.readyVersion();
     if (readyVersion && !this.downloadAbort) return { state: 'ready', version: readyVersion, message: `Outpost Zero ${readyVersion} is verified and ready to install.`, downloadedBytes: this.activity.downloadedBytes, totalBytes: this.activity.totalBytes };
     return { ...this.activity };
   }
 
   hasActiveDownload(): boolean { return Boolean(this.downloadAbort); }
+
+  prepareInstall(): UpdateApplyResult {
+    const readyVersion = this.readyVersion();
+    if (!readyVersion) return { status: 'not-ready', message: 'No verified update is ready to install.' };
+    this.activity = {
+      ...this.activity,
+      state: 'preparing-install',
+      version: readyVersion,
+      message: 'Preparing the portable update. Outpost Zero will close automatically and restart when installation is complete.',
+    };
+    return { status: 'preparing', message: this.activity.message };
+  }
+
+  failInstall(message: string): void {
+    this.activity = { ...this.activity, state: 'error', message };
+  }
 
   async shutdown(): Promise<void> {
     this.downloadAbort?.abort();
@@ -462,7 +479,8 @@ export class UpdateService {
 
   async apply(processId: number): Promise<UpdateApplyResult> {
     try {
-      if (!fs.existsSync(this.pendingFile)) return { status: 'not-ready', message: 'No verified update is ready to install.' };
+      const preparation = this.prepareInstall();
+      if (preparation.status !== 'preparing') return preparation;
       const pending = JSON.parse(fs.readFileSync(this.pendingFile, 'utf8')) as PendingUpdate;
       safeStagingVersion(pending.version);
       const stagingDirectory = safeStagingDirectory(pending.stagingDirectory ?? pending.version);
@@ -499,7 +517,9 @@ export class UpdateService {
       fs.rmSync(handshake, { force: true });
       return { status: 'launching', message: 'Outpost Zero will close, apply the update, verify it, and restart.' };
     } catch (error) {
-      return { status: 'error', message: error instanceof Error ? error.message : 'Could not launch the portable updater.' };
+      const message = error instanceof Error ? error.message : 'Could not launch the portable updater.';
+      this.activity = { ...this.activity, state: 'error', message };
+      return { status: 'error', message };
     }
   }
 }
