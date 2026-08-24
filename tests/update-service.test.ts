@@ -104,6 +104,7 @@ test('verifies a signed GitHub manifest and detects a newer version', async () =
   assert.equal(result.status, 'available');
   assert.equal(result.availableVersion, '0.4.0');
   assert.ok((result.downloadBytes ?? 0) > 0);
+  assert.equal(updates.activityStatus().state, 'available');
   database.close();
 });
 
@@ -158,10 +159,12 @@ test('pauses an update on shutdown and resumes its authenticated partial after r
     const interrupted = updates.download();
     const partial = path.join(root, 'Updates', 'Staging', '0.4.0', 'README.txt.download');
     await waitForFile(partial);
+    assert.equal(updates.activityStatus().state, 'downloading');
     await updates.shutdown();
     const paused = await interrupted;
     assert.equal(paused.status, 'error');
     assert.match(paused.message, /paused/i);
+    assert.equal(updates.activityStatus().state, 'paused');
     assert.ok(fs.statSync(partial).size > 0);
     assert.ok(streamController);
 
@@ -185,6 +188,7 @@ test('pauses an update on shutdown and resumes its authenticated partial after r
     assert.equal((await relaunched.check()).status, 'available');
     const completed = await relaunched.download();
     assert.equal(completed.status, 'ready', completed.message);
+    assert.equal(relaunched.activityStatus().state, 'ready');
     assert.ok(ranges.some((range) => range === 'bytes=8-'));
     assert.equal(relaunched.status().readyVersion, '0.4.0');
   } finally {

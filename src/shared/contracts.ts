@@ -720,6 +720,14 @@ export interface UpdateDownloadResult {
   downloadedBytes?: number;
 }
 
+export interface UpdateActivity {
+  state: 'idle' | 'available' | 'downloading' | 'verifying' | 'ready' | 'paused' | 'error';
+  message: string;
+  version?: string;
+  downloadedBytes: number;
+  totalBytes: number;
+}
+
 export interface UpdateApplyResult {
   status: 'launching' | 'not-ready' | 'error';
   message: string;
@@ -937,6 +945,7 @@ export interface OutpostBridge {
   deleteRelayMarker(markerId: string): Promise<RelayOperationResult>;
   searchOutpost(query: string): Promise<UnifiedSearchResult[]>;
   checkForUpdates(): Promise<UpdateCheckResult>;
+  getUpdateActivity(): Promise<UpdateActivity>;
   downloadUpdate(): Promise<UpdateDownloadResult>;
   applyUpdate(): Promise<UpdateApplyResult>;
   prepareForRemoval(): Promise<{ ready: boolean; message: string }>;

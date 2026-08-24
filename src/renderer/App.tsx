@@ -1,5 +1,5 @@
 import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AiDownloadStatus, AiSource, BootstrapData, KiwixCatalogEntry, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, MapDownloadStatus, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary, UnifiedSearchResult } from '../shared/contracts';
+import type { AiDownloadStatus, AiSource, BootstrapData, KiwixCatalogEntry, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, MapDownloadStatus, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary, UnifiedSearchResult, UpdateActivity } from '../shared/contracts';
 import { DocumentsView } from './DocumentsView';
 import { AiView } from './AiView';
 
@@ -613,6 +613,20 @@ function UpdatesView({ data }: { data: BootstrapData }) {
   const [busy, setBusy] = useState<'checking' | 'downloading' | 'applying' | null>(null);
   const [available, setAvailable] = useState(Boolean(data.updates.readyVersion));
   const [ready, setReady] = useState(Boolean(data.updates.readyVersion));
+  const [activity, setActivity] = useState<UpdateActivity>({ state: data.updates.readyVersion ? 'ready' : 'idle', version: data.updates.readyVersion ?? undefined, message: data.updates.readyVersion ? `Outpost Zero ${data.updates.readyVersion} is verified and ready to install.` : 'No update activity.', downloadedBytes: 0, totalBytes: 0 });
+  function acceptActivity(next: UpdateActivity) {
+    setActivity(next);
+    if (next.state === 'downloading' || next.state === 'verifying') { setBusy('downloading'); setAvailable(true); setReady(false); setResult(next.message); }
+    else if (next.state === 'ready') { setBusy(null); setAvailable(true); setReady(true); setResult(next.message); }
+    else if (next.state === 'available') { setBusy(null); setAvailable(true); setReady(false); setResult(next.message); }
+    else if (next.state === 'paused' || next.state === 'error') { setBusy(null); setAvailable(Boolean(next.version)); setReady(false); setResult(next.message); }
+  }
+  useEffect(() => {
+    let mounted = true;
+    const refresh = () => void window.outpost.getUpdateActivity().then((next) => { if (mounted) acceptActivity(next); });
+    refresh(); const timer = window.setInterval(refresh, 750);
+    return () => { mounted = false; window.clearInterval(timer); };
+  }, []);
   async function check() {
     setBusy('checking');
     const checkResult = await window.outpost.checkForUpdates();
@@ -620,6 +634,7 @@ function UpdatesView({ data }: { data: BootstrapData }) {
     setReady(Boolean(checkResult.readyToInstall));
     setResult(checkResult.downloadBytes ? `${checkResult.message} Download: ${formatBytes(checkResult.downloadBytes)}.` : checkResult.message);
     setBusy(null);
+    acceptActivity(await window.outpost.getUpdateActivity());
   }
   async function download() {
     setBusy('downloading');
@@ -627,6 +642,7 @@ function UpdatesView({ data }: { data: BootstrapData }) {
     setReady(downloadResult.status === 'ready');
     setResult(downloadResult.downloadedBytes ? `${downloadResult.message} Downloaded ${formatBytes(downloadResult.downloadedBytes)}.` : downloadResult.message);
     setBusy(null);
+    acceptActivity(await window.outpost.getUpdateActivity());
   }
   async function apply() {
     setBusy('applying');
@@ -651,9 +667,10 @@ function UpdatesView({ data }: { data: BootstrapData }) {
       </div>
       <div className="update-actions">
         <button className="primary-button" onClick={() => void check()} disabled={busy !== null}>{busy === 'checking' ? 'CHECKING...' : 'CHECK FOR UPDATES'}</button>
-        {available && !ready && <button className="secondary-button" onClick={() => void download()} disabled={busy !== null}>{busy === 'downloading' ? 'DOWNLOADING AND VERIFYING...' : 'DOWNLOAD OR RESUME UPDATE'}</button>}
+        {available && !ready && <button className="secondary-button" onClick={() => void download()} disabled={busy !== null}>{activity.state === 'verifying' ? 'VERIFYING UPDATE...' : busy === 'downloading' ? 'DOWNLOADING UPDATE...' : activity.state === 'paused' ? 'RESUME UPDATE' : 'DOWNLOAD UPDATE'}</button>}
         {ready && <button className="primary-button" onClick={() => void apply()} disabled={busy !== null}>{busy === 'applying' ? 'STARTING UPDATER...' : 'INSTALL AND RESTART'}</button>}
       </div>
+      {(activity.state === 'downloading' || activity.state === 'verifying') && <div className="update-activity"><div><b>{activity.state === 'verifying' ? 'VERIFYING UPDATE' : 'UPDATE DOWNLOAD ACTIVE'}</b><span>{activity.version ? `v${activity.version}` : ''}</span></div><p>{activity.message}</p>{activity.downloadedBytes > 0 && <small>{formatBytes(activity.downloadedBytes)} downloaded and authenticated</small>}</div>}
       {result && <div className="update-result">{result}</div>}
     </section>
   );

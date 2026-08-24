@@ -123,6 +123,7 @@ const bridge: OutpostBridge = {
   deleteRelayMarker: (markerId) => ipcRenderer.invoke('outpost:delete-relay-marker', markerId),
   searchOutpost: (query) => ipcRenderer.invoke('outpost:search-outpost', query),
   checkForUpdates: () => ipcRenderer.invoke('outpost:check-updates'),
+  getUpdateActivity: () => ipcRenderer.invoke('outpost:get-update-activity'),
   downloadUpdate: () => ipcRenderer.invoke('outpost:download-update'),
   applyUpdate: () => ipcRenderer.invoke('outpost:apply-update'),
   prepareForRemoval: () => ipcRenderer.invoke('outpost:prepare-removal'),

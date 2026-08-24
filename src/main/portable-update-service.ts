@@ -9,6 +9,7 @@ import type {
   UpdateApplyResult,
   UpdateCheckResult,
   UpdateDownloadResult,
+  UpdateActivity,
   UpdateStatus,
 } from '../shared/contracts';
 import { DatabaseService } from './database-service';
@@ -142,6 +143,7 @@ export class UpdateService {
   private downloadAbort: AbortController | null = null;
   private downloadSettled: Promise<void> | null = null;
   private settleDownload: (() => void) | null = null;
+  private activity: UpdateActivity = { state: 'idle', message: 'No update activity.', downloadedBytes: 0, totalBytes: 0 };
 
   constructor(
     private readonly database: DatabaseService,
@@ -156,6 +158,12 @@ export class UpdateService {
 
   status(): UpdateStatus {
     return { ...this.database.updateStatus(this.currentVersion), readyVersion: this.readyVersion() };
+  }
+
+  activityStatus(): UpdateActivity {
+    const readyVersion = this.readyVersion();
+    if (readyVersion && !this.downloadAbort) return { state: 'ready', version: readyVersion, message: `Outpost Zero ${readyVersion} is verified and ready to install.`, downloadedBytes: this.activity.downloadedBytes, totalBytes: this.activity.totalBytes };
+    return { ...this.activity };
   }
 
   hasActiveDownload(): boolean { return Boolean(this.downloadAbort); }
@@ -249,14 +257,18 @@ export class UpdateService {
     try {
       const status = this.status();
       if (!status.configured) {
+        this.activity = { state: 'error', message: 'The GitHub update source is not configured.', downloadedBytes: 0, totalBytes: 0 };
         return { status: 'not-configured', message: 'The GitHub update source is not configured.', currentVersion: this.currentVersion };
       }
       const manifest = await this.loadManifest();
       this.availableManifest = manifest;
       if (compareVersions(manifest.version, this.currentVersion) <= 0) {
+        this.activity = { state: 'idle', message: `Outpost Zero ${this.currentVersion} is current.`, downloadedBytes: 0, totalBytes: 0 };
         return { status: 'up-to-date', message: `Outpost Zero ${this.currentVersion} is current.`, currentVersion: this.currentVersion };
       }
       const readyToInstall = this.readyVersion() === manifest.version;
+      const downloadBytes = readyToInstall ? 0 : manifest.files.reduce((sum, file) => sum + file.size, manifest.executable.parts.reduce((sum, part) => sum + part.size, 0));
+      this.activity = { state: readyToInstall ? 'ready' : 'available', version: manifest.version, message: readyToInstall ? `Outpost Zero ${manifest.version} is already verified and ready to install.` : `Outpost Zero ${manifest.version} is available from GitHub.`, downloadedBytes: 0, totalBytes: downloadBytes };
       return {
         status: 'available',
         message: readyToInstall
@@ -264,12 +276,13 @@ export class UpdateService {
           : `Outpost Zero ${manifest.version} is available from GitHub.`,
         currentVersion: this.currentVersion,
         availableVersion: manifest.version,
-        downloadBytes: readyToInstall ? 0 : manifest.files.reduce((sum, file) => sum + file.size, manifest.executable.parts.reduce((sum, part) => sum + part.size, 0)),
+        downloadBytes,
         readyToInstall,
       };
     } catch (error) {
       this.availableManifest = null;
-      return { status: 'error', message: error instanceof Error ? error.message : 'Update check failed.', currentVersion: this.currentVersion };
+      const message = error instanceof Error ? error.message : 'Update check failed.'; this.activity = { state: 'error', message, downloadedBytes: 0, totalBytes: 0 };
+      return { status: 'error', message, currentVersion: this.currentVersion };
     }
   }
 
@@ -333,6 +346,8 @@ export class UpdateService {
         return { status: 'no-update', message: 'No newer update is available.' };
       }
       const stagingDirectory = safeStagingVersion(manifest.version);
+      const totalBytes = manifest.files.reduce((sum, file) => sum + file.size, manifest.executable.parts.reduce((sum, part) => sum + part.size, 0));
+      this.activity = { state: 'downloading', version: manifest.version, message: `Downloading Outpost Zero ${manifest.version}...`, downloadedBytes: 0, totalBytes };
       const stagingRelative = `Updates/Staging/${stagingDirectory}`;
       const stagingRoot = this.paths.resolve(stagingRelative);
       const previousPending = this.readPending();
@@ -360,7 +375,8 @@ export class UpdateService {
         const current = this.paths.resolve(file.path);
         if (fs.existsSync(current) && fs.statSync(current).size === file.size && await sha256File(current) === file.sha256) continue;
         const staged = path.join(stagingRoot, ...file.path.split('/'));
-        downloadedBytes += await this.downloadFile(file, staged, controller.signal);
+        this.activity = { ...this.activity, message: `Downloading and verifying ${file.path}...` };
+        downloadedBytes += await this.downloadFile(file, staged, controller.signal); this.activity = { ...this.activity, downloadedBytes };
         changed.push(file);
       }
 
@@ -374,8 +390,10 @@ export class UpdateService {
         fs.mkdirSync(partsRoot, { recursive: true });
         for (const part of executable.parts) {
           const destination = path.join(stagingRoot, ...part.path.split('/'));
-          downloadedBytes += await this.downloadFile(part, destination, controller.signal);
+          this.activity = { ...this.activity, message: `Downloading and verifying ${part.path}...` };
+          downloadedBytes += await this.downloadFile(part, destination, controller.signal); this.activity = { ...this.activity, downloadedBytes };
         }
+        this.activity = { ...this.activity, state: 'verifying', message: 'Assembling and verifying the portable executable...' };
         const stagedExecutable = path.join(stagingRoot, executable.path);
         const output = createWriteStream(stagedExecutable);
         const executableHash = crypto.createHash('sha256');
@@ -408,6 +426,7 @@ export class UpdateService {
       fs.writeFileSync(temporaryPending, `${JSON.stringify(pending, null, 2)}\n`, 'utf8');
       fs.renameSync(temporaryPending, this.pendingFile);
       this.cleanStagingExcept(new Set([stagingDirectory]));
+      this.activity = { state: 'ready', version: manifest.version, message: `Outpost Zero ${manifest.version} is verified and ready to install.`, downloadedBytes, totalBytes };
       return {
         status: 'ready',
         message: `Outpost Zero ${manifest.version} is verified and ready to install.`,
@@ -416,7 +435,9 @@ export class UpdateService {
         downloadedBytes,
       };
     } catch (error) {
-      return { status: 'error', message: controller.signal.aborted ? 'Update download paused. Reopen Outpost Zero and choose Download Update to resume.' : error instanceof Error ? error.message : 'Update download failed.' };
+      const paused = controller.signal.aborted; const message = paused ? 'Update download paused. Reopen Outpost Zero and choose Download Update to resume.' : error instanceof Error ? error.message : 'Update download failed.';
+      this.activity = { ...this.activity, state: paused ? 'paused' : 'error', message };
+      return { status: 'error', message };
     } finally {
       if (this.downloadAbort === controller) this.downloadAbort = null;
       this.settleDownload?.();

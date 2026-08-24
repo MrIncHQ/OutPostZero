@@ -541,6 +541,7 @@ ipcMain.handle('outpost:search-outpost', (_event, query: unknown) => {
   return unifiedSearchService.search(query);
 });
 ipcMain.handle('outpost:check-updates', () => updateService.check());
+ipcMain.handle('outpost:get-update-activity', () => updateService.activityStatus());
 ipcMain.handle('outpost:download-update', () => updateService.download());
 ipcMain.handle('outpost:apply-update', async () => {
   await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), remoteIdService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]);

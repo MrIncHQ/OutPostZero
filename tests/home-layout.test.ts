@@ -27,3 +27,11 @@ test('Home is action-focused and system summaries live in Settings', () => {
   assert.match(styles, /\.home-action-grid\s*\{/);
   assert.match(styles, /\.settings-system-grid\s*\{/);
 });
+
+test('Updates rehydrate active and completed downloads after navigation', () => {
+  assert.match(app, /getUpdateActivity\(\)/);
+  assert.match(app, /setInterval\(refresh, 750\)/);
+  assert.match(app, /activity\.state === 'downloading'/);
+  assert.match(app, /activity\.state === 'verifying'/);
+  assert.match(app, /INSTALL AND RESTART/);
+});

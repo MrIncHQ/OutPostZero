@@ -286,6 +286,10 @@ footer { position: fixed; z-index: 3; left: 252px; right: 0; bottom: 0; height: 
 .update-explainer code { color: #d6b27e; }
 .update-result { width: 100%; margin-top: 14px; padding: 13px 15px; border: 1px solid #405248; background: #17221c; color: #9dc0b3; font-size: 11px; line-height: 1.5; }
 .update-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.update-activity { display: grid; gap: 7px; margin-top: 14px; padding: 14px 16px; border: 1px solid #6d5939; background: rgba(181,132,68,.08); }
+.update-activity > div { display: flex; justify-content: space-between; gap: 16px; color: #d4a45f; font-size: 9px; letter-spacing: .1em; }
+.update-activity p { margin: 0; color: #c6beb1; font-size: 10px; }
+.update-activity small { color: #86ad9d; font-size: 8px; }
 
 .files-workspace { position: relative; display: grid; gap: 12px; }
 .files-command-bar { display: flex; align-items: center; justify-content: space-between; gap: 22px; padding: 14px 17px; border: 1px solid #35433b; border-left: 3px solid #b98545; background: linear-gradient(90deg, rgba(37,47,41,.96), rgba(13,20,16,.96)); box-shadow: 0 12px 30px rgba(0,0,0,.13); }
