@@ -3,6 +3,9 @@ import * as maplibregl from 'maplibre-gl';
 import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
 import type { MapPackage, ModuleSummary, RemoteIdContact, RemoteIdPort, RemoteIdState } from '../shared/contracts';
 import { offlineMapStyle } from './map-rendering';
+import { attachStableMapResize, ensureMapRuntime } from './map-runtime';
+
+ensureMapRuntime();
 
 const EMPTY_STATE: RemoteIdState = { installed: false, enabled: false, connection: 'disconnected', serialLinesReceived: 0, ignoredLinesReceived: 0, observationsReceived: 0, contacts: [] };
 
@@ -64,9 +67,9 @@ export function RemoteIdRadarView({ packages, onModules }: { packages: MapPackag
     map.addControl(new maplibregl.NavigationControl(), 'top-right'); map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-left'); map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
     map.on('style.load', () => { updateRadarLayers(map, stateRef.current); if (initialPackage?.bounds) map.fitBounds([[initialPackage.bounds[0], initialPackage.bounds[1]], [initialPackage.bounds[2], initialPackage.bounds[3]]], { padding: 30, duration: 0 }); });
     map.on('click', (event) => { if (!map.getLayer('rid-contacts')) return; const feature = map.queryRenderedFeatures(event.point, { layers: ['rid-contacts'] })[0]; const sourceKey = feature?.properties?.sourceKey as string | undefined; if (sourceKey) setSelectedSourceKey(sourceKey); });
-    const observer = new ResizeObserver(() => map.resize()); observer.observe(container.current);
-    mapRef.current = map; window.requestAnimationFrame(() => map.resize());
-    return () => { observer.disconnect(); map.remove(); mapRef.current = undefined; };
+    const detachResize = attachStableMapResize(map);
+    mapRef.current = map;
+    return () => { detachResize(); map.remove(); mapRef.current = undefined; };
   }, [state.installed, state.enabled]);
   useEffect(() => { const map = mapRef.current; if (!map) return; const item = packages.find((candidate) => candidate.id === selectedPackageId); if (!item) { map.setStyle({ version: 8, glyphs: 'outpost-glyph://fonts/{fontstack}/{range}.pbf', sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#0c1410' } }] }); return; } map.setStyle(offlineMapStyle(item)); if (item.bounds) map.fitBounds([[item.bounds[0], item.bounds[1]], [item.bounds[2], item.bounds[3]]], { padding: 30, duration: 0 }); }, [selectedPackageId, packages]);
   useEffect(() => { updateRadarLayers(mapRef.current, state); }, [state]);

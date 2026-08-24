@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
-import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import type { MapDownloadRequest, MapDownloadStatus, MapLocationResult, MapPackage, MapPlaceInput, MapsState, ModuleSummary } from '../shared/contracts';
 import { offlineMapStyle } from './map-rendering';
+import { attachStableMapResize, ensureMapRuntime } from './map-runtime';
 import { RemoteIdRadarView } from './RemoteIdRadarView';
 
-maplibregl.setWorkerUrl(maplibreWorkerUrl);
+ensureMapRuntime();
 
 function formatBytes(bytes: number): string { return bytes < 1024 ** 3 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${(bytes / 1024 ** 3).toFixed(1)} GB`; }
 function estimatedMapBytes(radiusKilometers: number, latitude: number, maxZoom: number): number {
@@ -27,7 +26,6 @@ function measurement(a: [number, number], b: [number, number]): { distance: stri
 
 export function MapsView({ requestedPlaceId, onRequestHandled, onModules }: { requestedPlaceId?: string; onRequestHandled?: () => void; onModules?: (modules: ModuleSummary[]) => void }) {
   const container = useRef<HTMLDivElement>(null); const mapRef = useRef<maplibregl.Map | undefined>(undefined); const markers = useRef<maplibregl.Marker[]>([]);
-  const firstRenderedTile = useRef(false);
   const [state, setState] = useState<MapsState>(); const [selectedPackage, setSelectedPackage] = useState<MapPackage>();
   const [mapReady, setMapReady] = useState(false);
   const [cursor, setCursor] = useState<[number, number]>([-98.5795, 39.8283]); const [zoom, setZoom] = useState(3);
@@ -43,25 +41,6 @@ export function MapsView({ requestedPlaceId, onRequestHandled, onModules }: { re
 
   async function refresh() { const next = await window.outpost.getMaps(); setState(next); return next; }
   useEffect(() => { void refresh(); }, []);
-  useEffect(() => {
-    maplibregl.addProtocol('outpost-tile', async (request) => {
-      const match = /^outpost-tile:\/\/package\/([A-F0-9]{24})\/(\d+)\/(\d+)\/(\d+)$/i.exec(request.url);
-      if (!match) throw new Error('The offline map requested an invalid tile address.');
-      const bytes = await window.outpost.getMapTile(match[1], Number(match[2]), Number(match[3]), Number(match[4]));
-      if (!bytes) return { data: new ArrayBuffer(0) };
-      const view = new Uint8Array(bytes);
-      if (!firstRenderedTile.current) { firstRenderedTile.current = true; setMessage('Drawing offline map tiles...'); }
-      return { data: view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) };
-    });
-    maplibregl.addProtocol('outpost-glyph', async (request) => {
-      const match = /^outpost-glyph:\/\/fonts\/([^/]+)\/(\d+-\d+)\.pbf$/i.exec(request.url);
-      if (!match) throw new Error('The offline map requested an invalid font asset.');
-      const bytes = await window.outpost.getMapGlyph(decodeURIComponent(match[1]), match[2]);
-      if (!bytes) throw new Error(`Offline map font data is missing for ${decodeURIComponent(match[1])} ${match[2]}.`);
-      const view = new Uint8Array(bytes); return { data: view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) };
-    });
-    return () => { maplibregl.removeProtocol('outpost-tile'); maplibregl.removeProtocol('outpost-glyph'); };
-  }, []);
   useEffect(() => {
     if (!['resolving', 'downloading', 'verifying'].includes(downloadStatus.state)) return;
     const timer = window.setInterval(() => { void window.outpost.getMapDownloadStatus().then(setDownloadStatus); }, 500);
@@ -84,7 +63,8 @@ export function MapsView({ requestedPlaceId, onRequestHandled, onModules }: { re
       if (source) source.setData(data); else { map.addSource('measurement', { type: 'geojson', data }); map.addLayer({ id: 'measurement-line', type: 'line', source: 'measurement', paint: { 'line-color': '#e0a44f', 'line-width': 3, 'line-dasharray': [2, 2] } }); }
       measureStart.current = undefined;
     });
-    mapRef.current = map; return () => { setMapReady(false); map.remove(); mapRef.current = undefined; };
+    const detachResize = attachStableMapResize(map);
+    mapRef.current = map; return () => { detachResize(); setMapReady(false); map.remove(); mapRef.current = undefined; };
   }, []);
 
   useEffect(() => {
@@ -97,7 +77,7 @@ export function MapsView({ requestedPlaceId, onRequestHandled, onModules }: { re
   }, [state, requestedPlaceId, onRequestHandled]);
 
   async function loadPackage(item: MapPackage) {
-    const map = mapRef.current; if (!map) return; firstRenderedTile.current = false; setSelectedPackage(item); setMessage(`Opening ${item.title}...`);
+    const map = mapRef.current; if (!map) return; setSelectedPackage(item); setMessage(`Opening ${item.title}...`);
     try {
       map.setStyle(offlineMapStyle(item));
       if (item.bounds) map.fitBounds([[item.bounds[0], item.bounds[1]], [item.bounds[2], item.bounds[3]]], { padding: 30, duration: 0 });

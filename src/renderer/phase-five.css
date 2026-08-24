@@ -116,7 +116,7 @@
 .map-toolbar button { padding: 6px 8px; border: 1px solid #4b5145; background: transparent; color: #bc9b68; font-size: 7px; letter-spacing: .08em; cursor: pointer; }
 .map-toolbar button.active { border-color: #c18a45; background: rgba(181,132,68,.12); }
 .map-toolbar strong { color: #deb473; font-size: 8px; font-weight: 500; }
-.map-canvas { min-height: clamp(560px, calc(100vh - 430px), 820px); background: #101713; }
+.map-canvas { position: relative; width: 100%; height: clamp(520px, 58vh, 760px); min-height: 0; overflow: hidden; background: #101713; }
 .maplibregl-ctrl-group { background: #18211c; }
 .maplibregl-ctrl button { filter: invert(.8); }
 .map-marker { width: 17px; height: 17px; padding: 0; border: 2px solid #ead8b8; border-radius: 50% 50% 50% 0; background: #b4773d; box-shadow: 0 2px 8px #0008; transform: rotate(-45deg); cursor: pointer; }
@@ -169,7 +169,7 @@
 .radar-contacts > button time { color: #6c766f; font-size: 7px; }
 .radar-contacts > p { padding: 18px; color: #718078; font-size: 9px; line-height: 1.6; }
 .radar-map-shell { margin-top: 10px; overflow: hidden; border: 1px solid #344139; background: #0d1511; }
-.radar-map { width: 100%; min-width: 0; min-height: 560px; }
+.radar-map { position: relative; width: 100%; height: clamp(520px, 58vh, 760px); min-width: 0; min-height: 0; overflow: hidden; }
 .radar-details { padding: 16px; border-left: 1px solid #344139; }
 .radar-details h3 { margin: 7px 0 14px; overflow-wrap: anywhere; color: #e5ddd0; font-family: 'Newsreader Variable', serif; font-size: 20px; font-weight: 450; }
 .radar-details > p:not(.section-label) { color: #7c8b83; font-size: 9px; line-height: 1.6; }
@@ -230,7 +230,7 @@
   .map-place-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .map-place-form .place-favorite, .map-place-note { grid-column: 1 / -1; }
   .saved-place-strip { grid-template-columns: 1fr; }
-  .map-canvas { min-height: 520px; }
+  .map-canvas, .radar-map { height: 520px; }
   .radar-command, .radar-basemap { align-items: stretch; flex-direction: column; }
   .radar-connect { justify-content: flex-start; }
   .radar-activity { grid-template-columns: repeat(2, minmax(100px, 1fr)); }

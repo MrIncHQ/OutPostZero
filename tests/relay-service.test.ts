@@ -80,6 +80,9 @@ test('two portable roots discover, authenticate, message, and transfer a verifie
 test('relay page replaces the placeholder and exposes explicit trust, history, and file controls', () => {
   const app = fs.readFileSync('src/renderer/App.tsx', 'utf8'); const view = fs.readFileSync('src/renderer/RelayView.tsx', 'utf8');
   assert.doesNotMatch(app, /relay:\s*\{[^}]*PHASE 6/); assert.match(app, /view === 'relay'.*<Suspense.*<RelayView/s);
+  assert.match(view, /ensureMapRuntime\(\)/);
+  assert.match(view, /attachStableMapResize\(map\)/);
+  assert.doesNotMatch(view, /new ResizeObserver/);
   for (const feature of ['START LOCAL RELAY', 'TLS 1.3', 'MARK VERIFIED', 'IDENTITY CHANGED', 'SEND FILE', 'SAVE TO DOCUMENTS', 'SHA-256 VERIFIED', 'CREATE PRIVATE GROUP', 'DEADMAN PHRASE', 'SHARED MAP', 'GROUP SECURITY']) assert.match(view, new RegExp(feature));
 });
 

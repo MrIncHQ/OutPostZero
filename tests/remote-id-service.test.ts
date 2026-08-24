@@ -112,7 +112,8 @@ test('map workspace keeps Remote ID Radar isolated in a dedicated tab', () => {
   assert.match(radar, /!state\.installed \|\| !state\.enabled/);
   assert.match(radar, /\[state\.installed, state\.enabled\]/);
   assert.match(radar, /initialPackage \? offlineMapStyle\(initialPackage\)/);
-  assert.match(radar, /new ResizeObserver\(\(\) => map\.resize\(\)\)/);
+  assert.match(radar, /attachStableMapResize\(map\)/);
+  assert.doesNotMatch(radar, /new ResizeObserver/);
 });
 
 test('receiver guide ships inside the updater-owned resources boundary', () => {

@@ -37,15 +37,16 @@ test('Notes exposes autosave, Markdown, templates, attachments, and export', () 
 
 test('Maps and tools expose the core offline controls', () => {
   const mapSources = `${maps}\n${mapRendering}`;
+  const mapRuntime = fs.readFileSync('src/renderer/map-runtime.ts', 'utf8');
   for (const feature of ['PMTiles', 'outpost-tile://package', 'COPY COORDINATES', 'MEASURE', 'IMPORT GPX', 'EXPORT GPX', 'SAVE PLACE', 'DOWNLOAD MAP', 'DOWNLOAD THIS CONFIRMED REGION', 'SEARCH LOCATIONS', 'LOCATION REQUIRED', 'ROUGH SIZE ESTIMATE', 'CANCEL DOWNLOAD']) assert.match(mapSources, new RegExp(feature));
-  assert.match(maps, /maplibre-gl-worker\.mjs\?worker&url/);
-  assert.match(maps, /setWorkerUrl\(maplibreWorkerUrl\)/);
-  assert.match(maps, /addProtocol\('outpost-tile'/);
-  assert.match(maps, /window\.outpost\.getMapTile/);
+  assert.match(mapRuntime, /maplibre-gl-worker\.mjs\?worker&url/);
+  assert.match(mapRuntime, /setWorkerUrl\(maplibreWorkerUrl\)/);
+  assert.match(mapRuntime, /addProtocol\('outpost-tile'/);
+  assert.match(mapRuntime, /window\.outpost\.getMapTile/);
   assert.match(mapRendering, /@protomaps\/basemaps/);
   assert.match(mapRendering, /OFFLINE_BASEMAP_LAYERS/);
-  assert.match(maps, /addProtocol\('outpost-glyph'/);
-  assert.match(maps, /window\.outpost\.getMapGlyph/);
+  assert.match(mapRuntime, /addProtocol\('outpost-glyph'/);
+  assert.match(mapRuntime, /window\.outpost\.getMapGlyph/);
   assert.match(mapRendering, /OpenStreetMap/);
   assert.match(maps, /if \(added\) await loadPackage\(added\)/);
   assert.match(maps, /if \(!selectedPackage && state\?\.packages\[0\] && mapRef\.current && mapReady\) void loadPackage\(state\.packages\[0\]\)/);
