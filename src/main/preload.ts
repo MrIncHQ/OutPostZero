@@ -88,6 +88,17 @@ const bridge: OutpostBridge = {
   deleteMapPlace: (placeId) => ipcRenderer.invoke('outpost:delete-map-place', placeId),
   importGpx: () => ipcRenderer.invoke('outpost:import-gpx'),
   exportGpx: () => ipcRenderer.invoke('outpost:export-gpx'),
+  getRemoteIdState: () => ipcRenderer.invoke('outpost:get-remote-id-state'),
+  listRemoteIdPorts: () => ipcRenderer.invoke('outpost:list-remote-id-ports'),
+  connectRemoteId: (portPath, baudRate) => ipcRenderer.invoke('outpost:connect-remote-id', portPath, baudRate),
+  disconnectRemoteId: () => ipcRenderer.invoke('outpost:disconnect-remote-id'),
+  setRemoteIdPriority: (sourceKey) => ipcRenderer.invoke('outpost:set-remote-id-priority', sourceKey),
+  clearRemoteIdContacts: () => ipcRenderer.invoke('outpost:clear-remote-id-contacts'),
+  onRemoteIdUpdate: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: Parameters<typeof listener>[0]) => listener(state);
+    ipcRenderer.on('outpost:remote-id-update', handler);
+    return () => ipcRenderer.removeListener('outpost:remote-id-update', handler);
+  },
   getRelayState: () => ipcRenderer.invoke('outpost:get-relay-state'),
   startRelay: () => ipcRenderer.invoke('outpost:start-relay'),
   stopRelay: () => ipcRenderer.invoke('outpost:stop-relay'),

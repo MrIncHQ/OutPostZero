@@ -23,6 +23,7 @@ import { relevantDocumentMatches } from './ai-retrieval';
 import { MediaService } from './media-service';
 import { MedicationService } from './medication-service';
 import { responseHeadersForUrl } from './security-policy';
+import { RemoteIdService } from './remote-id-service';
 import type { BootstrapData, ModuleOperationResult, ModuleSummary, PortableStatus } from '../shared/contracts';
 
 protocol.registerSchemesAsPrivileged([
@@ -65,6 +66,9 @@ const medicationService = new MedicationService(portablePaths, globalThis.fetch,
 const mapHelperPath = app.isPackaged ? path.join(process.resourcesPath, 'pmtiles', 'pmtiles.exe') : path.join(app.getAppPath(), 'vendor', 'pmtiles', 'pmtiles.exe');
 const mapFontRoot = path.join(app.getAppPath(), 'vendor', 'map-assets', 'fonts');
 const mapService = new MapService(databaseService, portablePaths, { helperPath: mapHelperPath });
+const remoteIdService = new RemoteIdService(databaseService, portablePaths, (state) => {
+  for (const window of BrowserWindow.getAllWindows()) window.webContents.send('outpost:remote-id-update', state);
+});
 const relayService = new RelayService(profileService, portablePaths);
 const aiService = new AiService(portablePaths, () => collectHardwareDiagnostics(app.getGPUInfo('complete')), globalThis.fetch, async (query) => {
   const documentMatches = relevantDocumentMatches(documentService, query);
@@ -77,7 +81,7 @@ let isPrepared = false;
 let shutdownInProgress = false;
 
 function modules(): ModuleSummary[] {
-  return [kiwixService.summary(), aiService.summary(), ...moduleService.modules()];
+  return [kiwixService.summary(), remoteIdService.summary(), aiService.summary(), ...moduleService.modules()];
 }
 
 function getStatus(): PortableStatus {
@@ -221,6 +225,14 @@ async function moduleAction(action: 'install' | 'start' | 'stop' | 'repair' | 'u
         : action === 'stop' ? await aiService.stop()
           : action === 'repair' ? await aiService.installRuntime()
             : await aiService.removeRuntime();
+    return { ok: result.ok, message: result.message, modules: modules() };
+  }
+  if (id === 'remote-id-radar') {
+    const result = action === 'install' ? await remoteIdService.install()
+      : action === 'start' ? await remoteIdService.start()
+        : action === 'stop' ? await remoteIdService.stop()
+          : action === 'repair' ? await remoteIdService.repair()
+            : await remoteIdService.uninstall();
     return { ok: result.ok, message: result.message, modules: modules() };
   }
   const result = action === 'install' ? await moduleService.install(id)
@@ -455,6 +467,18 @@ ipcMain.handle('outpost:export-gpx', async () => {
   if (target.canceled || !target.filePath) return { ok: true, message: 'Export cancelled.' };
   fs.writeFileSync(target.filePath, mapService.gpx(), 'utf8'); return { ok: true, message: 'Saved places exported as GPX.' };
 });
+ipcMain.handle('outpost:get-remote-id-state', () => remoteIdService.state());
+ipcMain.handle('outpost:list-remote-id-ports', () => remoteIdService.ports());
+ipcMain.handle('outpost:connect-remote-id', (_event, portPath: unknown, baudRate: unknown) => {
+  if (typeof portPath !== 'string') throw new Error('Remote ID serial port is invalid.');
+  return remoteIdService.connect(portPath, baudRate === undefined ? undefined : Number(baudRate));
+});
+ipcMain.handle('outpost:disconnect-remote-id', () => remoteIdService.disconnect());
+ipcMain.handle('outpost:set-remote-id-priority', (_event, sourceKey: unknown) => {
+  if (sourceKey !== undefined && (typeof sourceKey !== 'string' || sourceKey.length > 120)) throw new Error('Remote ID source is invalid.');
+  return remoteIdService.setPriority(sourceKey as string | undefined);
+});
+ipcMain.handle('outpost:clear-remote-id-contacts', () => remoteIdService.clearContacts());
 ipcMain.handle('outpost:get-relay-state', () => relayService.state());
 ipcMain.handle('outpost:start-relay', () => relayService.start());
 ipcMain.handle('outpost:stop-relay', () => relayService.stop());
@@ -503,7 +527,7 @@ ipcMain.handle('outpost:search-outpost', (_event, query: unknown) => {
 ipcMain.handle('outpost:check-updates', () => updateService.check());
 ipcMain.handle('outpost:download-update', () => updateService.download());
 ipcMain.handle('outpost:apply-update', async () => {
-  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
+  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), remoteIdService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
   await databaseService.createRotatingBackup();
   const result = await updateService.apply(process.pid);
   if (result.status === 'launching') {
@@ -515,7 +539,7 @@ ipcMain.handle('outpost:apply-update', async () => {
   return result;
 });
 ipcMain.handle('outpost:prepare-removal', async () => {
-  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
+  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), remoteIdService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
   await session.defaultSession.clearCache();
   await databaseService.createRotatingBackup();
   databaseService.close();
@@ -565,10 +589,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', (event) => {
-  if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess() || aiService.hasRunningProcess() || mapService.hasActiveDownload() || updateService.hasActiveDownload() || relayService.isRunning() || ocrService.hasActiveJobs()) && !shutdownInProgress) {
+  if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess() || remoteIdService.hasActiveConnection() || aiService.hasRunningProcess() || mapService.hasActiveDownload() || updateService.hasActiveDownload() || relayService.isRunning() || ocrService.hasActiveJobs()) && !shutdownInProgress) {
     event.preventDefault();
     shutdownInProgress = true;
-    void Promise.all([moduleService.stopAll(), kiwixService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]).finally(() => app.quit());
+    void Promise.all([moduleService.stopAll(), kiwixService.shutdown(), remoteIdService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]).finally(() => app.quit());
     return;
   }
   databaseService.close();

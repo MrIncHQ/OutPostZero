@@ -505,7 +505,7 @@ function ModulesView({ modules, onModules }: { modules: ModuleSummary[]; onModul
     <section className="page-panel">
       <p className="section-label">MODULE CENTER</p>
       <h2>Expand this outpost.</h2>
-      <p className="page-intro">Optional signed engines install entirely on this drive. The Offline Library Engine provides Kiwix-powered ZIM browsing; future modules appear here only when they are ready.</p>
+      <p className="page-intro">Optional capabilities and signed engines install entirely on this drive and remain off until you start them. Use this page to enable only the systems you need.</p>
       {message && <div className="module-result" role="status">{message}</div>}
       <div className="module-list">
         {modules.map((module) => (
@@ -712,7 +712,7 @@ export default function App() {
     if (view === 'library') return <LibraryView onModules={(modules) => setData({ ...activeData, modules })} requestedArticlePath={requestedArticle} onRequestHandled={clearRequestedArticle} />;
     if (view === 'documents') return <FilesWorkspace tab={fileTab} onTab={setFileTab} requestedDocument={requestedDocument} requestedMedia={requestedMedia} onDocumentHandled={clearRequestedDocument} onMediaHandled={clearRequestedMedia} go={setView} />;
     if (view === 'notes') return <Suspense fallback={<section className="page-panel"><h2>Opening Notes...</h2></section>}><NotesView requestedNoteId={requestedNote} onRequestHandled={clearRequestedNote} /></Suspense>;
-    if (view === 'maps') return <Suspense fallback={<section className="page-panel"><h2>Opening Maps...</h2></section>}><MapsView requestedPlaceId={requestedPlace} onRequestHandled={clearRequestedPlace} /></Suspense>;
+    if (view === 'maps') return <Suspense fallback={<section className="page-panel"><h2>Opening Maps...</h2></section>}><MapsView requestedPlaceId={requestedPlace} onRequestHandled={clearRequestedPlace} onModules={(modules) => setData({ ...activeData, modules })} /></Suspense>;
     if (view === 'learning') return <Suspense fallback={<section className="page-panel"><h2>Opening Education Center...</h2></section>}><LearningView /></Suspense>;
     if (view === 'medications') return <Suspense fallback={<section className="page-panel"><h2>Opening Medication Reference...</h2></section>}><MedicationView /></Suspense>;
     if (view === 'relay') return <Suspense fallback={<section className="page-panel"><h2>Opening Local Relay...</h2></section>}><RelayView /></Suspense>;

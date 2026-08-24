@@ -5,6 +5,7 @@ import test from 'node:test';
 const app = fs.readFileSync('src/renderer/App.tsx', 'utf8');
 const notes = fs.readFileSync('src/renderer/NotesView.tsx', 'utf8');
 const maps = fs.readFileSync('src/renderer/MapsView.tsx', 'utf8');
+const mapRendering = fs.readFileSync('src/renderer/map-rendering.ts', 'utf8');
 const tools = fs.readFileSync('src/renderer/ToolsView.tsx', 'utf8');
 const learning = fs.readFileSync('src/renderer/LearningView.tsx', 'utf8');
 
@@ -35,16 +36,17 @@ test('Notes exposes autosave, Markdown, templates, attachments, and export', () 
 });
 
 test('Maps and tools expose the core offline controls', () => {
-  for (const feature of ['PMTiles', 'outpost-tile://package', 'COPY COORDINATES', 'MEASURE', 'IMPORT GPX', 'EXPORT GPX', 'SAVE PLACE', 'DOWNLOAD MAP', 'DOWNLOAD THIS CONFIRMED REGION', 'SEARCH LOCATIONS', 'LOCATION REQUIRED', 'ROUGH SIZE ESTIMATE', 'CANCEL DOWNLOAD']) assert.match(maps, new RegExp(feature));
+  const mapSources = `${maps}\n${mapRendering}`;
+  for (const feature of ['PMTiles', 'outpost-tile://package', 'COPY COORDINATES', 'MEASURE', 'IMPORT GPX', 'EXPORT GPX', 'SAVE PLACE', 'DOWNLOAD MAP', 'DOWNLOAD THIS CONFIRMED REGION', 'SEARCH LOCATIONS', 'LOCATION REQUIRED', 'ROUGH SIZE ESTIMATE', 'CANCEL DOWNLOAD']) assert.match(mapSources, new RegExp(feature));
   assert.match(maps, /maplibre-gl-worker\.mjs\?worker&url/);
   assert.match(maps, /setWorkerUrl\(maplibreWorkerUrl\)/);
   assert.match(maps, /addProtocol\('outpost-tile'/);
   assert.match(maps, /window\.outpost\.getMapTile/);
-  assert.match(maps, /@protomaps\/basemaps/);
-  assert.match(maps, /OFFLINE_BASEMAP_LAYERS/);
+  assert.match(mapRendering, /@protomaps\/basemaps/);
+  assert.match(mapRendering, /OFFLINE_BASEMAP_LAYERS/);
   assert.match(maps, /addProtocol\('outpost-glyph'/);
   assert.match(maps, /window\.outpost\.getMapGlyph/);
-  assert.match(maps, /OpenStreetMap/);
+  assert.match(mapRendering, /OpenStreetMap/);
   assert.match(maps, /if \(added\) await loadPackage\(added\)/);
   assert.match(maps, /if \(!selectedPackage && state\?\.packages\[0\] && mapRef\.current && mapReady\) void loadPackage\(state\.packages\[0\]\)/);
   for (const feature of ['SCIENTIFIC CALCULATOR', 'UNIT CONVERTER', 'SHA-256', 'IPV4 SUBNET', 'COORDINATE CONVERTER', 'REGEX TESTER', 'PASSWORD GENERATOR']) assert.match(tools, new RegExp(feature));

@@ -2,23 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
-import { layers as protomapsLayers, namedFlavor } from '@protomaps/basemaps';
-import type { MapDownloadRequest, MapDownloadStatus, MapLocationResult, MapPackage, MapPlaceInput, MapsState } from '../shared/contracts';
+import type { MapDownloadRequest, MapDownloadStatus, MapLocationResult, MapPackage, MapPlaceInput, MapsState, ModuleSummary } from '../shared/contracts';
+import { offlineMapStyle } from './map-rendering';
+import { RemoteIdRadarView } from './RemoteIdRadarView';
 
 maplibregl.setWorkerUrl(maplibreWorkerUrl);
-
-const OFFLINE_BASEMAP_LAYERS = (protomapsLayers('offline', namedFlavor('dark'), { lang: 'en' }) as unknown as maplibregl.LayerSpecification[]).map((layer) => {
-  if (layer.type !== 'symbol') return layer;
-  const layout = { ...layer.layout } as Record<string, unknown>; const paint = { ...layer.paint } as Record<string, unknown>;
-  for (const key of Object.keys(layout)) if (key.startsWith('icon-')) delete layout[key];
-  for (const key of Object.keys(paint)) if (key.startsWith('icon-')) delete paint[key];
-  return { ...layer, layout, paint } as maplibregl.LayerSpecification;
-});
-
-function isProtomapsPackage(item: MapPackage): boolean {
-  const sourceLayers = new Set(item.sourceLayers ?? []);
-  return ['earth', 'roads', 'places', 'water'].every((layer) => sourceLayers.has(layer));
-}
 
 function formatBytes(bytes: number): string { return bytes < 1024 ** 3 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${(bytes / 1024 ** 3).toFixed(1)} GB`; }
 function estimatedMapBytes(radiusKilometers: number, latitude: number, maxZoom: number): number {
@@ -37,7 +25,7 @@ function measurement(a: [number, number], b: [number, number]): { distance: stri
   return { distance: kilometers < 1 ? `${(kilometers * 1000).toFixed(0)} m` : `${kilometers.toFixed(2)} km`, bearing: `${degrees.toFixed(1)}°` };
 }
 
-export function MapsView({ requestedPlaceId, onRequestHandled }: { requestedPlaceId?: string; onRequestHandled?: () => void }) {
+export function MapsView({ requestedPlaceId, onRequestHandled, onModules }: { requestedPlaceId?: string; onRequestHandled?: () => void; onModules?: (modules: ModuleSummary[]) => void }) {
   const container = useRef<HTMLDivElement>(null); const mapRef = useRef<maplibregl.Map | undefined>(undefined); const markers = useRef<maplibregl.Marker[]>([]);
   const firstRenderedTile = useRef(false);
   const [state, setState] = useState<MapsState>(); const [selectedPackage, setSelectedPackage] = useState<MapPackage>();
@@ -46,7 +34,7 @@ export function MapsView({ requestedPlaceId, onRequestHandled }: { requestedPlac
   const [measureMode, setMeasureMode] = useState(false); const measureModeRef = useRef(false); const measureStart = useRef<[number, number] | undefined>(undefined); const [measureResult, setMeasureResult] = useState('');
   const [place, setPlace] = useState<MapPlaceInput>({ name: '', latitude: 39.8283, longitude: -98.5795, note: '', favorite: false });
   const [message, setMessage] = useState(''); const [confirmPackage, setConfirmPackage] = useState<MapPackage>();
-  const [mapSection, setMapSection] = useState<'view' | 'packages'>('view');
+  const [mapSection, setMapSection] = useState<'view' | 'radar' | 'packages'>('view');
   const [showDownloader, setShowDownloader] = useState(false);
   const [downloadRequest, setDownloadRequest] = useState<MapDownloadRequest>({ title: '', latitude: 39.8283, longitude: -98.5795, radiusKilometers: 100, maxZoom: 12 });
   const [downloadStatus, setDownloadStatus] = useState<MapDownloadStatus>({ state: 'idle', percent: 0, downloadedBytes: 0, estimatedBytes: 0, elapsedSeconds: 0, message: 'Choose an area to download.' });
@@ -111,20 +99,7 @@ export function MapsView({ requestedPlaceId, onRequestHandled }: { requestedPlac
   async function loadPackage(item: MapPackage) {
     const map = mapRef.current; if (!map) return; firstRenderedTile.current = false; setSelectedPackage(item); setMessage(`Opening ${item.title}...`);
     try {
-      if (item.tileType === 'vector') {
-          let styledLayers: maplibregl.LayerSpecification[];
-          if (isProtomapsPackage(item)) styledLayers = OFFLINE_BASEMAP_LAYERS;
-          else {
-            styledLayers = [{ id: 'background', type: 'background', paint: { 'background-color': '#101713' } }];
-            (item.sourceLayers ?? []).forEach((sourceLayer, index) => {
-              styledLayers.push({ id: `mb-fill-${index}`, type: 'fill', source: 'offline', 'source-layer': sourceLayer, filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': index % 2 ? '#314b3f' : '#263d34', 'fill-opacity': .72, 'fill-outline-color': '#577064' } });
-              styledLayers.push({ id: `mb-line-${index}`, type: 'line', source: 'offline', 'source-layer': sourceLayer, filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': index % 3 ? '#8c9c91' : '#d2a15c', 'line-width': 1.2 } });
-              styledLayers.push({ id: `mb-point-${index}`, type: 'circle', source: 'offline', 'source-layer': sourceLayer, filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-color': '#d8a65e', 'circle-radius': 3 } });
-            });
-          }
-          map.setStyle({ version: 8, glyphs: 'outpost-glyph://fonts/{fontstack}/{range}.pbf', sources: { offline: { type: 'vector', tiles: [`outpost-tile://package/${item.id}/{z}/{x}/{y}`], minzoom: item.minZoom, maxzoom: item.maxZoom, attribution: isProtomapsPackage(item) ? '© OpenStreetMap · Protomaps' : undefined } }, layers: styledLayers });
-      } else if (item.tileType === 'raster') map.setStyle({ version: 8, sources: { offline: { type: 'raster', tiles: [`outpost-tile://package/${item.id}/{z}/{x}/{y}`], tileSize: 256, minzoom: item.minZoom, maxzoom: item.maxZoom } }, layers: [{ id: 'offline-raster', type: 'raster', source: 'offline' }] });
-      else throw new Error('This map package uses an unsupported tile format.');
+      map.setStyle(offlineMapStyle(item));
       if (item.bounds) map.fitBounds([[item.bounds[0], item.bounds[1]], [item.bounds[2], item.bounds[3]]], { padding: 30, duration: 0 });
       map.once('idle', () => setMessage(`${item.title} is loaded entirely from this drive.`));
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not open this map package.'); }
@@ -164,9 +139,10 @@ export function MapsView({ requestedPlaceId, onRequestHandled }: { requestedPlac
   function openDownloader() { setMapSection('packages'); setShowDownloader(true); setLocationConfirmed(false); setSelectedLocationLabel('No location selected'); setLocationResults([]); }
 
   return <section className="page-panel maps-panel">
-    <div className="page-heading"><div><p className="section-label">OFFLINE MAPS</p><h2>{mapSection === 'view' ? selectedPackage?.title ?? 'Map view' : 'Map packages'}</h2></div><div className="map-heading-actions">{mapSection === 'view' ? <><button className="secondary-button" onClick={() => void importGpx()}>IMPORT GPX</button><button className="secondary-button" onClick={() => void window.outpost.exportGpx().then((result) => setMessage(result.message))}>EXPORT GPX</button></> : <><button className="primary-button" onClick={openDownloader}>DOWNLOAD MAP</button><button className="secondary-button" onClick={() => void importMaps()}>IMPORT MAP FILE</button></>}</div></div>
+    <div className="page-heading"><div><p className="section-label">OFFLINE MAPS</p><h2>{mapSection === 'view' ? selectedPackage?.title ?? 'Map view' : mapSection === 'radar' ? 'Remote ID Radar' : 'Map packages'}</h2></div><div className="map-heading-actions">{mapSection === 'view' ? <><button className="secondary-button" onClick={() => void importGpx()}>IMPORT GPX</button><button className="secondary-button" onClick={() => void window.outpost.exportGpx().then((result) => setMessage(result.message))}>EXPORT GPX</button></> : mapSection === 'packages' ? <><button className="primary-button" onClick={openDownloader}>DOWNLOAD MAP</button><button className="secondary-button" onClick={() => void importMaps()}>IMPORT MAP FILE</button></> : null}</div></div>
     {message && <div className="module-result">{message}</div>}{confirmPackage && <div className="download-confirm library-remove-confirm"><div><b>Remove {confirmPackage.title}?</b><p>The selected map package will be deleted. Saved places remain.</p></div><div><button className="secondary-button" onClick={() => setConfirmPackage(undefined)}>KEEP IT</button><button className="danger-button" onClick={() => void removePackage()}>REMOVE MAP</button></div></div>}
-    <nav className="map-tabs" aria-label="Map workspace sections"><button className={mapSection === 'view' ? 'active' : ''} onClick={() => setMapSection('view')}>MAP VIEW</button><button className={mapSection === 'packages' ? 'active' : ''} onClick={() => setMapSection('packages')}>MAP PACKAGES <span>{state?.packages.length ?? 0}</span></button></nav>
+    <nav className="map-tabs" aria-label="Map workspace sections"><button className={mapSection === 'view' ? 'active' : ''} onClick={() => setMapSection('view')}>MAP VIEW</button><button className={mapSection === 'radar' ? 'active' : ''} onClick={() => setMapSection('radar')}>RADAR</button><button className={mapSection === 'packages' ? 'active' : ''} onClick={() => setMapSection('packages')}>MAP PACKAGES <span>{state?.packages.length ?? 0}</span></button></nav>
+    {mapSection === 'radar' && <RemoteIdRadarView packages={state?.packages ?? []} onModules={onModules} />}
     {mapSection === 'packages' && showDownloader && <section className="map-downloader">
       <div className="map-download-heading"><div><p className="section-label">DOWNLOAD FOR OFFLINE USE</p><h3>Choose one area and its detail</h3><p>Only this region downloads. It is saved directly on this drive and opens later without internet.</p></div><button className="secondary-button" disabled={['resolving', 'downloading', 'verifying'].includes(downloadStatus.state)} onClick={() => setShowDownloader(false)}>CLOSE</button></div>
       <div className="map-location-search"><label>FIND THE LOCATION YOU WANT<input value={locationQuery} placeholder="City, county, state, or country" maxLength={120} onChange={(event) => setLocationQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void searchLocations(); }} /></label><button className="primary-button" disabled={locationSearching || locationQuery.trim().length < 2} onClick={() => void searchLocations()}>{locationSearching ? 'SEARCHING...' : 'SEARCH LOCATIONS'}</button></div>

@@ -1,6 +1,6 @@
 {
   "name": "outpost-zero",
-  "version": "0.13.8",
+  "version": "0.13.9",
   "private": true,
   "description": "Portable offline knowledge, tools, and communication platform",
   "main": "dist/main/main/main.js",
@@ -30,6 +30,7 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "selfsigned": "^3.0.1",
+    "serialport": "^13.0.0",
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
@@ -49,13 +50,15 @@
   "build": {
     "appId": "local.outpostzero.app",
     "productName": "Outpost Zero",
+    "npmRebuild": false,
     "asar": true,
     "asarUnpack": [
       "node_modules/@napi-rs/canvas/**/*",
       "node_modules/@napi-rs/canvas-win32-x64-msvc/**/*",
       "node_modules/tesseract.js/**/*",
       "node_modules/tesseract.js-core/**/*",
-      "node_modules/@tesseract.js-data/eng/**/*"
+      "node_modules/@tesseract.js-data/eng/**/*",
+      "node_modules/@serialport/bindings-cpp/prebuilds/win32-x64/*.node"
     ],
     "directories": {
       "output": "build"
@@ -73,6 +76,10 @@
       {
         "from": "portable/README.txt",
         "to": "README.txt"
+      },
+      {
+        "from": "portable/REMOTE_ID_RECEIVER.txt",
+        "to": "REMOTE_ID_RECEIVER.txt"
       },
       {
         "from": "portable/Run_Outpost_Zero.bat",

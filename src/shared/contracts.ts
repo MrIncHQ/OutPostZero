@@ -310,6 +310,74 @@ export interface MapsState {
   places: MapPlace[];
 }
 
+export interface RemoteIdPort {
+  path: string;
+  manufacturer?: string;
+  serialNumber?: string;
+  vendorId?: string;
+  productId?: string;
+}
+
+export interface RemoteIdReceiverInfo {
+  name: string;
+  firmwareVersion: string;
+  receiverId?: string;
+  transports: Array<'ble4' | 'ble5' | 'wifi-beacon' | 'wifi-nan' | 'unknown'>;
+  priorityControl: boolean;
+}
+
+export interface RemoteIdObservation {
+  sourceKey: string;
+  sequence?: number;
+  receivedAt: string;
+  source: {
+    transport: 'ble4' | 'ble5' | 'wifi-beacon' | 'wifi-nan' | 'unknown';
+    address?: string;
+    rssiDbm?: number;
+    channel?: number;
+  };
+  aircraft: {
+    id?: string;
+    idType?: string;
+    aircraftType?: string;
+    latitude?: number;
+    longitude?: number;
+    altitudeMslM?: number;
+    heightAglM?: number;
+    horizontalSpeedMps?: number;
+    verticalSpeedMps?: number;
+    headingDeg?: number;
+    status?: string;
+  };
+  secondaryPosition?: {
+    kind: 'control-station' | 'takeoff' | 'operator' | 'unknown';
+    latitude: number;
+    longitude: number;
+    altitudeM?: number;
+  };
+  operatorId?: string;
+  selfId?: string;
+}
+
+export interface RemoteIdContact extends Omit<RemoteIdObservation, 'receivedAt' | 'sequence'> {
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastSequence?: number;
+  track: Array<{ latitude: number; longitude: number; receivedAt: string }>;
+}
+
+export interface RemoteIdState {
+  installed: boolean;
+  enabled: boolean;
+  connection: 'disconnected' | 'connecting' | 'connected' | 'scanner-ready' | 'error';
+  selectedPort?: string;
+  receiver?: RemoteIdReceiverInfo;
+  lastHeartbeatAt?: string;
+  lastError?: string;
+  prioritySourceKey?: string;
+  contacts: RemoteIdContact[];
+}
+
 export interface MapDownloadRequest {
   title: string;
   latitude: number;
@@ -772,6 +840,13 @@ export interface OutpostBridge {
   deleteMapPlace(placeId: string): Promise<MapsState>;
   importGpx(): Promise<PhaseFiveOperationResult<MapsState>>;
   exportGpx(): Promise<{ ok: boolean; message: string }>;
+  getRemoteIdState(): Promise<RemoteIdState>;
+  listRemoteIdPorts(): Promise<RemoteIdPort[]>;
+  connectRemoteId(portPath: string, baudRate?: number): Promise<RemoteIdState>;
+  disconnectRemoteId(): Promise<RemoteIdState>;
+  setRemoteIdPriority(sourceKey?: string): Promise<RemoteIdState>;
+  clearRemoteIdContacts(): Promise<RemoteIdState>;
+  onRemoteIdUpdate(listener: (state: RemoteIdState) => void): () => void;
   getRelayState(): Promise<RelayState>;
   startRelay(): Promise<RelayOperationResult>;
   stopRelay(): Promise<RelayOperationResult>;
