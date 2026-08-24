@@ -1,0 +1,31 @@
+OUTPOST ZERO - REMOTE ID RECEIVER PROTOCOL
+==========================================
+
+Remote ID Radar is optional. Install and start it from Modules, then open Maps > Radar.
+EXTERNAL HARDWARE IS REQUIRED. Outpost Zero cannot detect Remote ID broadcasts by itself.
+A separate, compatible ESP32-S3 Remote ID receiver must be connected to the computer by USB.
+The ESP32-S3 must appear as a Windows COM port and send UTF-8 newline-delimited JSON at 115200 baud.
+Each JSON object must fit on one line. Outpost accepts its versioned schema and also translates common unversioned ESP32 Remote ID field names.
+Normal ESP-IDF startup and debug lines on the same serial stream are ignored.
+
+Working ESP32 scanner-ready example:
+{"type":"boot","msg":"==== SCANNER READY - WiFi + BLE scanning active ===="}
+
+Receiver hello example:
+{"schema":"outpost.remote-id.v1","type":"hello","receiver":{"name":"ESP32-S3 Remote ID Receiver","firmwareVersion":"1.0.0","receiverId":"receiver-01","transports":["ble4","ble5","wifi-beacon"],"priorityControl":true}}
+
+Heartbeat example:
+{"schema":"outpost.remote-id.v1","type":"heartbeat"}
+
+Observation example:
+{"schema":"outpost.remote-id.v1","type":"observation","sequence":42,"sourceKey":"ble-AABBCCDDEEFF","source":{"transport":"ble5","address":"AABBCCDDEEFF","rssiDbm":-67},"aircraft":{"id":"REMOTE-ID-SERIAL","idType":"serial","latitude":39.7681,"longitude":-94.8466,"altitudeMslM":131.2,"heightAglM":45.4,"horizontalSpeedMps":12.6,"verticalSpeedMps":0.2,"headingDeg":184.5,"status":"airborne"},"secondaryPosition":{"kind":"control-station","latitude":39.7712,"longitude":-94.8510}}
+
+Allowed transports: ble4, ble5, wifi-beacon, wifi-nan, unknown.
+Allowed secondary position kinds: control-station, takeoff, operator, unknown.
+Fields not present in a received Remote ID message should be omitted rather than guessed.
+sourceKey must remain stable while messages from the same aircraft are being assembled.
+
+If priorityControl is true, Outpost can send this command back to the receiver:
+{"schema":"outpost.remote-id.command.v1","type":"set_priority","sourceKey":"ble-AABBCCDDEEFF","backgroundIntervalMs":1000}
+
+Clearing priority sends sourceKey as null. Priority can change receiver forwarding or scan focus, but it cannot make a drone transmit Remote ID messages more frequently.
