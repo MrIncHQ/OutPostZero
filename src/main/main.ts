@@ -520,6 +520,22 @@ ipcMain.handle('outpost:cancel-relay-transfer', (_event, transferId: unknown) =>
   if (typeof transferId !== 'string') throw new Error('Relay transfer identifier is invalid.');
   return relayService.cancelTransfer(transferId);
 });
+ipcMain.handle('outpost:create-relay-group', (_event, name: unknown, callsign: unknown, phrase: unknown, duressPhrase: unknown) => {
+  if (![name, callsign, phrase, duressPhrase].every((value) => typeof value === 'string')) throw new Error('Relay group setup is invalid.');
+  return relayService.createGroup(name as string, callsign as string, phrase as string, duressPhrase as string);
+});
+ipcMain.handle('outpost:request-relay-join', (_event, peerId: unknown, callsign: unknown, phrase: unknown) => {
+  if (![peerId, callsign, phrase].every((value) => typeof value === 'string')) throw new Error('Relay join request is invalid.');
+  return relayService.requestJoin(peerId as string, callsign as string, phrase as string);
+});
+ipcMain.handle('outpost:approve-relay-join', (_event, requestId: unknown) => { if (typeof requestId !== 'string') throw new Error('Relay join request is invalid.'); return relayService.approveJoin(requestId); });
+ipcMain.handle('outpost:reject-relay-join', (_event, requestId: unknown) => { if (typeof requestId !== 'string') throw new Error('Relay join request is invalid.'); return relayService.rejectJoin(requestId); });
+ipcMain.handle('outpost:leave-relay-group', () => relayService.leaveGroup());
+ipcMain.handle('outpost:update-relay-phrases', (_event, phrase: unknown, duressPhrase: unknown) => { if (typeof phrase !== 'string' || typeof duressPhrase !== 'string') throw new Error('Relay phrases are invalid.'); return relayService.updatePhrases(phrase, duressPhrase); });
+ipcMain.handle('outpost:set-relay-joining-open', (_event, open: unknown) => { if (typeof open !== 'boolean') throw new Error('Relay joining setting is invalid.'); return relayService.setJoiningOpen(open); });
+ipcMain.handle('outpost:mark-relay-security-alerts-read', () => relayService.markSecurityAlertsRead());
+ipcMain.handle('outpost:save-relay-marker', (_event, marker: unknown) => { if (!marker || typeof marker !== 'object') throw new Error('Shared relay marker is invalid.'); return relayService.saveMarker(marker as Parameters<typeof relayService.saveMarker>[0]); });
+ipcMain.handle('outpost:delete-relay-marker', (_event, markerId: unknown) => { if (typeof markerId !== 'string') throw new Error('Shared relay marker is invalid.'); return relayService.deleteMarker(markerId); });
 ipcMain.handle('outpost:search-outpost', (_event, query: unknown) => {
   if (typeof query !== 'string' || query.length > 200) throw new Error('Search query is invalid.');
   return unifiedSearchService.search(query);

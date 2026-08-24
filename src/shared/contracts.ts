@@ -426,6 +426,64 @@ export interface RelayPeer {
   verified: boolean;
   identityChanged: boolean;
   verificationCode: string;
+  groupId?: string;
+  groupName?: string;
+  callsign?: string;
+  groupRole?: 'owner' | 'member';
+  groupMember: boolean;
+}
+
+export interface RelayGroupMember {
+  id: string;
+  callsign: string;
+  role: 'owner' | 'member';
+  joinedAt: string;
+  online: boolean;
+}
+
+export interface RelayJoinRequest {
+  id: string;
+  peerId: string;
+  callsign: string;
+  fingerprint: string;
+  requestedAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
+export interface RelaySecurityAlert {
+  id: string;
+  kind: 'duress-join';
+  callsign: string;
+  fingerprint: string;
+  occurredAt: string;
+  message: string;
+  read: boolean;
+}
+
+export interface RelaySharedMarker {
+  id: string;
+  groupId: string;
+  title: string;
+  category: 'general' | 'hazard' | 'medical' | 'supply' | 'rally' | 'observation';
+  note: string;
+  latitude: number;
+  longitude: number;
+  authorId: string;
+  authorCallsign: string;
+  revision: number;
+  updatedAt: string;
+  deleted: boolean;
+}
+
+export interface RelayGroupState {
+  id: string;
+  name: string;
+  callsign: string;
+  role: 'owner' | 'member';
+  ownerId: string;
+  memberId: string;
+  joiningOpen: boolean;
+  members: RelayGroupMember[];
 }
 
 export interface RelayMessage {
@@ -464,6 +522,10 @@ export interface RelayState {
   peers: RelayPeer[];
   messages: RelayMessage[];
   transfers: RelayTransfer[];
+  group: RelayGroupState | null;
+  joinRequests: RelayJoinRequest[];
+  securityAlerts: RelaySecurityAlert[];
+  sharedMarkers: RelaySharedMarker[];
 }
 
 export interface RelayOperationResult {
@@ -863,6 +925,16 @@ export interface OutpostBridge {
   acceptRelayFile(transferId: string, destination: 'documents' | 'media' | 'custom'): Promise<RelayOperationResult>;
   declineRelayFile(transferId: string): Promise<RelayOperationResult>;
   cancelRelayTransfer(transferId: string): Promise<RelayOperationResult>;
+  createRelayGroup(name: string, callsign: string, phrase: string, duressPhrase: string): Promise<RelayOperationResult>;
+  requestRelayJoin(peerId: string, callsign: string, phrase: string): Promise<RelayOperationResult>;
+  approveRelayJoin(requestId: string): Promise<RelayOperationResult>;
+  rejectRelayJoin(requestId: string): Promise<RelayOperationResult>;
+  leaveRelayGroup(): Promise<RelayOperationResult>;
+  updateRelayPhrases(phrase: string, duressPhrase: string): Promise<RelayOperationResult>;
+  setRelayJoiningOpen(open: boolean): Promise<RelayOperationResult>;
+  markRelaySecurityAlertsRead(): Promise<RelayState>;
+  saveRelayMarker(marker: { id?: string; title: string; category: RelaySharedMarker['category']; note: string; latitude: number; longitude: number }): Promise<RelayOperationResult>;
+  deleteRelayMarker(markerId: string): Promise<RelayOperationResult>;
   searchOutpost(query: string): Promise<UnifiedSearchResult[]>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   downloadUpdate(): Promise<UpdateDownloadResult>;
