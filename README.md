@@ -18,12 +18,12 @@ On first launch, the launcher assembles and verifies the packaged executable fro
 
 ## Current release
 
-Version: `0.13.9`
+Version: `0.13.10`
 
 SHA-256 for the assembled `Outpost Zero.exe`:
 
 ```text
-62C15CAF407263C22D6A4CEF0B2A99F973B0F2C768862543AE334EB9D43895DB
+C9D2436BCD1E6118E7CB21881A48B3BDA541A98DD812C5188EE652F24EA25638
 ```
 
 This repository is used only to distribute ready-to-run Outpost Zero releases. Source code is not published here.
