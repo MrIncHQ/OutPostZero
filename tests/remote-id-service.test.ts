@@ -86,6 +86,10 @@ test('Remote ID service sends ESP32 lines through the existing tracker pipeline'
     assert.equal(contact.sourceKey, 'RID-LIVE-1');
     assert.equal(contact.source.transport, 'ble5');
     assert.equal(contact.track.length, 1);
+    assert.equal(service.state().serialLinesReceived, 3);
+    assert.equal(service.state().ignoredLinesReceived, 1);
+    assert.equal(service.state().observationsReceived, 1);
+    assert.ok(service.state().lastSerialLineAt);
   } finally { await service.stop(); app.database.close(); fs.rmSync(app.root, { recursive: true, force: true }); }
 });
 
@@ -102,6 +106,9 @@ test('map workspace keeps Remote ID Radar isolated in a dedicated tab', () => {
   assert.match(service, /Requires a separate ESP32-S3 Remote ID receiver connected by USB/);
   assert.match(radar, /MAKE PRIORITY CONTACT/);
   assert.match(radar, /cannot make a drone broadcast faster/i);
+  assert.match(radar, /SERIAL LINES/);
+  assert.match(radar, /radar-overview[\s\S]*radar-map-shell/);
+  assert.doesNotMatch(radar, /radar-grid/);
 });
 
 test('receiver guide ships inside the updater-owned resources boundary', () => {

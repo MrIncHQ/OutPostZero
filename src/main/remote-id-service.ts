@@ -59,8 +59,12 @@ export class RemoteIdService {
   private selectedPort?: string;
   private receiver?: RemoteIdReceiverInfo;
   private lastHeartbeatAt?: string;
+  private lastSerialLineAt?: string;
   private lastError?: string;
   private prioritySourceKey?: string;
+  private serialLinesReceived = 0;
+  private ignoredLinesReceived = 0;
+  private observationsReceived = 0;
   private readonly tracker = new RemoteIdContactTracker();
   private emitTimer?: NodeJS.Timeout;
   private staleTimer?: NodeJS.Timeout;
@@ -79,7 +83,9 @@ export class RemoteIdService {
 
   state(): RemoteIdState {
     return { installed: this.installed(), enabled: this.enabled, connection: this.connection, selectedPort: this.selectedPort,
-      receiver: this.receiver, lastHeartbeatAt: this.lastHeartbeatAt, lastError: this.lastError, prioritySourceKey: this.prioritySourceKey,
+      receiver: this.receiver, lastHeartbeatAt: this.lastHeartbeatAt, lastSerialLineAt: this.lastSerialLineAt,
+      lastError: this.lastError, prioritySourceKey: this.prioritySourceKey,
+      serialLinesReceived: this.serialLinesReceived, ignoredLinesReceived: this.ignoredLinesReceived, observationsReceived: this.observationsReceived,
       contacts: this.tracker.values() };
   }
 
@@ -121,7 +127,8 @@ export class RemoteIdService {
   async connect(portPath: string, baudRate = 115_200): Promise<RemoteIdState> {
     if (!this.installed() || !this.enabled) throw new Error('Remote ID Radar must be installed and started first.');
     if (!/^COM\d{1,3}$/i.test(portPath) || !Number.isInteger(baudRate) || baudRate < 1_200 || baudRate > 3_000_000) throw new Error('Remote ID serial connection settings are invalid.');
-    await this.disconnect(); this.connection = 'connecting'; this.selectedPort = portPath.toUpperCase(); this.lastError = undefined; this.emit(true);
+    await this.disconnect(); this.connection = 'connecting'; this.selectedPort = portPath.toUpperCase(); this.lastError = undefined;
+    this.lastSerialLineAt = undefined; this.serialLinesReceived = 0; this.ignoredLinesReceived = 0; this.observationsReceived = 0; this.emit(true);
     const port = new SerialPort({ path: this.selectedPort, baudRate, autoOpen: false }); this.port = port;
     try { await new Promise<void>((resolve, reject) => port.open((error) => error ? reject(error) : resolve())); }
     catch (error) {
@@ -142,9 +149,10 @@ export class RemoteIdService {
 
   ingestReceiverLine(line: string): void {
     if (!line.trim()) return;
+    this.serialLinesReceived += 1; this.lastSerialLineAt = new Date().toISOString();
     try {
       const message = this.receiverAdapter.consumeLine(line);
-      if (message.type === 'ignored') return;
+      if (message.type === 'ignored') { this.ignoredLinesReceived += 1; this.emit(); return; }
       if (message.type === 'scanner_ready') {
         this.receiver = message.receiver; this.connection = 'scanner-ready'; this.lastHeartbeatAt = new Date().toISOString(); this.lastError = undefined;
         this.log('ESP32 scanner reported ready.'); this.emit(true);
@@ -153,7 +161,7 @@ export class RemoteIdService {
       else if (message.type === 'heartbeat') { this.lastHeartbeatAt = new Date().toISOString(); this.emit(); }
       else if (message.type === 'receiver_error') { this.lastError = message.message; this.log(`Receiver error: ${message.message}`); this.emit(true); }
       else {
-        this.lastError = undefined;
+        this.lastError = undefined; this.observationsReceived += 1;
         if (this.connection === 'connected') {
           this.connection = 'scanner-ready';
           this.receiver ??= { name: 'ESP32-S3 Remote ID Receiver', firmwareVersion: 'unknown', transports: [], priorityControl: false };

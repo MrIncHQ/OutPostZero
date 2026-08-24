@@ -373,8 +373,12 @@ export interface RemoteIdState {
   selectedPort?: string;
   receiver?: RemoteIdReceiverInfo;
   lastHeartbeatAt?: string;
+  lastSerialLineAt?: string;
   lastError?: string;
   prioritySourceKey?: string;
+  serialLinesReceived: number;
+  ignoredLinesReceived: number;
+  observationsReceived: number;
   contacts: RemoteIdContact[];
 }
 
