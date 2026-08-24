@@ -109,6 +109,10 @@ test('map workspace keeps Remote ID Radar isolated in a dedicated tab', () => {
   assert.match(radar, /SERIAL LINES/);
   assert.match(radar, /radar-overview[\s\S]*radar-map-shell/);
   assert.doesNotMatch(radar, /radar-grid/);
+  assert.match(radar, /!state\.installed \|\| !state\.enabled/);
+  assert.match(radar, /\[state\.installed, state\.enabled\]/);
+  assert.match(radar, /initialPackage \? offlineMapStyle\(initialPackage\)/);
+  assert.match(radar, /new ResizeObserver\(\(\) => map\.resize\(\)\)/);
 });
 
 test('receiver guide ships inside the updater-owned resources boundary', () => {

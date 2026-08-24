@@ -58,13 +58,16 @@ export function RemoteIdRadarView({ packages, onModules }: { packages: MapPackag
   }, [state.enabled, state.connection]);
   useEffect(() => { if (!selectedPackageId && packages[0]) setSelectedPackageId(packages[0].id); }, [packages, selectedPackageId]);
   useEffect(() => {
-    if (!container.current || mapRef.current || !state.installed) return;
-    const map = new maplibregl.Map({ container: container.current, style: { version: 8, glyphs: 'outpost-glyph://fonts/{fontstack}/{range}.pbf', sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#0c1410' } }] }, center: [-98.5795, 39.8283], zoom: 3, attributionControl: false });
+    if (!container.current || mapRef.current || !state.installed || !state.enabled) return;
+    const initialPackage = packages.find((candidate) => candidate.id === selectedPackageId);
+    const map = new maplibregl.Map({ container: container.current, style: initialPackage ? offlineMapStyle(initialPackage) : { version: 8, glyphs: 'outpost-glyph://fonts/{fontstack}/{range}.pbf', sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#0c1410' } }] }, center: [-98.5795, 39.8283], zoom: 3, attributionControl: false });
     map.addControl(new maplibregl.NavigationControl(), 'top-right'); map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-left'); map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
-    map.on('style.load', () => updateRadarLayers(map, stateRef.current));
+    map.on('style.load', () => { updateRadarLayers(map, stateRef.current); if (initialPackage?.bounds) map.fitBounds([[initialPackage.bounds[0], initialPackage.bounds[1]], [initialPackage.bounds[2], initialPackage.bounds[3]]], { padding: 30, duration: 0 }); });
     map.on('click', (event) => { if (!map.getLayer('rid-contacts')) return; const feature = map.queryRenderedFeatures(event.point, { layers: ['rid-contacts'] })[0]; const sourceKey = feature?.properties?.sourceKey as string | undefined; if (sourceKey) setSelectedSourceKey(sourceKey); });
-    mapRef.current = map; return () => { map.remove(); mapRef.current = undefined; };
-  }, [state.installed]);
+    const observer = new ResizeObserver(() => map.resize()); observer.observe(container.current);
+    mapRef.current = map; window.requestAnimationFrame(() => map.resize());
+    return () => { observer.disconnect(); map.remove(); mapRef.current = undefined; };
+  }, [state.installed, state.enabled]);
   useEffect(() => { const map = mapRef.current; if (!map) return; const item = packages.find((candidate) => candidate.id === selectedPackageId); if (!item) { map.setStyle({ version: 8, glyphs: 'outpost-glyph://fonts/{fontstack}/{range}.pbf', sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#0c1410' } }] }); return; } map.setStyle(offlineMapStyle(item)); if (item.bounds) map.fitBounds([[item.bounds[0], item.bounds[1]], [item.bounds[2], item.bounds[3]]], { padding: 30, duration: 0 }); }, [selectedPackageId, packages]);
   useEffect(() => { updateRadarLayers(mapRef.current, state); }, [state]);
 
