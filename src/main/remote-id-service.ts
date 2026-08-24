@@ -4,7 +4,7 @@ import { ReadlineParser, SerialPort } from 'serialport';
 import type { DatabaseService } from './database-service';
 import type { PortablePathService } from './portable-path';
 import type {
-  ModuleSummary, RemoteIdContact, RemoteIdObservation, RemoteIdPort, RemoteIdReceiverInfo, RemoteIdState,
+  ModuleSummary, RemoteIdContact, RemoteIdObservation, RemoteIdPort, RemoteIdReceiverInfo, RemoteIdSerialLine, RemoteIdState,
 } from '../shared/contracts';
 import { Esp32S3RemoteIdAdapter, type RemoteIdReceiverAdapter, type RemoteIdReceiverMessage } from './remote-id-receiver';
 export { Esp32S3RemoteIdAdapter } from './remote-id-receiver';
@@ -13,6 +13,8 @@ const MODULE_ID = 'remote-id-radar';
 const MODULE_VERSION = '1.0.0';
 const MAX_TRACK_POINTS = 1_800;
 const BACKGROUND_EMIT_MS = 1_000;
+const MAX_SERIAL_LOG_LINES = 250;
+const MAX_SERIAL_LOG_LINE_CHARS = 4_096;
 
 type StateListener = (state: RemoteIdState) => void;
 
@@ -65,6 +67,7 @@ export class RemoteIdService {
   private serialLinesReceived = 0;
   private ignoredLinesReceived = 0;
   private observationsReceived = 0;
+  private readonly serialLog: RemoteIdSerialLine[] = [];
   private readonly tracker = new RemoteIdContactTracker();
   private emitTimer?: NodeJS.Timeout;
   private staleTimer?: NodeJS.Timeout;
@@ -86,6 +89,7 @@ export class RemoteIdService {
       receiver: this.receiver, lastHeartbeatAt: this.lastHeartbeatAt, lastSerialLineAt: this.lastSerialLineAt,
       lastError: this.lastError, prioritySourceKey: this.prioritySourceKey,
       serialLinesReceived: this.serialLinesReceived, ignoredLinesReceived: this.ignoredLinesReceived, observationsReceived: this.observationsReceived,
+      serialLog: this.serialLog.map((entry) => ({ ...entry })),
       contacts: this.tracker.values() };
   }
 
@@ -128,7 +132,7 @@ export class RemoteIdService {
     if (!this.installed() || !this.enabled) throw new Error('Remote ID Radar must be installed and started first.');
     if (!/^COM\d{1,3}$/i.test(portPath) || !Number.isInteger(baudRate) || baudRate < 1_200 || baudRate > 3_000_000) throw new Error('Remote ID serial connection settings are invalid.');
     await this.disconnect(); this.connection = 'connecting'; this.selectedPort = portPath.toUpperCase(); this.lastError = undefined;
-    this.lastSerialLineAt = undefined; this.serialLinesReceived = 0; this.ignoredLinesReceived = 0; this.observationsReceived = 0; this.emit(true);
+    this.lastSerialLineAt = undefined; this.serialLinesReceived = 0; this.ignoredLinesReceived = 0; this.observationsReceived = 0; this.serialLog.length = 0; this.emit(true);
     const port = new SerialPort({ path: this.selectedPort, baudRate, autoOpen: false }); this.port = port;
     try { await new Promise<void>((resolve, reject) => port.open((error) => error ? reject(error) : resolve())); }
     catch (error) {
@@ -150,17 +154,28 @@ export class RemoteIdService {
   ingestReceiverLine(line: string): void {
     if (!line.trim()) return;
     this.serialLinesReceived += 1; this.lastSerialLineAt = new Date().toISOString();
+    const displayLine = line.replaceAll('\0', '');
+    const serialEntry: RemoteIdSerialLine = {
+      receivedAt: this.lastSerialLineAt,
+      line: displayLine.slice(0, MAX_SERIAL_LOG_LINE_CHARS),
+      kind: 'debug',
+      truncated: displayLine.length > MAX_SERIAL_LOG_LINE_CHARS || undefined,
+    };
+    this.serialLog.push(serialEntry);
+    if (this.serialLog.length > MAX_SERIAL_LOG_LINES) this.serialLog.splice(0, this.serialLog.length - MAX_SERIAL_LOG_LINES);
     try {
       const message = this.receiverAdapter.consumeLine(line);
       if (message.type === 'ignored') { this.ignoredLinesReceived += 1; this.emit(); return; }
       if (message.type === 'scanner_ready') {
+        serialEntry.kind = 'receiver';
         this.receiver = message.receiver; this.connection = 'scanner-ready'; this.lastHeartbeatAt = new Date().toISOString(); this.lastError = undefined;
         this.log('ESP32 scanner reported ready.'); this.emit(true);
       }
-      else if (message.type === 'hello') { this.receiver = message.receiver; this.lastHeartbeatAt = new Date().toISOString(); this.lastError = undefined; this.emit(true); }
-      else if (message.type === 'heartbeat') { this.lastHeartbeatAt = new Date().toISOString(); this.emit(); }
-      else if (message.type === 'receiver_error') { this.lastError = message.message; this.log(`Receiver error: ${message.message}`); this.emit(true); }
+      else if (message.type === 'hello') { serialEntry.kind = 'receiver'; this.receiver = message.receiver; this.lastHeartbeatAt = new Date().toISOString(); this.lastError = undefined; this.emit(true); }
+      else if (message.type === 'heartbeat') { serialEntry.kind = 'receiver'; this.lastHeartbeatAt = new Date().toISOString(); this.emit(); }
+      else if (message.type === 'receiver_error') { serialEntry.kind = 'error'; this.lastError = message.message; this.log(`Receiver error: ${message.message}`); this.emit(true); }
       else {
+        serialEntry.kind = 'aircraft';
         this.lastError = undefined; this.observationsReceived += 1;
         if (this.connection === 'connected') {
           this.connection = 'scanner-ready';
@@ -168,7 +183,7 @@ export class RemoteIdService {
         }
         const contact = this.tracker.update(message.observation); this.emit(contact.sourceKey === this.prioritySourceKey);
       }
-    } catch (error) { this.lastError = error instanceof Error ? error.message : 'Remote ID message could not be read.'; this.log(this.lastError); this.emit(); }
+    } catch (error) { serialEntry.kind = 'error'; this.lastError = error instanceof Error ? error.message : 'Remote ID message could not be read.'; this.log(this.lastError); this.emit(); }
   }
 
   async disconnect(): Promise<RemoteIdState> {

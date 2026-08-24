@@ -366,6 +366,13 @@ export interface RemoteIdContact extends Omit<RemoteIdObservation, 'receivedAt' 
   track: Array<{ latitude: number; longitude: number; receivedAt: string }>;
 }
 
+export interface RemoteIdSerialLine {
+  receivedAt: string;
+  line: string;
+  kind: 'debug' | 'receiver' | 'aircraft' | 'error';
+  truncated?: boolean;
+}
+
 export interface RemoteIdState {
   installed: boolean;
   enabled: boolean;
@@ -379,6 +386,7 @@ export interface RemoteIdState {
   serialLinesReceived: number;
   ignoredLinesReceived: number;
   observationsReceived: number;
+  serialLog: RemoteIdSerialLine[];
   contacts: RemoteIdContact[];
 }
 

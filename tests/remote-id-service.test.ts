@@ -90,6 +90,11 @@ test('Remote ID service sends ESP32 lines through the existing tracker pipeline'
     assert.equal(service.state().ignoredLinesReceived, 1);
     assert.equal(service.state().observationsReceived, 1);
     assert.ok(service.state().lastSerialLineAt);
+    assert.deepEqual(service.state().serialLog.map((entry) => entry.kind), ['debug', 'receiver', 'aircraft']);
+    assert.match(service.state().serialLog[0].line, /WiFi driver task started/);
+    for (let index = 0; index < 251; index += 1) service.ingestReceiverLine(`I (${index}) bounded diagnostic line`);
+    assert.equal(service.state().serialLog.length, 250);
+    assert.match(service.state().serialLog[0].line, /bounded diagnostic line/);
   } finally { await service.stop(); app.database.close(); fs.rmSync(app.root, { recursive: true, force: true }); }
 });
 
@@ -107,6 +112,8 @@ test('map workspace keeps Remote ID Radar isolated in a dedicated tab', () => {
   assert.match(radar, /MAKE PRIORITY CONTACT/);
   assert.match(radar, /cannot make a drone broadcast faster/i);
   assert.match(radar, /SERIAL LINES/);
+  assert.match(radar, /VIEW ESP32 SERIAL OUTPUT/);
+  assert.match(radar, /radar-serial-console/);
   assert.match(radar, /radar-overview[\s\S]*radar-map-shell/);
   assert.doesNotMatch(radar, /radar-grid/);
   assert.match(radar, /!state\.installed \|\| !state\.enabled/);
