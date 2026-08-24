@@ -8,12 +8,12 @@ import { PortablePathService, ROOT_MARKER } from '../src/main/portable-path';
 import { ProfileService } from '../src/main/profile-service';
 import { RelayService } from '../src/main/relay-service';
 
-function createRelay(name: string, discoveryPort: number) {
+function createRelay(name: string, discoveryPort: number, options: ConstructorParameters<typeof RelayService>[2] = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'outpost-zero-relay-'));
   fs.writeFileSync(path.join(root, ROOT_MARKER), 'test');
   const paths = new PortablePathService(root); paths.initializeLayout();
   const profile = new ProfileService(paths); profile.create(name);
-  return { root, paths, relay: new RelayService(profile, paths, { discoveryPort }) };
+  return { root, paths, relay: new RelayService(profile, paths, { ...options, discoveryPort }) };
 }
 async function waitFor<T>(read: () => T | undefined, timeout = 15_000): Promise<T> {
   const deadline = Date.now() + timeout;
@@ -84,6 +84,27 @@ test('relay page replaces the placeholder and exposes explicit trust, history, a
   assert.match(view, /attachStableMapResize\(map\)/);
   assert.doesNotMatch(view, /new ResizeObserver/);
   for (const feature of ['START LOCAL RELAY', 'TLS 1.3', 'MARK VERIFIED', 'IDENTITY CHANGED', 'SEND FILE', 'SAVE TO DOCUMENTS', 'SHA-256 VERIFIED', 'CREATE PRIVATE GROUP', 'DEADMAN PHRASE', 'SHARED MAP', 'GROUP SECURITY']) assert.match(view, new RegExp(feature));
+  assert.match(view, /SECONDARY PHRASE/);
+  assert.doesNotMatch(view, /The deadman phrase never admits a device/);
+});
+
+test('Local Relay releases its listeners and starts again in the same session', { timeout: 20_000 }, async () => {
+  const node = createRelay('Restartable Outpost', 47_000 + Math.floor(Math.random() * 1_000));
+  try {
+    assert.equal((await node.relay.start()).ok, true);
+    const firstPort = node.relay.state().port; assert.ok(firstPort);
+    assert.equal((await node.relay.stop()).ok, true); assert.equal(node.relay.state().enabled, false);
+    assert.equal((await node.relay.start()).ok, true); assert.equal(node.relay.state().enabled, true); assert.ok(node.relay.state().port);
+  } finally { await node.relay.stop(); }
+});
+
+test('Local Relay remains usable and reports degraded mode when discovery cannot start', async () => {
+  const node = createRelay('Degraded Discovery Outpost', 48_000 + Math.floor(Math.random() * 1_000), { multicastAddress: 'not-a-multicast-address' });
+  try {
+    const result = await node.relay.start();
+    assert.equal(result.ok, true); assert.equal(result.state.enabled, true); assert.ok(result.state.port);
+    assert.match(result.message, /discovery is unavailable/i); assert.match(result.state.firewallMessage ?? '', /discovery could not start/i);
+  } finally { await node.relay.stop(); }
 });
 
 test('release signing excludes Git metadata and provides a staged-byte audit', () => {

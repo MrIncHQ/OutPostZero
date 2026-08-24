@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import dgram from 'node:dgram';
 import fs from 'node:fs';
+import type { Socket } from 'node:net';
 import path from 'node:path';
 import tls from 'node:tls';
 import { generate } from 'selfsigned';
@@ -150,6 +151,7 @@ export class RelayService {
   private firewallMessage: string | null = null;
   private readonly decisions = new Map<string, PendingDecision>();
   private readonly transferSockets = new Map<string, tls.TLSSocket>();
+  private readonly activeSockets = new Set<Socket>();
   private readonly joinAttemptTimes = new Map<string, number[]>();
   private readonly markerSyncTimes = new Map<string, number>();
 
@@ -209,28 +211,47 @@ export class RelayService {
   private result(ok: boolean, message: string): RelayOperationResult { return { ok, message, state: this.state() }; }
 
   async start(): Promise<RelayOperationResult> {
-    if (this.server) return this.result(true, `Local Relay is already listening on port ${this.listenPort}.`);
+    if (this.server?.listening) return this.result(true, `Local Relay is already listening on port ${this.listenPort}.`);
+    if (this.server) await this.stop();
     const credentials = this.ensureCertificate(); this.firewallMessage = null;
-    this.server = tls.createServer({ ...credentials, minVersion: 'TLSv1.3', maxVersion: 'TLSv1.3', requestCert: false }, (socket) => { void this.handleInbound(socket); });
-    this.server.on('error', (error) => { this.firewallMessage = `Local Relay could not listen on this network: ${error.message}. Outpost Zero did not change firewall settings.`; });
-    await new Promise<void>((resolve, reject) => { this.server!.once('error', reject); this.server!.listen(this.options.listenPort, this.options.bindAddress, () => { this.server!.off('error', reject); resolve(); }); });
-    this.listenPort = (this.server.address() as { port: number }).port;
-    if (this.options.discovery) await this.startDiscovery();
-    return this.result(true, `Local Relay is available on this LAN using TLS 1.3. Port ${this.listenPort}.`);
+    const server = tls.createServer({ ...credentials, minVersion: 'TLSv1.3', maxVersion: 'TLSv1.3', requestCert: false }, (socket) => { void this.handleInbound(socket); });
+    server.on('connection', (socket) => { this.activeSockets.add(socket); socket.once('close', () => this.activeSockets.delete(socket)); });
+    server.on('error', (error) => { this.firewallMessage = `Local Relay could not listen on this network: ${error.message}. Outpost Zero did not change firewall settings.`; });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Timed out while opening the Local Relay listener.')), 8_000);
+        const failed = (error: Error) => { clearTimeout(timer); reject(error); };
+        server.once('error', failed);
+        server.listen(this.options.listenPort, this.options.bindAddress, () => { clearTimeout(timer); server.off('error', failed); resolve(); });
+      });
+      this.server = server; this.listenPort = (server.address() as { port: number }).port;
+      if (this.options.discovery) {
+        try { await this.startDiscovery(); }
+        catch (error) {
+          if (this.discoverySocket) { try { this.discoverySocket.close(); } catch { /* already closed */ } this.discoverySocket = undefined; }
+          this.firewallMessage = `Local Relay is listening, but nearby discovery could not start: ${error instanceof Error ? error.message : 'unknown network error'}. Restart the relay after checking the network or firewall.`;
+        }
+      }
+      return this.result(true, this.firewallMessage ? `Local Relay started on port ${this.listenPort}, but nearby discovery is unavailable.` : `Local Relay is available on this LAN using TLS 1.3. Port ${this.listenPort}.`);
+    } catch (error) {
+      try { server.close(); } catch { /* listener never opened */ } this.server = undefined; this.listenPort = null;
+      throw error;
+    }
   }
   async stop(): Promise<RelayOperationResult> {
     if (this.announceTimer) clearInterval(this.announceTimer); if (this.pruneTimer) clearInterval(this.pruneTimer);
     this.announceTimer = undefined; this.pruneTimer = undefined;
     if (this.discoverySocket) { try { this.discoverySocket.close(); } catch { /* already closed */ } this.discoverySocket = undefined; }
     for (const socket of this.transferSockets.values()) socket.destroy(); this.transferSockets.clear();
-    if (this.server) { const server = this.server; this.server = undefined; await new Promise<void>((resolve) => server.close(() => resolve())); }
+    for (const socket of this.activeSockets) socket.destroy(); this.activeSockets.clear();
+    if (this.server) { const server = this.server; this.server = undefined; await new Promise<void>((resolve) => { const timer = setTimeout(resolve, 2_000); server.close(() => { clearTimeout(timer); resolve(); }); }); }
     this.listenPort = null; return this.result(true, 'Local Relay is stopped.');
   }
   private async startDiscovery(): Promise<void> {
     const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true }); this.discoverySocket = socket;
     socket.on('message', (bytes, info) => this.receiveAnnouncement(bytes, info.address));
     socket.on('error', (error) => { this.firewallMessage = `Nearby discovery may be blocked by the host firewall: ${error.message}. Outpost Zero will not change firewall settings.`; });
-    await new Promise<void>((resolve, reject) => { socket.once('error', reject); socket.bind(this.options.discoveryPort, '0.0.0.0', () => { socket.off('error', reject); try { socket.addMembership(this.options.multicastAddress); socket.setMulticastTTL(1); } catch (error) { reject(error); return; } resolve(); }); });
+    await new Promise<void>((resolve, reject) => { const timer = setTimeout(() => reject(new Error('Timed out while opening nearby discovery.')), 5_000); const failed = (error: Error) => { clearTimeout(timer); reject(error); }; socket.once('error', failed); socket.bind(this.options.discoveryPort, '0.0.0.0', () => { socket.off('error', failed); try { socket.addMembership(this.options.multicastAddress); socket.setMulticastTTL(1); } catch (error) { clearTimeout(timer); reject(error); return; } clearTimeout(timer); resolve(); }); });
     this.announce(); this.announceTimer = setInterval(() => this.announce(), 3_000); this.pruneTimer = setInterval(() => { /* state computes presence by time */ }, 3_000);
   }
   private announce(): void {
