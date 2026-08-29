@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 
 const app = fs.readFileSync('src/renderer/App.tsx', 'utf8');
+const main = fs.readFileSync('src/main/main.ts', 'utf8');
 const styles = fs.readFileSync('src/renderer/styles.css', 'utf8');
 
 test('Home searches directly without a separate Search navigation item', () => {
@@ -35,5 +36,7 @@ test('Updates rehydrate active and completed downloads after navigation', () => 
   assert.match(app, /activity\.state === 'verifying'/);
   assert.match(app, /activity\.state === 'preparing-install'/);
   assert.match(app, /PREPARING INSTALL/);
+  assert.match(main, /Stopping local services and releasing connected hardware/);
+  assert.match(app, /setReady\(false\); acceptActivity\(await window\.outpost\.getUpdateActivity\(\)\)/);
   assert.match(app, /INSTALL AND RESTART/);
 });

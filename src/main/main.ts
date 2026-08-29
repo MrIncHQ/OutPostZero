@@ -589,8 +589,11 @@ ipcMain.handle('outpost:apply-update', async () => {
   const operation = (async (): Promise<UpdateApplyResult> => {
     try {
       natureService.close();
+      updateService.installProgress('Stopping local services and releasing connected hardware...');
       await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), remoteIdService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
+      updateService.installProgress('Creating the portable safety backup...');
       await databaseService.createRotatingBackup();
+      updateService.installProgress('Starting the external updater. Outpost Zero will close automatically...');
       const result = await updateService.apply(process.pid);
       if (result.status === 'launching') {
         databaseService.close();

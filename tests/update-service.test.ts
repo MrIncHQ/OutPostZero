@@ -255,6 +255,17 @@ test('a verified staged update remains installable after creating a new service'
   }
 });
 
+test('install preparation reports the exact staged file that became unavailable', async () => {
+  const fixture = signedFixture();
+  const { root, paths, database, updates } = createServices(fixture.fetchImpl, fixture.publicKey);
+  try {
+    assert.equal((await updates.check()).status, 'available'); assert.equal((await updates.download()).status, 'ready');
+    fs.rmSync(paths.resolve('Updates/Staging/0.4.0/README.txt'));
+    const result = updates.prepareInstall(); assert.equal(result.status, 'not-ready'); assert.match(result.message, /README\.txt is missing/i);
+    assert.equal(updates.activityStatus().state, 'error');
+  } finally { database.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('confirms updater startup, applies the staged update, and relaunches', {
   skip: process.platform !== 'win32',
   timeout: 30_000,

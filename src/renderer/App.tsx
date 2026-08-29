@@ -653,10 +653,12 @@ function UpdatesView({ data }: { data: BootstrapData }) {
     try {
       const applyResult = await window.outpost.applyUpdate();
       setResult(applyResult.message);
-      if (applyResult.status !== 'launching' && applyResult.status !== 'preparing') setBusy(null);
+      if (applyResult.status !== 'launching' && applyResult.status !== 'preparing') {
+        setBusy(null); setReady(false); acceptActivity(await window.outpost.getUpdateActivity());
+      }
     } catch (error) {
       setResult(error instanceof Error ? error.message : 'Could not prepare the portable update.');
-      setBusy(null);
+      setBusy(null); setReady(false); acceptActivity(await window.outpost.getUpdateActivity());
     }
   }
   return (

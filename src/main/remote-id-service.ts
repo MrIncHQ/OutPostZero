@@ -15,11 +15,29 @@ const MAX_TRACK_POINTS = 1_800;
 const BACKGROUND_EMIT_MS = 1_000;
 const MAX_SERIAL_LOG_LINES = 250;
 const MAX_SERIAL_LOG_LINE_CHARS = 4_096;
+const SERIAL_CLOSE_TIMEOUT_MS = 1_500;
 
 type StateListener = (state: RemoteIdState) => void;
 
 const defaultAdapter = new Esp32S3RemoteIdAdapter();
 export function parseRemoteIdLine(line: string): RemoteIdReceiverMessage { return defaultAdapter.consumeLine(line); }
+
+interface ClosableSerialPort {
+  isOpen: boolean;
+  close(callback: (error?: Error | null) => void): void;
+  destroy(error?: Error): void;
+}
+
+export async function closeSerialPort(port: ClosableSerialPort, timeoutMs = SERIAL_CLOSE_TIMEOUT_MS): Promise<'closed' | 'forced'> {
+  if (!port.isOpen) return 'closed';
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result: 'closed' | 'forced') => { if (settled) return; settled = true; clearTimeout(timer); resolve(result); };
+    const timer = setTimeout(() => { try { port.destroy(); } catch { /* The port may already be closing. */ } finish('forced'); }, timeoutMs);
+    try { port.close(() => finish('closed')); }
+    catch { try { port.destroy(); } catch { /* Nothing else can be done during shutdown. */ } finish('forced'); }
+  });
+}
 
 export class RemoteIdContactTracker {
   private readonly contacts = new Map<string, RemoteIdContact>();
@@ -198,7 +216,7 @@ export class RemoteIdService {
   async disconnect(): Promise<RemoteIdState> {
     if (this.staleTimer) clearInterval(this.staleTimer); this.staleTimer = undefined;
     const port = this.port; this.port = undefined;
-    if (port?.isOpen) await new Promise<void>((resolve) => port.close(() => resolve()));
+    if (port?.isOpen && await closeSerialPort(port) === 'forced') this.log(`Serial close timed out on ${this.selectedPort ?? 'the selected port'}; the connection was force-released.`);
     this.connection = 'disconnected'; this.receiver = undefined; this.lastHeartbeatAt = undefined; this.emit(true); return this.state();
   }
 

@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { DatabaseService } from '../src/main/database-service';
 import { PortablePathService, ROOT_MARKER } from '../src/main/portable-path';
-import { Esp32S3RemoteIdAdapter, parseRemoteIdLine, RemoteIdContactTracker, RemoteIdService } from '../src/main/remote-id-service';
+import { closeSerialPort, Esp32S3RemoteIdAdapter, parseRemoteIdLine, RemoteIdContactTracker, RemoteIdService } from '../src/main/remote-id-service';
 
 function runtime() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'outpost-zero-remote-id-'));
@@ -59,6 +59,12 @@ test('Remote ID tracker merges partial data, retains a bounded path, and rejects
   const second = parseRemoteIdLine(observation(2, 39.77)); if (second.type !== 'observation') throw new Error('fixture'); const current = tracker.update(second.observation);
   assert.equal(current.track.length, 2); assert.equal(current.aircraft.latitude, 39.77); assert.equal(current.aircraft.altitudeMslM, 152.4);
   const old = parseRemoteIdLine(observation(1, 10)); if (old.type !== 'observation') throw new Error('fixture'); assert.equal(tracker.update(old.observation).aircraft.latitude, 39.77);
+});
+
+test('Remote ID serial shutdown force-releases a COM port whose close callback hangs', async () => {
+  let destroyed = false;
+  const result = await closeSerialPort({ isOpen: true, close: () => undefined, destroy: () => { destroyed = true; } }, 20);
+  assert.equal(result, 'forced'); assert.equal(destroyed, true);
 });
 
 test('Remote ID module installs stopped, starts explicitly, and uninstalls without deleting logs', async () => {

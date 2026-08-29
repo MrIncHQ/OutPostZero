@@ -172,15 +172,22 @@ export class UpdateService {
   hasActiveDownload(): boolean { return Boolean(this.downloadAbort); }
 
   prepareInstall(): UpdateApplyResult {
-    const readyVersion = this.readyVersion();
-    if (!readyVersion) return { status: 'not-ready', message: 'No verified update is ready to install.' };
+    const readiness = this.installReadiness();
+    if (!readiness.version) {
+      this.activity = { ...this.activity, state: 'error', message: readiness.message };
+      return { status: 'not-ready', message: readiness.message };
+    }
     this.activity = {
       ...this.activity,
       state: 'preparing-install',
-      version: readyVersion,
+      version: readiness.version,
       message: 'Preparing the portable update. Outpost Zero will close automatically and restart when installation is complete.',
     };
     return { status: 'preparing', message: this.activity.message };
+  }
+
+  installProgress(message: string): void {
+    if (this.activity.state === 'preparing-install') this.activity = { ...this.activity, message };
   }
 
   failInstall(message: string): void {
@@ -204,15 +211,24 @@ export class UpdateService {
     } catch { return null; }
   }
 
-  private readyVersion(): string | null {
+  private installReadiness(): { version: string | null; message: string } {
     const pending = this.readPending();
-    if (!pending || compareVersions(pending.version, this.currentVersion) <= 0) return null;
-    const stagingRoot = this.paths.resolve(`Updates/Staging/${pending.stagingDirectory}`);
-    return pending.files.every((file) => {
-      const staged = path.join(stagingRoot, ...file.path.split('/'));
-      return fs.existsSync(staged) && fs.statSync(staged).size === file.size;
-    }) ? pending.version : null;
+    if (!pending) return { version: null, message: 'The verified update record is missing or unreadable. Check for updates and download it again.' };
+    if (compareVersions(pending.version, this.currentVersion) <= 0) return { version: null, message: `Outpost Zero ${pending.version} is not newer than the running version ${this.currentVersion}.` };
+    try {
+      const stagingRoot = this.paths.resolve(`Updates/Staging/${pending.stagingDirectory}`);
+      for (const file of pending.files) {
+        const staged = path.join(stagingRoot, ...file.path.split('/'));
+        if (!fs.existsSync(staged)) return { version: null, message: `The staged update is incomplete: ${file.path} is missing. Resume the update download.` };
+        if (fs.statSync(staged).size !== file.size) return { version: null, message: `The staged update is incomplete: ${file.path} has the wrong size. Resume the update download.` };
+      }
+      return { version: pending.version, message: `Outpost Zero ${pending.version} is verified and ready to install.` };
+    } catch (error) {
+      return { version: null, message: `The staged update could not be read from this drive: ${error instanceof Error ? error.message : 'unknown drive error'}` };
+    }
   }
+
+  private readyVersion(): string | null { return this.installReadiness().version; }
 
   private cleanStagingExcept(keptDirectories: Set<string>): void {
     const stagingRoot = this.paths.ensureDirectory('Updates/Staging');
@@ -479,8 +495,10 @@ export class UpdateService {
 
   async apply(processId: number): Promise<UpdateApplyResult> {
     try {
-      const preparation = this.prepareInstall();
-      if (preparation.status !== 'preparing') return preparation;
+      if (this.activity.state !== 'preparing-install') {
+        const preparation = this.prepareInstall();
+        if (preparation.status !== 'preparing') return preparation;
+      }
       const pending = JSON.parse(fs.readFileSync(this.pendingFile, 'utf8')) as PendingUpdate;
       safeStagingVersion(pending.version);
       const stagingDirectory = safeStagingDirectory(pending.stagingDirectory ?? pending.version);
