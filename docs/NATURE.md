@@ -34,7 +34,33 @@ Only `CC0`, `CC0-1.0`, `CC BY`, and `CC-BY-4.0` image records are accepted by th
 
 Pack creation is a developer operation and may use large source archives. It is not performed by the portable client.
 
-1. Download and extract a pinned Catalogue of Life Base ColDP release.
+### Regional species input
+
+For a quick development-only Missouri list, query the public GBIF occurrence facets. This produces a small TSV and a provenance sidecar clearly marked `publishable: false`:
+
+```powershell
+node scripts/prepare-regional-nature.mjs --mode preview --region Missouri --gadm-gid USA.26_1 --output VendorCache\nature\missouri-preview.tsv
+```
+
+The final published pack must instead use a GBIF download with its assigned DOI. Export or unzip the GBIF occurrence TSV, then run:
+
+```powershell
+node scripts/prepare-regional-nature.mjs --mode gbif-download --region Missouri --input C:\data\gbif-occurrence.txt --gbif-doi 10.15468/dl.EXAMPLE --output C:\data\missouri-species.tsv
+```
+
+Neither mode accepts or stores a GBIF username or password. The DOI-backed provenance sidecar is automatically included in the pack manifest. A preview input is rejected unless the developer explicitly passes `--allow-preview true`.
+
+### Low-disk build
+
+The builder can stream `NameUsage.tsv`, `VernacularName.tsv`, and `Distribution.tsv` directly from the official ColDP ZIP. This avoids creating a second multi-gigabyte extracted source tree:
+
+```powershell
+node scripts/build-nature-pack.mjs --coldp-archive C:\data\COL-Base-ColDP.zip --regional-species C:\data\missouri-species.tsv --pack-id missouri --name "Missouri Nature Pack" --region Missouri --version 2026.08 --catalogue-version 2026-07-14 --output C:\packs\missouri-2026.08.oznature
+```
+
+Source archives are never downloaded by Outpost or by the pack builder. Download them deliberately, check free space first, and remove the archive after the finished pack and provenance have been verified. Temporary development downloads should remain under the ignored `VendorCache/nature` directory.
+
+1. Download a pinned Catalogue of Life Base ColDP release. Pass the ZIP with `--coldp-archive` to conserve disk space, or extract it and use `--coldp`.
 2. For a regional pack, create a tab-separated species list from a cited GBIF bulk download. Keep its download DOI with the build record. GBIF credentials stay outside this repository.
 3. Select iNaturalist images from a pinned monthly Open Data metadata snapshot. Download medium images and produce a TSV manifest with `scientificName`, `file`, `creator`, `sourceUrl`, `license`, and `licenseUrl`. Exclude every license other than CC0 or CC BY.
 4. Run:
