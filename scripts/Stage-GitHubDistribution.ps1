@@ -11,7 +11,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $source 'Outpost Zero.exe'))) { thro
 if (-not (Test-Path -LiteralPath (Join-Path $distribution '.git'))) { throw 'GitHubDistribution is not the expected distribution worktree.' }
 if (-not (Test-Path -LiteralPath $privateKey)) { throw 'The local update signing key is missing.' }
 
-$preserved = @('.git', '.gitattributes', 'README.md', 'update-manifest.json', 'RuntimeParts')
+$preserved = @('.git', '.gitattributes', 'README.md', 'update-manifest.json', 'RuntimeParts', 'Nature')
 $sourceNames = @(Get-ChildItem -LiteralPath $source -Force | ForEach-Object Name)
 foreach ($entry in Get-ChildItem -LiteralPath $distribution -Force) {
     if ($preserved -contains $entry.Name -or $sourceNames -contains $entry.Name) { continue }

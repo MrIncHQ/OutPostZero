@@ -639,6 +639,7 @@ export interface NatureCatalogEntry {
   installedBytes: number;
   region?: string;
   description: string;
+  archive?: 'oznature' | 'zip';
   minimumRamBytes?: number;
   minimumLogicalCores?: number;
 }
@@ -1064,6 +1065,7 @@ export interface OutpostBridge {
   deleteRelayMarker(markerId: string): Promise<RelayOperationResult>;
   searchOutpost(query: string): Promise<UnifiedSearchResult[]>;
   getNatureState(): Promise<NatureState>;
+  refreshNatureCatalog(): Promise<NatureOperationResult>;
   importNaturePack(): Promise<NatureOperationResult>;
   removeNaturePack(packId: string): Promise<NatureOperationResult>;
   downloadNatureContent(entryId: string): Promise<NatureOperationResult>;

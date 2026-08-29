@@ -545,6 +545,7 @@ ipcMain.handle('outpost:search-outpost', (_event, query: unknown) => {
   return unifiedSearchService.search(query);
 });
 ipcMain.handle('outpost:get-nature-state', () => natureService.reconcile());
+ipcMain.handle('outpost:refresh-nature-catalog', () => natureService.refreshCatalog());
 ipcMain.handle('outpost:import-nature-pack', async () => {
   const selection = await dialog.showOpenDialog({ title: 'Install an offline Nature Pack', properties: ['openFile'], filters: [{ name: 'Outpost Nature Pack', extensions: ['oznature'] }] });
   if (selection.canceled || !selection.filePaths[0]) return { ok: false, message: 'Nature Pack import cancelled.', state: natureService.state() };

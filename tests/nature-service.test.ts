@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { DatabaseService } from '../src/main/database-service';
 import { NatureService } from '../src/main/nature-service';
@@ -52,6 +54,24 @@ test('imports a self-contained Nature Pack and serves search, details, images, a
 test('rejects malformed files instead of registering them as Nature Packs', () => {
   const { root, database, service } = fixture(); const broken = path.join(root, 'broken.oznature'); fs.writeFileSync(broken, 'not sqlite');
   assert.throws(() => service.importPack(broken)); assert.equal(service.state().packs.length, 0);
+  service.close(); database.close(); fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('loads a signed online catalog and installs a verified compressed pack for offline use', async () => {
+  const { root, pack, database, service: original } = fixture(); original.close();
+  const archive = path.join(root, 'missouri-test.zip');
+  const packed = spawnSync('tar', ['-a', '-cf', archive, '-C', path.dirname(pack), path.basename(pack)], { encoding: 'utf8' }); assert.equal(packed.status, 0, packed.stderr);
+  const bytes = fs.readFileSync(archive); const keys = crypto.generateKeyPairSync('ed25519');
+  const entry = { id: 'missouri-test', kind: 'pack' as const, name: 'Missouri Test Nature Pack', version: '2026.08', url: 'https://example.invalid/missouri-test.zip',
+    sha256: crypto.createHash('sha256').update(bytes).digest('hex'), downloadBytes: bytes.length, installedBytes: fs.statSync(pack).size, archive: 'zip' as const, region: 'Missouri', description: 'Verified fixture pack' };
+  const payload = Buffer.from(JSON.stringify({ schemaVersion: 1, publishedAt: '2026-08-29T00:00:00.000Z', entries: [entry] }));
+  const envelope = { schemaVersion: 1, signedPayload: payload.toString('base64'), signature: crypto.sign(null, payload, keys.privateKey).toString('base64') };
+  const fetchImpl = async (url: string | URL | Request) => String(url).includes('catalog')
+    ? new Response(JSON.stringify(envelope), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    : new Response(bytes, { status: 200 });
+  const service = new NatureService(database, new PortablePathService(root), fetchImpl as typeof fetch, keys.publicKey.export({ type: 'spki', format: 'pem' }).toString(), 'https://example.invalid/catalog.json');
+  const refreshed = await service.refreshCatalog(); assert.equal(refreshed.ok, true); assert.equal(refreshed.state.catalog.length, 1);
+  const installed = await service.downloadContent(entry.id); assert.equal(installed.ok, true); assert.equal(installed.state.packs[0]?.packId, entry.id); assert.equal(service.search('black bear')[0]?.commonName, 'American black bear');
   service.close(); database.close(); fs.rmSync(root, { recursive: true, force: true });
 });
 

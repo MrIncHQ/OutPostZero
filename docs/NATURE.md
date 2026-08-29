@@ -11,9 +11,10 @@ Runtime locations:
 - `Content/Nature/Packs`: installed `.oznature` databases
 - `AI/Nature/Models`: verified ONNX vision encoders
 - `Data/Nature`: private Nature runtime data
-- `Config/nature-catalog.json`: optional published pack/model download catalog
+- `Cache/Nature/catalog.json`: last verified signed Outpost download catalog
+- `Config/nature-catalog.json`: optional operator-supplied catalog additions
 
-Nature does not call a web API while browsing, searching, opening images, or viewing sightings. Catalog downloads happen only after an explicit Download action.
+Nature refreshes its small signed catalog when the page opens while connected. It does not call a web API while browsing, searching, opening images, or viewing sightings. Pack downloads happen only after an explicit Download action, and the last verified catalog remains usable offline.
 
 ## Verified source choices
 
@@ -73,7 +74,9 @@ The builder refuses to overwrite an output. It creates a catalog-entry sidecar c
 
 ## Catalog format
 
-`Config/nature-catalog.json` contains `{ "entries": [...] }`. Each entry requires an ID, kind (`pack` or `model`), name, version, HTTPS URL, SHA-256, exact download and installed byte counts, and description. An empty or absent catalog is valid; local verified packs can still be imported.
+The official catalog is an Ed25519-signed envelope published at `Nature/catalog.json` in the runtime-distribution repository. Outpost verifies it with the update trust key before caching or displaying any entry. Each entry requires an ID, kind (`pack` or `model`), name, version, HTTPS URL, SHA-256, exact download and installed byte counts, and description. Pack entries may specify `archive: "zip"`; such an archive must contain exactly one safe `.oznature` file. Outpost verifies the archive before extraction and validates the contained SQLite pack before installation.
+
+`Config/nature-catalog.json` may contain `{ "entries": [...] }` for operator-managed additions. An unavailable online catalog never prevents installed packs from working or a verified local pack from being imported.
 
 ## Model deployment
 

@@ -5,7 +5,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
-import { canonicalScientificName, matchesRegional, regionalNameKeys } from '../scripts/nature-build-lib.mjs';
+import { canonicalScientificName, matchesRegional, regionalNameKeys, streamTsvRows } from '../scripts/nature-build-lib.mjs';
+import { Readable } from 'node:stream';
 import { acquireGbifPreview, prepareGbifDownload } from '../scripts/prepare-regional-nature.mjs';
 
 test('regional taxonomy matching tolerates authorship while preserving infraspecific names', () => {
@@ -14,6 +15,11 @@ test('regional taxonomy matching tolerates authorship while preserving infraspec
   assert.equal(canonicalScientificName('Quercus alba var. latiloba Sarg.'), 'quercus alba var latiloba');
   const regional = new Set([...regionalNameKeys({ scientificName: 'Cardinalis cardinalis (Linnaeus, 1758)' })]);
   assert.equal(matchesRegional({ scientificName: 'Cardinalis cardinalis', rank: 'species' }, regional), true);
+});
+
+test('current ColDP namespace prefixes are normalized while streaming', async () => {
+  const rows = []; for await (const row of streamTsvRows(Readable.from(['col:ID\tcol:status\tcol:scientificName\tcol:rank\nabc\taccepted\tUrsus americanus\tspecies\n']))) rows.push(row);
+  assert.deepEqual(rows, [{ ID: 'abc', status: 'accepted', scientificName: 'Ursus americanus', rank: 'species' }]);
 });
 
 test('GBIF preview pagination emits a small explicitly non-publishable provenance record', async () => {

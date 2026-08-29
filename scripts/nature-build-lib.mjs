@@ -16,7 +16,7 @@ export async function* streamTsvRows(input) {
   const lines = readline.createInterface({ input, crlfDelay: Infinity });
   let headers;
   for await (const line of lines) {
-    if (!headers) { headers = splitTsv(line); continue; }
+    if (!headers) { headers = splitTsv(line).map((header) => header.replace(/^[^:]+:/u, '')); continue; }
     if (!line.trim()) continue;
     const values = splitTsv(line);
     yield Object.fromEntries(headers.map((header, index) => [header, values[index] ?? '']));

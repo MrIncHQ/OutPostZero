@@ -123,6 +123,7 @@ const bridge: OutpostBridge = {
   deleteRelayMarker: (markerId) => ipcRenderer.invoke('outpost:delete-relay-marker', markerId),
   searchOutpost: (query) => ipcRenderer.invoke('outpost:search-outpost', query),
   getNatureState: () => ipcRenderer.invoke('outpost:get-nature-state'),
+  refreshNatureCatalog: () => ipcRenderer.invoke('outpost:refresh-nature-catalog'),
   importNaturePack: () => ipcRenderer.invoke('outpost:import-nature-pack'),
   removeNaturePack: (packId) => ipcRenderer.invoke('outpost:remove-nature-pack', packId),
   downloadNatureContent: (entryId) => ipcRenderer.invoke('outpost:download-nature-content', entryId),
