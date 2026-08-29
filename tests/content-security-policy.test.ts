@@ -11,6 +11,7 @@ test('renderer CSP permits loopback Kiwix and the internal portable document rea
   assert.match(policy, /frame-src[^;]*outpost-doc:/);
   assert.match(policy, /connect-src[^;]*outpost-map:/);
   assert.match(policy, /img-src[^;]*outpost-attachment:/);
+  assert.match(policy, /img-src[^;]*outpost-nature:/);
   assert.match(policy, /media-src[^;]*outpost-media:/);
   assert.match(policy, /worker-src 'self' blob:/);
   assert.doesNotMatch(policy, /frame-src[^;]*https?:\/\/\*/);

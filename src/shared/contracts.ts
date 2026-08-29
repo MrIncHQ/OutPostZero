@@ -543,7 +543,7 @@ export interface RelayOperationResult {
 }
 
 export interface UnifiedSearchResult {
-  source: 'document' | 'note' | 'map' | 'media';
+  source: 'document' | 'note' | 'map' | 'media' | 'nature';
   id: string;
   title: string;
   excerpt: string;
@@ -551,7 +551,118 @@ export interface UnifiedSearchResult {
   page?: number;
   latitude?: number;
   longitude?: number;
+  packId?: string;
 }
+
+export interface NaturePackManifest {
+  schemaVersion: number;
+  packId: string;
+  name: string;
+  region: string;
+  version: string;
+  buildDate: string;
+  minimumOutpostVersion?: string;
+  sourceVersions: Record<string, string>;
+  downloadBytes: number;
+  installedBytes: number;
+  sha256?: string;
+  speciesCount: number;
+  imageCount: number;
+  categories: string[];
+  licenseSummary: string[];
+  dependencies: string[];
+}
+
+export interface NaturePackSummary extends NaturePackManifest {
+  relativePath: string;
+  installed: boolean;
+}
+
+export interface NatureSpeciesSummary {
+  id: string;
+  packId: string;
+  scientificName: string;
+  commonName: string;
+  rank: string;
+  category: string;
+  family?: string;
+  imageId?: string;
+  regionalStatus?: string;
+}
+
+export interface NatureImage {
+  id: string;
+  mimeType: string;
+  creator: string;
+  sourceUrl: string;
+  license: string;
+  licenseUrl: string;
+  readerUrl: string;
+}
+
+export interface NatureSpeciesDetails extends NatureSpeciesSummary {
+  taxonomy: Record<string, string>;
+  synonyms: string[];
+  commonNames: string[];
+  distribution: string[];
+  sourceTaxonId?: string;
+  sourceName: string;
+  sourceUrl?: string;
+  images: NatureImage[];
+}
+
+export interface NatureSighting {
+  id: string;
+  createdAt: string;
+  observedAt: string;
+  packId?: string;
+  speciesId?: string;
+  commonName: string;
+  scientificName: string;
+  latitude?: number;
+  longitude?: number;
+  notes: string;
+  photoRelativePath?: string;
+  modelVersion?: string;
+}
+
+export interface NatureSightingInput extends Omit<NatureSighting, 'id' | 'createdAt'> { id?: string; }
+
+export interface NatureCatalogEntry {
+  id: string;
+  kind: 'pack' | 'model';
+  name: string;
+  version: string;
+  url: string;
+  sha256: string;
+  downloadBytes: number;
+  installedBytes: number;
+  region?: string;
+  description: string;
+  minimumRamBytes?: number;
+  minimumLogicalCores?: number;
+}
+
+export interface NatureDownloadStatus {
+  state: 'idle' | 'downloading' | 'verifying' | 'installing' | 'complete' | 'paused' | 'cancelled' | 'error';
+  entryId?: string;
+  title?: string;
+  downloadedBytes: number;
+  totalBytes: number;
+  percent: number;
+  bytesPerSecond: number;
+  message: string;
+}
+
+export interface NatureState {
+  packs: NaturePackSummary[];
+  catalog: NatureCatalogEntry[];
+  sightings: NatureSighting[];
+  model: { installed: boolean; name?: string; version?: string; provider?: 'cpu' | 'directml'; message: string };
+  download: NatureDownloadStatus;
+}
+
+export interface NatureOperationResult { ok: boolean; message: string; state: NatureState; }
 
 export interface KiwixCatalogEntry {
   id: string;
@@ -952,6 +1063,19 @@ export interface OutpostBridge {
   saveRelayMarker(marker: { id?: string; title: string; category: RelaySharedMarker['category']; note: string; latitude: number; longitude: number }): Promise<RelayOperationResult>;
   deleteRelayMarker(markerId: string): Promise<RelayOperationResult>;
   searchOutpost(query: string): Promise<UnifiedSearchResult[]>;
+  getNatureState(): Promise<NatureState>;
+  importNaturePack(): Promise<NatureOperationResult>;
+  removeNaturePack(packId: string): Promise<NatureOperationResult>;
+  downloadNatureContent(entryId: string): Promise<NatureOperationResult>;
+  pauseNatureDownload(): Promise<NatureDownloadStatus>;
+  cancelNatureDownload(): Promise<NatureDownloadStatus>;
+  getNatureDownloadStatus(): Promise<NatureDownloadStatus>;
+  searchNature(query: string, packIds?: string[]): Promise<NatureSpeciesSummary[]>;
+  browseNature(category?: string, packIds?: string[]): Promise<NatureSpeciesSummary[]>;
+  getNatureSpecies(packId: string, speciesId: string): Promise<NatureSpeciesDetails>;
+  getNatureImage(packId: string, imageId: string): Promise<Uint8Array>;
+  saveNatureSighting(input: NatureSightingInput): Promise<NatureState>;
+  deleteNatureSighting(sightingId: string): Promise<NatureState>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   getUpdateActivity(): Promise<UpdateActivity>;
   downloadUpdate(): Promise<UpdateDownloadResult>;

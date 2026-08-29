@@ -24,6 +24,7 @@ import { MediaService } from './media-service';
 import { MedicationService } from './medication-service';
 import { responseHeadersForUrl } from './security-policy';
 import { RemoteIdService } from './remote-id-service';
+import { NatureService } from './nature-service';
 import type { BootstrapData, ModuleOperationResult, ModuleSummary, PortableStatus, UpdateApplyResult } from '../shared/contracts';
 
 protocol.registerSchemesAsPrivileged([
@@ -31,6 +32,7 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'outpost-attachment', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
   { scheme: 'outpost-map', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
   { scheme: 'outpost-media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+  { scheme: 'outpost-nature', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ]);
 
 const root = findPortableRoot([path.dirname(process.execPath), process.cwd(), __dirname]);
@@ -63,6 +65,7 @@ const noteService = new NoteService(databaseService, portablePaths);
 const mediaService = new MediaService(portablePaths);
 const medicationIndexPath = app.isPackaged ? path.join(process.resourcesPath, 'medication-data', 'pill-index.json') : path.join(app.getAppPath(), 'vendor', 'medication-data', 'pill-index.json');
 const medicationService = new MedicationService(portablePaths, globalThis.fetch, medicationIndexPath);
+const natureService = new NatureService(databaseService, portablePaths);
 const mapHelperPath = app.isPackaged ? path.join(process.resourcesPath, 'pmtiles', 'pmtiles.exe') : path.join(app.getAppPath(), 'vendor', 'pmtiles', 'pmtiles.exe');
 const mapFontRoot = path.join(app.getAppPath(), 'vendor', 'map-assets', 'fonts');
 const mapService = new MapService(databaseService, portablePaths, { helperPath: mapHelperPath });
@@ -76,7 +79,7 @@ const aiService = new AiService(portablePaths, () => collectHardwareDiagnostics(
   const kiwix = await kiwixService.searchForAi(query, Math.max(0, 8 - documents.length));
   return [...documents, ...kiwix];
 });
-const unifiedSearchService = new UnifiedSearchService(databaseService, documentService, mediaService);
+const unifiedSearchService = new UnifiedSearchService(databaseService, documentService, mediaService, natureService);
 let isPrepared = false;
 let shutdownInProgress = false;
 let applyUpdatePromise: Promise<UpdateApplyResult> | null = null;
@@ -541,6 +544,41 @@ ipcMain.handle('outpost:search-outpost', (_event, query: unknown) => {
   if (typeof query !== 'string' || query.length > 200) throw new Error('Search query is invalid.');
   return unifiedSearchService.search(query);
 });
+ipcMain.handle('outpost:get-nature-state', () => natureService.reconcile());
+ipcMain.handle('outpost:import-nature-pack', async () => {
+  const selection = await dialog.showOpenDialog({ title: 'Install an offline Nature Pack', properties: ['openFile'], filters: [{ name: 'Outpost Nature Pack', extensions: ['oznature'] }] });
+  if (selection.canceled || !selection.filePaths[0]) return { ok: false, message: 'Nature Pack import cancelled.', state: natureService.state() };
+  return natureService.importPack(selection.filePaths[0]);
+});
+ipcMain.handle('outpost:remove-nature-pack', (_event, packId: unknown) => {
+  if (typeof packId !== 'string') throw new Error('Nature Pack identifier is invalid.'); return natureService.removePack(packId);
+});
+ipcMain.handle('outpost:download-nature-content', (_event, entryId: unknown) => {
+  if (typeof entryId !== 'string') throw new Error('Nature catalog identifier is invalid.'); return natureService.downloadContent(entryId);
+});
+ipcMain.handle('outpost:pause-nature-download', () => natureService.pauseDownload());
+ipcMain.handle('outpost:cancel-nature-download', () => natureService.cancelDownload());
+ipcMain.handle('outpost:get-nature-download-status', () => natureService.downloadStatus());
+ipcMain.handle('outpost:search-nature', (_event, query: unknown, packIds: unknown) => {
+  if (typeof query !== 'string' || query.length > 200 || (packIds !== undefined && (!Array.isArray(packIds) || !packIds.every((item) => typeof item === 'string')))) throw new Error('Nature search is invalid.');
+  return natureService.search(query, packIds as string[] | undefined);
+});
+ipcMain.handle('outpost:browse-nature', (_event, category: unknown, packIds: unknown) => {
+  if ((category !== undefined && typeof category !== 'string') || (packIds !== undefined && (!Array.isArray(packIds) || !packIds.every((item) => typeof item === 'string')))) throw new Error('Nature browse request is invalid.');
+  return natureService.browse(category as string | undefined, packIds as string[] | undefined);
+});
+ipcMain.handle('outpost:get-nature-species', (_event, packId: unknown, speciesId: unknown) => {
+  if (typeof packId !== 'string' || typeof speciesId !== 'string') throw new Error('Nature species request is invalid.'); return natureService.species(packId, speciesId);
+});
+ipcMain.handle('outpost:get-nature-image', (_event, packId: unknown, imageId: unknown) => {
+  if (typeof packId !== 'string' || typeof imageId !== 'string') throw new Error('Nature image request is invalid.'); return natureService.image(packId, imageId).bytes;
+});
+ipcMain.handle('outpost:save-nature-sighting', (_event, input: unknown) => {
+  if (!input || typeof input !== 'object') throw new Error('Nature sighting is invalid.'); return natureService.saveSighting(input as Parameters<typeof natureService.saveSighting>[0]);
+});
+ipcMain.handle('outpost:delete-nature-sighting', (_event, id: unknown) => {
+  if (typeof id !== 'string') throw new Error('Nature sighting is invalid.'); return natureService.deleteSighting(id);
+});
 ipcMain.handle('outpost:check-updates', () => updateService.check());
 ipcMain.handle('outpost:get-update-activity', () => updateService.activityStatus());
 ipcMain.handle('outpost:download-update', () => updateService.download());
@@ -550,6 +588,7 @@ ipcMain.handle('outpost:apply-update', async () => {
   if (preparation.status !== 'preparing') return preparation;
   const operation = (async (): Promise<UpdateApplyResult> => {
     try {
+      natureService.close();
       await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), remoteIdService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
       await databaseService.createRotatingBackup();
       const result = await updateService.apply(process.pid);
@@ -572,6 +611,7 @@ ipcMain.handle('outpost:apply-update', async () => {
   return result;
 });
 ipcMain.handle('outpost:prepare-removal', async () => {
+  natureService.close();
   await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), remoteIdService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
   await session.defaultSession.clearCache();
   await databaseService.createRotatingBackup();
@@ -612,6 +652,14 @@ app.whenReady().then(() => {
     try { const filePath = mediaService.filePath(mediaId); return rangedFileResponse(filePath, request, mediaMime(filePath)); }
     catch { return new Response('Not found', { status: 404 }); }
   });
+  protocol.handle('outpost-nature', (request) => {
+    const url = new URL(request.url); const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+    if (url.hostname !== 'image' || parts.length !== 2) return new Response('Not found', { status: 404 });
+    try {
+      const item = natureService.image(parts[0], parts[1]);
+      return new Response(Uint8Array.from(item.bytes).buffer, { headers: { 'Content-Type': item.mimeType, 'Cache-Control': 'public, max-age=31536000, immutable' } });
+    } catch { return new Response('Not found', { status: 404 }); }
+  });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: responseHeadersForUrl(details.url, details.responseHeaders),
@@ -622,12 +670,13 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', (event) => {
-  if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess() || remoteIdService.hasActiveConnection() || aiService.hasRunningProcess() || mapService.hasActiveDownload() || updateService.hasActiveDownload() || relayService.isRunning() || ocrService.hasActiveJobs()) && !shutdownInProgress) {
+  if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess() || remoteIdService.hasActiveConnection() || aiService.hasRunningProcess() || mapService.hasActiveDownload() || natureService.hasActiveDownload() || updateService.hasActiveDownload() || relayService.isRunning() || ocrService.hasActiveJobs()) && !shutdownInProgress) {
     event.preventDefault();
     shutdownInProgress = true;
+    natureService.close();
     void Promise.all([moduleService.stopAll(), kiwixService.shutdown(), remoteIdService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]).finally(() => app.quit());
     return;
   }
-  databaseService.close();
+  natureService.close(); databaseService.close();
   if (!isPrepared) sessionState.markClean();
 });

@@ -11,6 +11,7 @@ interface CategoryDefinition {
 
 const CATEGORIES: CategoryDefinition[] = [
   { id: 'knowledge', label: 'Knowledge', roots: ['Content/ZIM'] },
+  { id: 'nature', label: 'Nature', roots: ['Content/Nature', 'AI/Nature', 'Data/Nature'] },
   { id: 'maps', label: 'Maps', roots: ['Content/Maps'] },
   { id: 'documents', label: 'Documents', roots: ['Content/PDFs', 'Content/Documents', 'Content/Books'] },
   { id: 'notes', label: 'Note Attachments', roots: ['Content/Notes'] },

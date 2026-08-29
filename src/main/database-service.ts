@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { backup, DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
-import type { DocumentAnnotation, DocumentAnnotationInput, DocumentBookmark, DocumentNote, DocumentNoteInput, DocumentSearchResult, DocumentSummary, MapPackage, MapPlace, NoteAttachment, PortableNote, UpdateStatus } from '../shared/contracts';
+import type { DocumentAnnotation, DocumentAnnotationInput, DocumentBookmark, DocumentNote, DocumentNoteInput, DocumentSearchResult, DocumentSummary, MapPackage, MapPlace, NaturePackManifest, NatureSighting, NatureSightingInput, NoteAttachment, PortableNote, UpdateStatus } from '../shared/contracts';
 import { PortablePathService } from './portable-path';
 
 interface Migration {
@@ -172,6 +172,22 @@ const MIGRATIONS: Migration[] = [
         updated_at TEXT NOT NULL,
         PRIMARY KEY (course_id, lesson_id)
       ) STRICT`,
+    ],
+  },
+  {
+    version: 7,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS nature_pack_registry (
+        pack_id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, region TEXT NOT NULL, version TEXT NOT NULL,
+        relative_path TEXT NOT NULL UNIQUE, manifest_json TEXT NOT NULL, installed_at TEXT NOT NULL
+      ) STRICT`,
+      `CREATE TABLE IF NOT EXISTS nature_sightings (
+        id TEXT PRIMARY KEY NOT NULL, created_at TEXT NOT NULL, observed_at TEXT NOT NULL, pack_id TEXT, species_id TEXT,
+        common_name TEXT NOT NULL DEFAULT '', scientific_name TEXT NOT NULL DEFAULT '', latitude REAL, longitude REAL,
+        notes TEXT NOT NULL DEFAULT '', photo_relative_path TEXT, model_version TEXT,
+        CHECK (latitude IS NULL OR latitude BETWEEN -90 AND 90), CHECK (longitude IS NULL OR longitude BETWEEN -180 AND 180)
+      ) STRICT`,
+      `CREATE INDEX IF NOT EXISTS nature_sightings_observed_idx ON nature_sightings(observed_at DESC)`,
     ],
   },
 ];
@@ -621,6 +637,47 @@ export class DatabaseService {
       p.latitude, p.longitude FROM map_places_fts f JOIN map_places p ON p.id = f.place_id
       WHERE map_places_fts MATCH ? ORDER BY bm25(map_places_fts) LIMIT ?`).all(ftsQuery, limit) as Array<{ id: string; title: string; excerpt: string; latitude: number; longitude: number }>);
   }
+
+  naturePackRecords(): Array<{ manifest: NaturePackManifest; relativePath: string; installedAt: string }> {
+    return (this.database.prepare('SELECT manifest_json, relative_path, installed_at FROM nature_pack_registry ORDER BY installed_at DESC').all() as Array<{ manifest_json: string; relative_path: string; installed_at: string }>).flatMap((row) => {
+      try { return [{ manifest: JSON.parse(row.manifest_json) as NaturePackManifest, relativePath: row.relative_path, installedAt: row.installed_at }]; }
+      catch { return []; }
+    });
+  }
+
+  upsertNaturePack(manifest: NaturePackManifest, relativePath: string): void {
+    this.database.prepare(`INSERT INTO nature_pack_registry (pack_id, name, region, version, relative_path, manifest_json, installed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(pack_id) DO UPDATE SET name = excluded.name, region = excluded.region,
+      version = excluded.version, relative_path = excluded.relative_path, manifest_json = excluded.manifest_json, installed_at = excluded.installed_at`)
+      .run(manifest.packId, manifest.name, manifest.region, manifest.version, relativePath, JSON.stringify(manifest), new Date().toISOString());
+  }
+
+  removeNaturePackRecord(packId: string): void { this.database.prepare('DELETE FROM nature_pack_registry WHERE pack_id = ?').run(packId); }
+
+  natureSightings(): NatureSighting[] {
+    return (this.database.prepare('SELECT * FROM nature_sightings ORDER BY observed_at DESC').all() as Array<Record<string, unknown>>).map((row) => ({
+      id: String(row.id), createdAt: String(row.created_at), observedAt: String(row.observed_at),
+      packId: row.pack_id ? String(row.pack_id) : undefined, speciesId: row.species_id ? String(row.species_id) : undefined,
+      commonName: String(row.common_name), scientificName: String(row.scientific_name),
+      latitude: row.latitude === null ? undefined : Number(row.latitude), longitude: row.longitude === null ? undefined : Number(row.longitude),
+      notes: String(row.notes), photoRelativePath: row.photo_relative_path ? String(row.photo_relative_path) : undefined,
+      modelVersion: row.model_version ? String(row.model_version) : undefined,
+    }));
+  }
+
+  saveNatureSighting(input: NatureSightingInput): NatureSighting[] {
+    const id = input.id ?? crypto.randomUUID(); const now = new Date().toISOString();
+    this.database.prepare(`INSERT INTO nature_sightings (id, created_at, observed_at, pack_id, species_id, common_name,
+      scientific_name, latitude, longitude, notes, photo_relative_path, model_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET observed_at = excluded.observed_at, pack_id = excluded.pack_id, species_id = excluded.species_id,
+      common_name = excluded.common_name, scientific_name = excluded.scientific_name, latitude = excluded.latitude,
+      longitude = excluded.longitude, notes = excluded.notes, photo_relative_path = excluded.photo_relative_path, model_version = excluded.model_version`)
+      .run(id, now, input.observedAt, input.packId ?? null, input.speciesId ?? null, input.commonName, input.scientificName,
+        input.latitude ?? null, input.longitude ?? null, input.notes, input.photoRelativePath ?? null, input.modelVersion ?? null);
+    return this.natureSightings();
+  }
+
+  deleteNatureSighting(id: string): NatureSighting[] { this.database.prepare('DELETE FROM nature_sightings WHERE id = ?').run(id); return this.natureSightings(); }
 
   async createRotatingBackup(keep = 3): Promise<string> {
     if (this.closed) throw new Error('Cannot back up a closed database.');

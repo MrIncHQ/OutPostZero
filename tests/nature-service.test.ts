@@ -1,0 +1,64 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
+import { DatabaseService } from '../src/main/database-service';
+import { NatureService } from '../src/main/nature-service';
+import { PortablePathService, ROOT_MARKER } from '../src/main/portable-path';
+
+function fixture() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'outpost-zero-nature-'));
+  fs.writeFileSync(path.join(root, ROOT_MARKER), 'test');
+  const paths = new PortablePathService(root); paths.initializeLayout();
+  const database = new DatabaseService(paths); const service = new NatureService(database, paths);
+  const pack = path.join(root, 'fixture.oznature'); const db = new DatabaseSync(pack);
+  db.exec(`CREATE TABLE pack_metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL) STRICT;
+    CREATE TABLE species(id TEXT PRIMARY KEY, scientific_name TEXT NOT NULL, common_name TEXT NOT NULL DEFAULT '', rank TEXT NOT NULL,
+      kingdom TEXT NOT NULL DEFAULT '', phylum TEXT NOT NULL DEFAULT '', class TEXT NOT NULL DEFAULT '', order_name TEXT NOT NULL DEFAULT '', family TEXT NOT NULL DEFAULT '', genus TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL, regional_status TEXT NOT NULL DEFAULT '', source_taxon_id TEXT, source_name TEXT NOT NULL, source_url TEXT) STRICT;
+    CREATE TABLE species_names(species_id TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, language TEXT NOT NULL DEFAULT '', preferred INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(species_id,name,kind)) STRICT;
+    CREATE TABLE species_distribution(species_id TEXT NOT NULL, area TEXT NOT NULL, status TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', PRIMARY KEY(species_id,area)) STRICT;
+    CREATE TABLE species_images(id TEXT PRIMARY KEY, species_id TEXT NOT NULL, mime_type TEXT NOT NULL, data BLOB NOT NULL, creator TEXT NOT NULL, source_url TEXT NOT NULL, license TEXT NOT NULL, license_url TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0) STRICT;
+    CREATE VIRTUAL TABLE species_fts USING fts5(species_id UNINDEXED, common_name, scientific_name, names);
+    INSERT INTO species VALUES('ursus-americanus','Ursus americanus','American black bear','species','Animalia','Chordata','Mammalia','Carnivora','Ursidae','Ursus','Mammals','Recorded in Missouri','COL:1','Catalogue of Life','https://example.invalid/taxon');
+    INSERT INTO species_names VALUES('ursus-americanus','black bear','common','en',1),('ursus-americanus','Euarctos americanus','synonym','',0);
+    INSERT INTO species_distribution VALUES('ursus-americanus','Missouri','native','GBIF');
+    INSERT INTO species_fts VALUES('ursus-americanus','American black bear','Ursus americanus','black bear Euarctos americanus');`);
+  db.prepare('INSERT INTO species_images VALUES(?,?,?,?,?,?,?,?,?)').run('bear-photo','ursus-americanus','image/jpeg',Buffer.from([0xff, 0xd8, 0xff, 0xd9]),'Fixture Author','https://example.invalid/photo','CC BY','https://creativecommons.org/licenses/by/4.0/',0);
+  db.prepare("INSERT INTO pack_metadata VALUES('manifest',?)").run(JSON.stringify({ schemaVersion: 1, packId: 'missouri-test', name: 'Missouri Test Nature Pack', region: 'Missouri', version: '2026.08', buildDate: '2026-08-29T00:00:00.000Z', sourceVersions: { 'Catalogue of Life': 'fixture' }, downloadBytes: fs.statSync(pack).size, installedBytes: fs.statSync(pack).size, speciesCount: 1, imageCount: 1, categories: ['Mammals'], licenseSummary: ['CC BY'], dependencies: [] }));
+  db.close();
+  return { root, pack, database, service };
+}
+
+test('imports a self-contained Nature Pack and serves search, details, images, and sightings offline', () => {
+  const { root, pack, database, service } = fixture();
+  const imported = service.importPack(pack);
+  assert.equal(imported.ok, true); assert.equal(imported.state.packs.length, 1);
+  assert.equal(service.search('black bear')[0]?.scientificName, 'Ursus americanus');
+  assert.equal(service.search('Euarctos')[0]?.commonName, 'American black bear');
+  assert.equal(service.browse('Mammals').length, 1);
+  const details = service.species('missouri-test', 'ursus-americanus');
+  assert.deepEqual(details.distribution, ['Missouri']); assert.equal(details.images[0]?.license, 'CC BY');
+  assert.deepEqual([...service.image('missouri-test', 'bear-photo').bytes], [0xff, 0xd8, 0xff, 0xd9]);
+  const sightingState = service.saveSighting({ observedAt: '2026-08-29T12:00:00.000Z', packId: 'missouri-test', speciesId: details.id, commonName: details.commonName, scientificName: details.scientificName, notes: 'Trail camera' });
+  assert.equal(sightingState.sightings.length, 1);
+  assert.equal(service.removePack('missouri-test').ok, true);
+  assert.equal(service.state().sightings.length, 1, 'private sightings survive pack removal');
+  service.close(); database.close(); fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('rejects malformed files instead of registering them as Nature Packs', () => {
+  const { root, database, service } = fixture(); const broken = path.join(root, 'broken.oznature'); fs.writeFileSync(broken, 'not sqlite');
+  assert.throws(() => service.importPack(broken)); assert.equal(service.state().packs.length, 0);
+  service.close(); database.close(); fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('Nature stays one primary navigation item with its tools contained as internal tabs', () => {
+  const app = fs.readFileSync(path.resolve('src/renderer/App.tsx'), 'utf8');
+  const view = fs.readFileSync(path.resolve('src/renderer/NatureView.tsx'), 'utf8');
+  assert.equal((app.match(/id: 'nature'/g) ?? []).length, 1);
+  for (const tab of ['SEARCH & BROWSE', 'IDENTIFY', 'SIGHTINGS', 'PACKS', 'SOURCES & LICENSES']) assert.ok(view.includes(tab));
+  assert.match(app, /result\.source === 'nature'/);
+});

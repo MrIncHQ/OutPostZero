@@ -55,6 +55,7 @@ export class RemoteIdContactTracker {
 }
 
 export class RemoteIdService {
+  private moduleInstalled = false;
   private enabled = false;
   private connection: RemoteIdState['connection'] = 'disconnected';
   private port?: SerialPort;
@@ -73,9 +74,16 @@ export class RemoteIdService {
   private staleTimer?: NodeJS.Timeout;
 
   constructor(private readonly database: DatabaseService, private readonly paths: PortablePathService, private readonly listener: StateListener,
-    private readonly receiverAdapter: RemoteIdReceiverAdapter = new Esp32S3RemoteIdAdapter()) {}
+    private readonly receiverAdapter: RemoteIdReceiverAdapter = new Esp32S3RemoteIdAdapter()) {
+    try { this.moduleInstalled = this.database.moduleRecords().some((record) => record.moduleId === MODULE_ID); }
+    catch { this.moduleInstalled = false; }
+  }
 
-  private installed(): boolean { return this.database.moduleRecords().some((record) => record.moduleId === MODULE_ID); }
+  // Never touch the portable SQLite file from the serial/timer state path. A USB
+  // drive can briefly reject I/O while Windows is flushing or power-managing it;
+  // allowing that synchronous exception out of a timer crashes Electron's main
+  // process. Installation changes are explicit, so an in-memory value is enough.
+  private installed(): boolean { return this.moduleInstalled; }
   summary(): ModuleSummary {
     const installed = this.installed();
     return { id: MODULE_ID, name: 'Remote ID Radar', description: 'Requires a separate ESP32-S3 Remote ID receiver connected by USB. Outpost Zero cannot detect drones without this external hardware.',
@@ -94,7 +102,8 @@ export class RemoteIdService {
   }
 
   private log(message: string): void {
-    fs.appendFileSync(this.paths.resolve('Logs/Modules/remote-id-radar.log'), `${new Date().toISOString()} ${message}\n`, 'utf8');
+    try { fs.appendFileSync(this.paths.resolve('Logs/Modules/remote-id-radar.log'), `${new Date().toISOString()} ${message}\n`, 'utf8'); }
+    catch { /* Diagnostics must never terminate live receiver processing. */ }
   }
 
   private emit(immediate = false): void {
@@ -109,7 +118,7 @@ export class RemoteIdService {
   }
 
   async install(): Promise<{ ok: boolean; message: string }> {
-    this.database.setModuleInstalled(MODULE_ID, MODULE_VERSION); this.lastError = undefined;
+    this.database.setModuleInstalled(MODULE_ID, MODULE_VERSION); this.moduleInstalled = true; this.lastError = undefined;
     this.log('Remote ID Radar installed; receiver remains disabled.'); this.emit(true);
     return { ok: true, message: 'Remote ID Radar installed. It remains off until you select START.' };
   }
@@ -124,7 +133,7 @@ export class RemoteIdService {
     return { ok: true, message: 'Remote ID Radar is stopped.' };
   }
   async uninstall(): Promise<{ ok: boolean; message: string }> {
-    await this.stop(); this.database.removeModule(MODULE_ID); this.tracker.clear(); this.receiver = undefined; this.lastError = undefined; this.emit(true);
+    await this.stop(); this.database.removeModule(MODULE_ID); this.moduleInstalled = false; this.tracker.clear(); this.receiver = undefined; this.lastError = undefined; this.emit(true);
     return { ok: true, message: 'Remote ID Radar engine removed. Logs were kept on this drive.' };
   }
 

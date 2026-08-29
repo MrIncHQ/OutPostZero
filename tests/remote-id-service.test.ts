@@ -98,6 +98,18 @@ test('Remote ID service sends ESP32 lines through the existing tracker pipeline'
   } finally { await service.stop(); app.database.close(); fs.rmSync(app.root, { recursive: true, force: true }); }
 });
 
+test('Remote ID background state remains available if portable database I/O later fails', async () => {
+  const app = runtime(); const service = new RemoteIdService(app.database, app.paths, () => undefined);
+  try {
+    await service.install();
+    const original = app.database.moduleRecords.bind(app.database);
+    app.database.moduleRecords = (() => { throw new Error('disk I/O error'); }) as typeof app.database.moduleRecords;
+    assert.equal(service.state().installed, true);
+    assert.equal(service.summary().status, 'installed');
+    app.database.moduleRecords = original;
+  } finally { app.database.close(); fs.rmSync(app.root, { recursive: true, force: true }); }
+});
+
 test('map workspace keeps Remote ID Radar isolated in a dedicated tab', () => {
   const maps = fs.readFileSync('src/renderer/MapsView.tsx', 'utf8');
   const radar = fs.readFileSync('src/renderer/RemoteIdRadarView.tsx', 'utf8');

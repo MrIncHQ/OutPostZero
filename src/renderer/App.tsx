@@ -10,8 +10,9 @@ const ToolsView = lazy(() => import('./ToolsView').then((module) => ({ default: 
 const LearningView = lazy(() => import('./LearningView').then((module) => ({ default: module.LearningView })));
 const MediaView = lazy(() => import('./MediaView').then((module) => ({ default: module.MediaView })));
 const MedicationView = lazy(() => import('./MedicationView').then((module) => ({ default: module.MedicationView })));
+const NatureView = lazy(() => import('./NatureView').then((module) => ({ default: module.NatureView })));
 
-type ViewId = 'home' | 'library' | 'documents' | 'maps' | 'learning' | 'notes' |
+type ViewId = 'home' | 'library' | 'documents' | 'maps' | 'nature' | 'learning' | 'notes' |
   'medications' | 'relay' | 'tools' | 'ai' | 'modules' | 'storage' | 'settings' | 'updates';
 type FileTab = 'documents' | 'media' | 'downloads';
 
@@ -22,6 +23,7 @@ const navigationGroups: Array<{ label: string; items: NavigationItem[] }> = [
     { id: 'library', label: 'Library', detail: 'Offline knowledge', icon: 'KB' },
     { id: 'documents', label: 'Files', detail: 'Documents, media, transfers', icon: 'FL' },
     { id: 'maps', label: 'Maps', detail: 'Offline navigation', icon: 'MP' },
+    { id: 'nature', label: 'Nature', detail: 'Species library and ID', icon: 'NR' },
     { id: 'learning', label: 'Learning', detail: 'Courses and training', icon: 'TR' },
     { id: 'notes', label: 'Notes', detail: 'Plans and field notes', icon: 'NT' },
     { id: 'medications', label: 'Medications', detail: 'Reference only', icon: 'RX' },
@@ -694,11 +696,13 @@ export default function App() {
   const [requestedPlace, setRequestedPlace] = useState<string>();
   const [requestedMedia, setRequestedMedia] = useState<string>();
   const [requestedArticle, setRequestedArticle] = useState<string>();
+  const [requestedNature, setRequestedNature] = useState<{ packId: string; speciesId: string }>();
   const clearRequestedDocument = useCallback(() => setRequestedDocument(undefined), []);
   const clearRequestedNote = useCallback(() => setRequestedNote(undefined), []);
   const clearRequestedPlace = useCallback(() => setRequestedPlace(undefined), []);
   const clearRequestedMedia = useCallback(() => setRequestedMedia(undefined), []);
   const clearRequestedArticle = useCallback(() => setRequestedArticle(undefined), []);
+  const clearRequestedNature = useCallback(() => setRequestedNature(undefined), []);
 
   useEffect(() => { void window.outpost.getBootstrap().then(setData); }, []);
   useEffect(() => { mainRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' }); }, [view, fileTab]);
@@ -731,12 +735,14 @@ export default function App() {
       if (result.source === 'document') { setRequestedDocument({ id: result.id, page: result.page ?? 1 }); setView('documents'); }
       else if (result.source === 'note') { setRequestedNote(result.id); setView('notes'); }
       else if (result.source === 'media') { setRequestedMedia(result.id); setFileTab('media'); setView('documents'); }
+      else if (result.source === 'nature' && result.packId) { setRequestedNature({ packId: result.packId, speciesId: result.id }); setView('nature'); }
       else { setRequestedPlace(result.id); setView('maps'); }
     }} />;
     if (view === 'library') return <LibraryView onModules={(modules) => setData({ ...activeData, modules })} requestedArticlePath={requestedArticle} onRequestHandled={clearRequestedArticle} />;
     if (view === 'documents') return <FilesWorkspace tab={fileTab} onTab={setFileTab} requestedDocument={requestedDocument} requestedMedia={requestedMedia} onDocumentHandled={clearRequestedDocument} onMediaHandled={clearRequestedMedia} go={setView} />;
     if (view === 'notes') return <Suspense fallback={<section className="page-panel"><h2>Opening Notes...</h2></section>}><NotesView requestedNoteId={requestedNote} onRequestHandled={clearRequestedNote} /></Suspense>;
     if (view === 'maps') return <Suspense fallback={<section className="page-panel"><h2>Opening Maps...</h2></section>}><MapsView requestedPlaceId={requestedPlace} onRequestHandled={clearRequestedPlace} onModules={(modules) => setData({ ...activeData, modules })} /></Suspense>;
+    if (view === 'nature') return <Suspense fallback={<section className="page-panel"><h2>Opening Nature Library...</h2></section>}><NatureView requested={requestedNature} onRequestHandled={clearRequestedNature} /></Suspense>;
     if (view === 'learning') return <Suspense fallback={<section className="page-panel"><h2>Opening Education Center...</h2></section>}><LearningView /></Suspense>;
     if (view === 'medications') return <Suspense fallback={<section className="page-panel"><h2>Opening Medication Reference...</h2></section>}><MedicationView /></Suspense>;
     if (view === 'relay') return <Suspense fallback={<section className="page-panel"><h2>Opening Local Relay...</h2></section>}><RelayView /></Suspense>;
