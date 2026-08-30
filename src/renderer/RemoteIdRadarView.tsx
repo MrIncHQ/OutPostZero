@@ -43,7 +43,7 @@ function updateRadarLayers(map: MapLibreMap | undefined, state: RemoteIdState): 
 }
 
 export function RemoteIdRadarView({ packages, onModules }: { packages: MapPackage[]; onModules?: (modules: ModuleSummary[]) => void }) {
-  const container = useRef<HTMLDivElement>(null); const mapRef = useRef<MapLibreMap | undefined>(undefined); const stateRef = useRef(EMPTY_STATE);
+  const container = useRef<HTMLDivElement>(null); const mapRef = useRef<MapLibreMap | undefined>(undefined); const stateRef = useRef(EMPTY_STATE); const autoFocusedSource = useRef<string | undefined>(undefined);
   const [state, setState] = useState<RemoteIdState>(EMPTY_STATE); const [ports, setPorts] = useState<RemoteIdPort[]>([]);
   const [selectedPort, setSelectedPort] = useState(''); const [selectedPackageId, setSelectedPackageId] = useState('');
   const [selectedSourceKey, setSelectedSourceKey] = useState<string>(); const [message, setMessage] = useState(''); const [busy, setBusy] = useState('');
@@ -73,6 +73,13 @@ export function RemoteIdRadarView({ packages, onModules }: { packages: MapPackag
   }, [state.installed, state.enabled]);
   useEffect(() => { const map = mapRef.current; if (!map) return; const item = packages.find((candidate) => candidate.id === selectedPackageId); if (!item) { map.setStyle({ version: 8, glyphs: 'outpost-glyph://fonts/{fontstack}/{range}.pbf', sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#0c1410' } }] }); return; } map.setStyle(offlineMapStyle(item)); if (item.bounds) map.fitBounds([[item.bounds[0], item.bounds[1]], [item.bounds[2], item.bounds[3]]], { padding: 30, duration: 0 }); }, [selectedPackageId, packages]);
   useEffect(() => { updateRadarLayers(mapRef.current, state); }, [state]);
+  useEffect(() => {
+    const positioned = state.contacts.find((contact) => contact.aircraft.latitude !== undefined && contact.aircraft.longitude !== undefined);
+    if (!positioned) { autoFocusedSource.current = undefined; return; }
+    if (autoFocusedSource.current) return;
+    autoFocusedSource.current = positioned.sourceKey; setSelectedSourceKey((current) => current ?? positioned.sourceKey);
+    mapRef.current?.flyTo({ center: [positioned.aircraft.longitude!, positioned.aircraft.latitude!], zoom: Math.max(13, mapRef.current.getZoom()), essential: true });
+  }, [state.contacts]);
 
   async function installAndStart() { setBusy('install'); try { await window.outpost.installModule('remote-id-radar'); const result = await window.outpost.startModule('remote-id-radar'); onModules?.(result.modules); acceptState(await window.outpost.getRemoteIdState()); setMessage('Remote ID Radar installed and enabled. Select the ESP32 serial port.'); } catch (error) { setMessage(error instanceof Error ? error.message : 'Radar installation failed.'); } finally { setBusy(''); } }
   async function start() { setBusy('start'); try { const result = await window.outpost.startModule('remote-id-radar'); onModules?.(result.modules); acceptState(await window.outpost.getRemoteIdState()); setMessage(result.message); } catch (error) { setMessage(error instanceof Error ? error.message : 'Radar could not start.'); } finally { setBusy(''); } }

@@ -53,6 +53,28 @@ test('ESP32 adapter ignores ESP-IDF logs, recognizes scanner readiness, and tran
   assert.throws(() => adapter.consumeLine(JSON.stringify({ type: 'drone', serial: 'BAD', lat: 39 })), /incomplete aircraft position/);
 });
 
+test('ESP32 adapter translates the live DJI receiver field layout into a mappable contact', () => {
+  const adapter = new Esp32S3RemoteIdAdapter();
+  const parsed = adapter.consumeLine(JSON.stringify({
+    type: 'drone', mac: '60:60:1f:16:bd:88', interface: 'WiFi Beacon', rssi: -34, channel: 6,
+    id_type: 1, ua_type: 2, basic_id: '1581F3YTDJ1S0032J1N0', drone_lat: 39.791698,
+    drone_long: -94.851814, drone_altitude: 324, height_agl: 0, speed_horizontal: 0,
+    speed_vertical: 0, heading: 361, status: 1, pilot_lat: 39.791703, pilot_long: -94.851812,
+    operator_id: '',
+  }));
+  assert.equal(parsed.type, 'observation');
+  if (parsed.type !== 'observation') return;
+  assert.equal(parsed.observation.sourceKey, '1581F3YTDJ1S0032J1N0');
+  assert.equal(parsed.observation.source.transport, 'wifi-beacon');
+  assert.equal(parsed.observation.aircraft.latitude, 39.791698);
+  assert.equal(parsed.observation.aircraft.longitude, -94.851814);
+  assert.equal(parsed.observation.aircraft.altitudeMslM, 324);
+  assert.equal(parsed.observation.aircraft.horizontalSpeedMps, 0);
+  assert.equal(parsed.observation.aircraft.headingDeg, undefined);
+  assert.equal(parsed.observation.aircraft.status, '1');
+  assert.deepEqual(parsed.observation.secondaryPosition, { kind: 'control-station', latitude: 39.791703, longitude: -94.851812 });
+});
+
 test('Remote ID tracker merges partial data, retains a bounded path, and rejects old sequences', () => {
   const tracker = new RemoteIdContactTracker();
   const first = parseRemoteIdLine(observation()); if (first.type !== 'observation') throw new Error('fixture'); tracker.update(first.observation);
@@ -133,6 +155,7 @@ test('map workspace keeps Remote ID Radar isolated in a dedicated tab', () => {
   assert.match(radar, /VIEW ESP32 SERIAL OUTPUT/);
   assert.match(radar, /radar-serial-console/);
   assert.match(radar, /radar-overview[\s\S]*radar-map-shell/);
+  assert.match(radar, /autoFocusedSource[\s\S]*flyTo/);
   assert.doesNotMatch(radar, /radar-grid/);
   assert.match(radar, /!state\.installed \|\| !state\.enabled/);
   assert.match(radar, /\[state\.installed, state\.enabled\]/);

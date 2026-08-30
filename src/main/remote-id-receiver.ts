@@ -41,6 +41,11 @@ function shortText(value: unknown, maximum = 160): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, maximum) : undefined;
 }
 
+function scalarText(value: unknown, maximum = 160): string | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value).slice(0, maximum);
+  return shortText(value, maximum);
+}
+
 function transport(value: unknown): RemoteIdObservation['source']['transport'] {
   const normalized = String(value ?? '').trim().toLowerCase().replaceAll('_', '-');
   if (normalized.includes('nan')) return 'wifi-nan';
@@ -85,35 +90,41 @@ function normalizedObservation(value: Record<string, unknown>, source: Record<st
   const aircraftId = shortText(first(aircraft, ['id', 'uasId', 'uas_id', 'serialNumber', 'serial_number', 'serial', 'basicId', 'basic_id']), 120);
   const sourceKey = shortText(first(value, ['sourceKey', 'source_key']), 120) ?? aircraftId ?? address;
   if (!sourceKey) throw new Error('Remote ID observation has no stable source key.');
-  const latitude = bounded(first(aircraft, ['latitude', 'lat']), -90, 90);
-  const longitude = bounded(first(aircraft, ['longitude', 'lon', 'lng']), -180, 180);
+  const latitude = bounded(first(aircraft, ['latitude', 'lat', 'drone_latitude', 'drone_lat']), -90, 90);
+  const longitude = bounded(first(aircraft, ['longitude', 'lon', 'lng', 'drone_longitude', 'drone_lon', 'drone_long']), -180, 180);
   if ((latitude === undefined) !== (longitude === undefined)) throw new Error('Remote ID observation contains an incomplete aircraft position.');
   const suppliedSecondary = record(first(value, ['secondaryPosition', 'secondary_position']));
   const controlStation = record(first(value, ['controlStation', 'control_station', 'operatorLocation', 'operator_location']));
   const takeoff = record(first(value, ['takeoffLocation', 'takeoff_location']));
+  const pilotLatitude = bounded(first(value, ['pilotLatitude', 'pilot_latitude', 'pilot_lat']), -90, 90);
+  const pilotLongitude = bounded(first(value, ['pilotLongitude', 'pilot_longitude', 'pilot_lon', 'pilot_long']), -180, 180);
+  if ((pilotLatitude === undefined) !== (pilotLongitude === undefined)) throw new Error('Remote ID observation contains an incomplete pilot position.');
+  const pilotPosition: RemoteIdObservation['secondaryPosition'] | undefined = pilotLatitude !== undefined && pilotLongitude !== undefined
+    ? { kind: 'control-station', latitude: pilotLatitude, longitude: pilotLongitude }
+    : undefined;
   const secondaryPosition = suppliedSecondary
     ? position(suppliedSecondary, ['control-station', 'takeoff', 'operator', 'unknown'].includes(String(suppliedSecondary.kind)) ? suppliedSecondary.kind as SecondaryPosition['kind'] : 'unknown')
-    : position(controlStation, 'control-station') ?? position(takeoff, 'takeoff');
+    : position(controlStation, 'control-station') ?? position(takeoff, 'takeoff') ?? pilotPosition;
   return { type: 'observation', observation: {
     sourceKey,
     sequence: bounded(first(value, ['sequence', 'seq']), 0, Number.MAX_SAFE_INTEGER),
     receivedAt: new Date().toISOString(),
     source: {
-      transport: transport(first(source, ['transport', 'protocol', 'radio', 'source'])), address,
+      transport: transport(first(source, ['transport', 'protocol', 'radio', 'source', 'interface'])), address,
       rssiDbm: bounded(first(source, ['rssiDbm', 'rssi_dbm', 'rssi']), -140, 20),
       channel: bounded(first(source, ['channel', 'chan']), 0, 255),
     },
     aircraft: {
       id: aircraftId,
-      idType: shortText(first(aircraft, ['idType', 'id_type']), 40),
-      aircraftType: shortText(first(aircraft, ['aircraftType', 'aircraft_type', 'uaType', 'ua_type']), 60),
+      idType: scalarText(first(aircraft, ['idType', 'id_type']), 40),
+      aircraftType: scalarText(first(aircraft, ['aircraftType', 'aircraft_type', 'uaType', 'ua_type']), 60),
       latitude, longitude,
-      altitudeMslM: finite(first(aircraft, ['altitudeMslM', 'altitude_msl_m', 'altitudeMsl', 'altitude_msl', 'altitude', 'alt'])),
+      altitudeMslM: finite(first(aircraft, ['altitudeMslM', 'altitude_msl_m', 'altitudeMsl', 'altitude_msl', 'drone_altitude', 'altitude', 'alt'])),
       heightAglM: finite(first(aircraft, ['heightAglM', 'height_agl_m', 'heightAgl', 'height_agl', 'height'])),
-      horizontalSpeedMps: bounded(first(aircraft, ['horizontalSpeedMps', 'horizontal_speed_mps', 'speedMps', 'speed_mps', 'speed']), 0, 2_000),
+      horizontalSpeedMps: bounded(first(aircraft, ['horizontalSpeedMps', 'horizontal_speed_mps', 'speed_horizontal', 'speedMps', 'speed_mps', 'speed']), 0, 2_000),
       verticalSpeedMps: bounded(first(aircraft, ['verticalSpeedMps', 'vertical_speed_mps', 'verticalSpeed', 'vertical_speed', 'vspeed']), -500, 500),
       headingDeg: bounded(first(aircraft, ['headingDeg', 'heading_deg', 'heading', 'direction']), 0, 360),
-      status: shortText(first(aircraft, ['status', 'operationalStatus', 'operational_status']), 60),
+      status: scalarText(first(aircraft, ['status', 'operationalStatus', 'operational_status']), 60),
     },
     secondaryPosition,
     operatorId: shortText(first(value, ['operatorId', 'operator_id']), 120),
