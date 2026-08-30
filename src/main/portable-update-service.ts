@@ -40,6 +40,7 @@ interface ManifestFile {
 interface UpdateManifestPayload {
   schemaVersion: 1;
   version: string;
+  releaseRef: string;
   publishedAt: string;
   platform: 'win32';
   architecture: 'x64';
@@ -63,8 +64,8 @@ interface PendingUpdate {
 
 type FetchLike = typeof globalThis.fetch;
 
-const manifestUrl = `https://raw.githubusercontent.com/${UPDATE_REPOSITORY.owner}/${UPDATE_REPOSITORY.name}/${UPDATE_REPOSITORY.branch}/update-manifest.json`;
-const rawBaseUrl = `https://raw.githubusercontent.com/${UPDATE_REPOSITORY.owner}/${UPDATE_REPOSITORY.name}/${UPDATE_REPOSITORY.branch}`;
+const manifestUrl = `https://raw.githubusercontent.com/${UPDATE_REPOSITORY.owner}/${UPDATE_REPOSITORY.name}/${UPDATE_REPOSITORY.branch}/UpdateChannel/update-manifest.json`;
+const rawBaseUrl = `https://raw.githubusercontent.com/${UPDATE_REPOSITORY.owner}/${UPDATE_REPOSITORY.name}`;
 
 function normalizeHash(value: string): string {
   if (!/^[A-Fa-f0-9]{64}$/.test(value)) throw new Error('Update manifest contains an invalid SHA-256 hash.');
@@ -132,8 +133,14 @@ function safeStagingDirectory(directory: string): string {
   return directory;
 }
 
-function remoteUrl(relativePath: string): string {
-  return `${rawBaseUrl}/${relativePath.split('/').map(encodeURIComponent).join('/')}`;
+function validateReleaseRef(value: unknown, version: string): string {
+  const expected = `runtime-v${version}`;
+  if (value !== expected) throw new Error(`Signed update release reference must be ${expected}.`);
+  return expected;
+}
+
+function remoteUrl(releaseRef: string, relativePath: string): string {
+  return `${rawBaseUrl}/${encodeURIComponent(releaseRef)}/${relativePath.split('/').map(encodeURIComponent).join('/')}`;
 }
 
 export class UpdateService {
@@ -275,6 +282,7 @@ export class UpdateService {
       throw new Error('Signed update payload is invalid or incompatible.');
     }
     parseVersion(rawPayload.version);
+    const releaseRef = validateReleaseRef(rawPayload.releaseRef, rawPayload.version);
     const files = rawPayload.files.map(validateManifestFile);
     const executableBase = validateManifestFile(rawPayload.executable);
     if (executableBase.path !== 'Outpost Zero.exe') throw new Error('Executable update target is invalid.');
@@ -292,6 +300,7 @@ export class UpdateService {
     return {
       schemaVersion: 1,
       version: rawPayload.version,
+      releaseRef,
       publishedAt: rawPayload.publishedAt,
       platform: 'win32',
       architecture: 'x64',
@@ -333,7 +342,7 @@ export class UpdateService {
     }
   }
 
-  private async downloadFile(file: ManifestFile, destination: string, downloadSignal: AbortSignal): Promise<number> {
+  private async downloadFile(file: ManifestFile, destination: string, downloadSignal: AbortSignal, releaseRef: string): Promise<number> {
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     if (fs.existsSync(destination)) {
       if (fs.statSync(destination).size === file.size && await sha256File(destination) === file.sha256) return 0;
@@ -354,7 +363,7 @@ export class UpdateService {
     const headers: Record<string, string> = { 'User-Agent': 'Outpost-Zero-Updater', 'Accept-Encoding': 'identity' };
     if (offset) headers.Range = `bytes=${offset}-`;
     const signal = AbortSignal.any([downloadSignal, AbortSignal.timeout(300_000)]);
-    const response = await this.fetchImpl(remoteUrl(file.path), { headers, signal, cache: 'no-store' });
+    const response = await this.fetchImpl(remoteUrl(releaseRef, file.path), { headers, signal, cache: 'no-store' });
     if (!response.ok || !response.body) throw new Error(`GitHub returned HTTP ${response.status} for ${file.path}.`);
     if (offset && response.status !== 206) {
       if (response.status !== 200) throw new Error(`GitHub did not honor the saved update range for ${file.path}.`);
@@ -398,7 +407,8 @@ export class UpdateService {
       const stagingRelative = `Updates/Staging/${stagingDirectory}`;
       const stagingRoot = this.paths.resolve(stagingRelative);
       const previousPending = this.readPending();
-      this.cleanStagingExcept(new Set([stagingDirectory, ...(previousPending?.stagingDirectory ? [previousPending.stagingDirectory] : [])]));
+      if (previousPending && previousPending.version !== manifest.version) fs.rmSync(this.pendingFile, { force: true });
+      this.cleanStagingExcept(new Set([stagingDirectory]));
       const conservativeRequiredBytes = manifest.files.reduce((sum, file) => sum + file.size, 0)
         + manifest.executable.parts.reduce((sum, part) => sum + part.size, 0)
         + manifest.executable.size
@@ -423,7 +433,7 @@ export class UpdateService {
         if (fs.existsSync(current) && fs.statSync(current).size === file.size && await sha256File(current) === file.sha256) continue;
         const staged = path.join(stagingRoot, ...file.path.split('/'));
         this.activity = { ...this.activity, message: `Downloading and verifying ${file.path}...` };
-        downloadedBytes += await this.downloadFile(file, staged, controller.signal); this.activity = { ...this.activity, downloadedBytes };
+        downloadedBytes += await this.downloadFile(file, staged, controller.signal, manifest.releaseRef); this.activity = { ...this.activity, downloadedBytes };
         changed.push(file);
       }
 
@@ -438,7 +448,7 @@ export class UpdateService {
         for (const part of executable.parts) {
           const destination = path.join(stagingRoot, ...part.path.split('/'));
           this.activity = { ...this.activity, message: `Downloading and verifying ${part.path}...` };
-          downloadedBytes += await this.downloadFile(part, destination, controller.signal); this.activity = { ...this.activity, downloadedBytes };
+          downloadedBytes += await this.downloadFile(part, destination, controller.signal, manifest.releaseRef); this.activity = { ...this.activity, downloadedBytes };
         }
         this.activity = { ...this.activity, state: 'verifying', message: 'Assembling and verifying the portable executable...' };
         const stagedExecutable = path.join(stagingRoot, executable.path);

@@ -10,7 +10,7 @@ if (!distributionArgument || !privateKeyArgument || !/^\d+\.\d+\.\d+$/.test(vers
 const distribution = fs.realpathSync(distributionArgument);
 const privateKeyPath = fs.realpathSync(privateKeyArgument);
 const excludedRootFiles = new Set(['.gitattributes', '.outpost-zero-root', 'README.md', 'update-manifest.json']);
-const excludedDistributionRoots = new Set(['nature']);
+const excludedDistributionRoots = new Set(['nature', 'updatechannel']);
 const protectedRoots = new Set([
   'ai', 'backups', 'cache', 'config', 'content', 'data', 'downloads',
   'exports', 'logs', 'modules', 'profile', 'runtimeparts', 'temp', 'updates',
@@ -77,6 +77,7 @@ for (const relativePath of partPaths) {
 const payload = {
   schemaVersion: 1,
   version,
+  releaseRef: `runtime-v${version}`,
   publishedAt: new Date().toISOString(),
   platform: 'win32',
   architecture: 'x64',

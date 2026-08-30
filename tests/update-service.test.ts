@@ -24,6 +24,7 @@ function createServices(fetchImpl: typeof fetch, publicKey: string) {
 }
 
 function signedFixture() {
+  const requestedUrls: string[] = [];
   const readme = Buffer.from('Outpost Zero 0.4.0\n');
   const partOne = Buffer.from('portable-executable-');
   const partTwo = Buffer.from('version-0.4.0');
@@ -31,6 +32,7 @@ function signedFixture() {
   const payload = {
     schemaVersion: 1,
     version: '0.4.0',
+    releaseRef: 'runtime-v0.4.0',
     publishedAt: '2026-08-08T00:00:00.000Z',
     platform: 'win32',
     architecture: 'x64',
@@ -59,6 +61,7 @@ function signedFixture() {
   ]);
   const fetchImpl = (async (input: string | URL | Request) => {
     const url = String(input);
+    requestedUrls.push(url);
     if (url.endsWith('/update-manifest.json')) {
       return new Response(JSON.stringify(envelope), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
@@ -73,6 +76,7 @@ function signedFixture() {
     readme,
     envelope,
     files,
+    requestedUrls,
   };
 }
 
@@ -153,9 +157,29 @@ test('downloads, verifies, and assembles an update only in portable staging', as
   assert.equal(fs.readFileSync(path.join(staging, 'README.txt'), 'utf8'), fixture.readme.toString());
   assert.deepEqual(fs.readFileSync(path.join(staging, 'Outpost Zero.exe')), fixture.executable);
   assert.deepEqual(pending.files.map((file: { path: string }) => file.path).sort(), ['Outpost Zero.exe', 'README.txt']);
+  assert.ok(fixture.requestedUrls.some((url) => url.includes('/runtime-v0.4.0/README.txt')));
   assert.equal(updates.prepareInstall().status, 'preparing');
   assert.equal(updates.activityStatus().state, 'preparing-install');
   database.close();
+});
+
+test('removes an obsolete staged update before downloading a newer signed release', async () => {
+  const fixture = signedFixture();
+  const { root, paths, database, updates } = createServices(fixture.fetchImpl, fixture.publicKey);
+  try {
+    const obsolete = paths.resolve('Updates/Staging/0.3.5'); fs.mkdirSync(obsolete, { recursive: true });
+    fs.writeFileSync(path.join(obsolete, 'resources-app.asar.download'), 'obsolete partial bytes');
+    fs.writeFileSync(paths.resolve('Updates/State/pending-update.json'), JSON.stringify({
+      version: '0.3.5', previousVersion: '0.3.0', createdAt: new Date().toISOString(), stagingDirectory: '0.3.5',
+      files: [{ path: 'resources/app.asar', size: 999, sha256: 'A'.repeat(64) }],
+    }));
+    assert.equal((await updates.check()).availableVersion, '0.4.0');
+    const result = await updates.download();
+    assert.equal(result.status, 'ready', result.message);
+    assert.equal(fs.existsSync(obsolete), false);
+    const pending = JSON.parse(fs.readFileSync(paths.resolve('Updates/State/pending-update.json'), 'utf8'));
+    assert.equal(pending.version, '0.4.0');
+  } finally { database.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('pauses an update on shutdown and resumes its authenticated partial after relaunch', async () => {

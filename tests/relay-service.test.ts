@@ -110,5 +110,6 @@ test('Local Relay remains usable and reports degraded mode when discovery cannot
 test('release signing excludes Git metadata and provides a staged-byte audit', () => {
   const signer = fs.readFileSync('scripts/sign-update-manifest.mjs', 'utf8'); const audit = fs.readFileSync('scripts/verify-update-distribution.mjs', 'utf8');
   assert.match(signer, /'\.gitattributes'/); assert.match(audit, /Staged Git bytes would fail updater verification/);
+  assert.match(signer, /'updatechannel'/); assert.match(signer, /runtime-v\$\{version\}/);
   assert.equal(fs.readFileSync('Releases/GitHubDistribution/.gitattributes', 'utf8').trim(), '* binary');
 });

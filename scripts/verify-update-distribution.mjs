@@ -6,10 +6,17 @@ import { spawn } from 'node:child_process';
 const distribution = path.resolve(process.argv[2] ?? 'Releases/GitHubDistribution');
 const publicKeyPath = path.resolve(process.argv[3] ?? 'ReleaseSigning/public.pem');
 const verifyIndex = process.argv.includes('--git-index');
-const manifest = JSON.parse(fs.readFileSync(path.join(distribution, 'update-manifest.json'), 'utf8'));
+const rootManifestPath = path.join(distribution, 'update-manifest.json');
+const channelManifestPath = path.join(distribution, 'UpdateChannel', 'update-manifest.json');
+const rootManifestBytes = fs.readFileSync(rootManifestPath);
+if (fs.existsSync(channelManifestPath) && !rootManifestBytes.equals(fs.readFileSync(channelManifestPath))) {
+  throw new Error('The update channel manifest does not exactly match the signed root manifest.');
+}
+const manifest = JSON.parse(rootManifestBytes.toString('utf8'));
 const signedBytes = Buffer.from(manifest.signedPayload, 'base64');
 if (!crypto.verify(null, signedBytes, fs.readFileSync(publicKeyPath), Buffer.from(manifest.signature, 'base64'))) throw new Error('Update manifest signature is invalid.');
 const payload = JSON.parse(signedBytes.toString('utf8'));
+if (payload.releaseRef !== `runtime-v${payload.version}`) throw new Error('The signed release reference does not match the manifest version.');
 const files = [...payload.files, ...payload.executable.parts];
 
 function expected(relativePath) {
