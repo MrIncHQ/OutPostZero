@@ -9,6 +9,12 @@ import { DatabaseService } from '../src/main/database-service';
 import { PortablePathService, ROOT_MARKER } from '../src/main/portable-path';
 import { UpdateService, validateRuntimePath } from '../src/main/portable-update-service';
 
+test('verified downloads automatically enter install and restart with a single-instance guard', () => {
+  const main = fs.readFileSync('src/main/main.ts', 'utf8'); const renderer = fs.readFileSync('src/renderer/App.tsx', 'utf8');
+  assert.match(main, /requestSingleInstanceLock/); assert.match(main, /result\.status === 'ready'.*applyVerifiedUpdate/s);
+  assert.match(renderer, /DOWNLOAD AND INSTALL/); assert.match(renderer, /Installing and restarting automatically/);
+});
+
 function hash(content: Buffer): string {
   return crypto.createHash('sha256').update(content).digest('hex').toUpperCase();
 }

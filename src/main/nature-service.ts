@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { Worker } from 'node:worker_threads';
 import { DatabaseSync } from 'node:sqlite';
 import type {
   NatureCatalogEntry, NatureDownloadStatus, NatureOperationResult, NaturePackManifest, NaturePackSummary,
@@ -93,10 +94,14 @@ function validatePack(db: DatabaseSync): NaturePackManifest {
   return manifest;
 }
 
-function hashFile(filePath: string): string {
-  const hash = crypto.createHash('sha256'); const descriptor = fs.openSync(filePath, 'r'); const buffer = Buffer.allocUnsafe(4 * 1024 * 1024);
-  try { let read = 0; do { read = fs.readSync(descriptor, buffer, 0, buffer.length, null); if (read) hash.update(buffer.subarray(0, read)); } while (read); }
-  finally { fs.closeSync(descriptor); }
+export function validateNaturePackFile(filePath: string): NaturePackManifest {
+  const db = new DatabaseSync(filePath, { readOnly: true });
+  try { return validatePack(db); } finally { db.close(); }
+}
+
+async function hashFile(filePath: string): Promise<string> {
+  const hash = crypto.createHash('sha256');
+  for await (const chunk of fs.createReadStream(filePath, { highWaterMark: 4 * 1024 * 1024 })) hash.update(chunk);
   return hash.digest('hex');
 }
 
@@ -104,7 +109,9 @@ export class NatureService {
   private readonly databases = new Map<string, DatabaseSync>();
   private abort?: AbortController;
   private downloadDisposition: 'pause' | 'cancel' | null = null;
+  private installWorker?: Worker;
   private recoveredDownload = false;
+  private recoveredInstallArtifacts = false;
   private download: NatureDownloadStatus = { state: 'idle', downloadedBytes: 0, totalBytes: 0, percent: 0, bytesPerSecond: 0, message: 'No Nature download is active.' };
 
   constructor(private readonly database: DatabaseService, private readonly paths: PortablePathService, private readonly fetchImpl: typeof fetch = fetch,
@@ -141,6 +148,7 @@ export class NatureService {
   }
 
   state(): NatureState {
+    this.cleanInterruptedInstallArtifacts();
     if (!this.recoveredDownload) {
       this.recoveredDownload = true;
       for (const entry of this.catalog()) {
@@ -156,6 +164,20 @@ export class NatureService {
     return { packs: this.installedPacks(), catalog: this.catalog(), sightings: this.database.natureSightings(),
       model: models.length ? { installed: true, name: path.basename(models[0].name, '.onnx'), message: 'A local Nature ID encoder is installed. Runtime validation is required before identification.' }
         : { installed: false, message: 'Install a verified Nature ID model to identify photographs offline.' }, download: { ...this.download } };
+  }
+
+  private cleanInterruptedInstallArtifacts(): void {
+    if (this.recoveredInstallArtifacts) return;
+    this.recoveredInstallArtifacts = true;
+    const packRoot = this.paths.ensureDirectory('Content/Nature/Packs');
+    const stalePack = /^(?:[A-Za-z0-9][A-Za-z0-9._-]*\.oznature\.installing|\.installing-[0-9a-f-]{36}\.oznature)$/i;
+    for (const entry of fs.readdirSync(packRoot, { withFileTypes: true })) {
+      if (entry.isFile() && !entry.isSymbolicLink() && stalePack.test(entry.name)) fs.rmSync(path.join(packRoot, entry.name), { force: true });
+    }
+    const tempRoot = this.paths.ensureDirectory('Temp');
+    for (const entry of fs.readdirSync(tempRoot, { withFileTypes: true })) {
+      if (entry.isDirectory() && !entry.isSymbolicLink() && /^NatureInstall-[0-9a-f-]{36}$/i.test(entry.name)) fs.rmSync(path.join(tempRoot, entry.name), { recursive: true, force: true });
+    }
   }
 
   private openPack(packId: string): DatabaseSync {
@@ -194,6 +216,36 @@ export class NatureService {
     this.database.upsertNaturePack({ ...manifest, installedBytes: fs.statSync(destination).size }, relativePath);
     if (prior && prior.relativePath !== relativePath) fs.rmSync(this.paths.resolve(prior.relativePath), { force: true });
     return { ok: true, message: `${manifest.name} ${manifest.version} is installed and ready offline.`, state: this.state() };
+  }
+
+  async importPackAsync(sourcePath: string): Promise<NatureOperationResult> {
+    const source = path.resolve(sourcePath); const stats = await fs.promises.stat(source);
+    if (!stats.isFile() || stats.size <= 0 || stats.size > MAX_PACK_BYTES) throw new Error('Choose a valid Nature Pack file.');
+    const temporary = this.paths.resolve(`Content/Nature/Packs/.installing-${crypto.randomUUID()}.oznature`);
+    fs.mkdirSync(path.dirname(temporary), { recursive: true });
+    try {
+      const manifest = await new Promise<NaturePackManifest>((resolve, reject) => {
+        const compiledWorker = path.join(__dirname, 'nature-install-worker.js');
+        const workerFile = fs.existsSync(compiledWorker) ? compiledWorker : path.join(__dirname, 'nature-install-worker.ts');
+        const worker = new Worker(workerFile, { workerData: { source, temporary } }); this.installWorker = worker;
+        let settled = false;
+        worker.on('message', (message: { type?: string; manifest?: NaturePackManifest; message?: string }) => {
+          if (message.type === 'progress' && message.message && this.download.state === 'installing') this.download = { ...this.download, message: message.message };
+          if (message.type === 'complete' && message.manifest && !settled) { settled = true; resolve(message.manifest); }
+          if (message.type === 'error' && !settled) { settled = true; reject(new Error(message.message || 'Nature Pack installation failed.')); }
+        });
+        worker.once('error', (error) => { if (!settled) { settled = true; reject(error); } });
+        worker.once('exit', (code) => { if (!settled) { settled = true; reject(new Error(`Nature Pack installer exited with code ${code}.`)); } });
+      });
+      const prior = this.database.naturePackRecords().find((item) => item.manifest.packId === manifest.packId);
+      const destination = this.paths.resolve(`Content/Nature/Packs/${safeId(manifest.packId)}-${safeId(manifest.version)}.oznature`);
+      fs.rmSync(destination, { force: true }); fs.renameSync(temporary, destination);
+      const relativePath = path.relative(this.paths.root, destination).replaceAll('\\', '/');
+      this.databases.get(manifest.packId)?.close(); this.databases.delete(manifest.packId);
+      this.database.upsertNaturePack({ ...manifest, installedBytes: fs.statSync(destination).size }, relativePath);
+      if (prior && prior.relativePath !== relativePath) fs.rmSync(this.paths.resolve(prior.relativePath), { force: true });
+      return { ok: true, message: `${manifest.name} ${manifest.version} is installed and ready offline.`, state: this.state() };
+    } finally { this.installWorker = undefined; fs.rmSync(temporary, { force: true }); }
   }
 
   removePack(packId: string): NatureOperationResult {
@@ -265,18 +317,26 @@ export class NatureService {
   async downloadContent(entryId: string): Promise<NatureOperationResult> {
     const entry = this.catalog().find((item) => item.id === entryId); if (!entry) throw new Error('Nature catalog entry is unavailable.');
     if (this.abort) return { ok: false, message: 'Another Nature download is active.', state: this.state() };
-    const partial = this.paths.resolve(`Downloads/Nature-${safeId(entry.id)}.download`); const existing = fs.existsSync(partial) ? fs.statSync(partial).size : 0;
+    const partial = this.paths.resolve(`Downloads/Nature-${safeId(entry.id)}.download`); let existing = fs.existsSync(partial) ? fs.statSync(partial).size : 0;
+    if (existing > entry.downloadBytes) { fs.truncateSync(partial, 0); existing = 0; }
     const disk = fs.statfsSync(this.paths.root); if (disk.bavail * disk.bsize < Math.max(0, entry.downloadBytes - existing) + entry.installedBytes) throw new Error('Not enough free space for this Nature content.');
     this.abort = new AbortController(); this.downloadDisposition = null; const started = Date.now(); this.download = { state: 'downloading', entryId, title: entry.name, downloadedBytes: existing, totalBytes: entry.downloadBytes, percent: entry.downloadBytes ? existing / entry.downloadBytes * 100 : 0, bytesPerSecond: 0, message: existing ? 'Resuming Nature download...' : 'Downloading Nature content...' };
     try {
-      const response = await this.fetchImpl(entry.url, { signal: this.abort.signal, headers: existing ? { Range: `bytes=${existing}-` } : undefined });
-      if (!response.ok || !response.body) throw new Error(`Nature download failed with HTTP ${response.status}.`);
-      const append = existing > 0 && response.status === 206; if (!append && existing) fs.truncateSync(partial, 0);
-      const writer = fs.createWriteStream(partial, { flags: append ? 'a' : 'w' }); const reader = response.body.getReader(); let downloaded = append ? existing : 0;
-      try { while (true) { const chunk = await reader.read(); if (chunk.done) break; if (!chunk.value?.length) continue; await new Promise<void>((resolve, reject) => writer.write(Buffer.from(chunk.value), (error) => error ? reject(error) : resolve())); downloaded += chunk.value.length; const seconds = Math.max(.1, (Date.now() - started) / 1000); this.download = { ...this.download, downloadedBytes: downloaded, percent: entry.downloadBytes ? Math.min(100, downloaded / entry.downloadBytes * 100) : 0, bytesPerSecond: Math.max(0, (downloaded - (append ? existing : 0)) / seconds) }; } }
-      finally { await new Promise<void>((resolve) => writer.end(resolve)); }
+      if (existing < entry.downloadBytes) {
+        let response = await this.fetchImpl(entry.url, { signal: this.abort.signal, headers: existing ? { Range: `bytes=${existing}-` } : undefined });
+        if (response.status === 416 && existing) {
+          fs.truncateSync(partial, 0); existing = 0;
+          this.download = { ...this.download, downloadedBytes: 0, percent: 0, message: 'The server could not resume this file. Restarting its download safely...' };
+          response = await this.fetchImpl(entry.url, { signal: this.abort.signal });
+        }
+        if (!response.ok || !response.body) throw new Error(`Nature download failed with HTTP ${response.status}.`);
+        const append = existing > 0 && response.status === 206; if (!append && existing) { fs.truncateSync(partial, 0); existing = 0; }
+        const writer = fs.createWriteStream(partial, { flags: append ? 'a' : 'w' }); const reader = response.body.getReader(); let downloaded = append ? existing : 0;
+        try { while (true) { const chunk = await reader.read(); if (chunk.done) break; if (!chunk.value?.length) continue; await new Promise<void>((resolve, reject) => writer.write(Buffer.from(chunk.value), (error) => error ? reject(error) : resolve())); downloaded += chunk.value.length; const seconds = Math.max(.1, (Date.now() - started) / 1000); this.download = { ...this.download, downloadedBytes: downloaded, percent: entry.downloadBytes ? Math.min(100, downloaded / entry.downloadBytes * 100) : 0, bytesPerSecond: Math.max(0, downloaded / seconds) }; } }
+        finally { await new Promise<void>((resolve) => writer.end(resolve)); }
+      } else this.download = { ...this.download, message: 'Completed Nature download found. Verifying it now...' };
       this.download = { ...this.download, state: 'verifying', percent: 100, message: 'Verifying SHA-256 checksum...' };
-      if (hashFile(partial).toLowerCase() !== entry.sha256.toLowerCase()) throw new Error('Nature download failed SHA-256 verification.');
+      if ((await hashFile(partial)).toLowerCase() !== entry.sha256.toLowerCase()) throw new Error('Nature download failed SHA-256 verification.');
       this.download = { ...this.download, state: 'installing', message: 'Installing verified Nature content...' };
       if (entry.kind === 'pack') {
         if (entry.archive === 'zip') {
@@ -284,9 +344,9 @@ export class NatureService {
           try {
             const listing: string[] = []; await new Promise<void>((resolve, reject) => { const child = spawn('tar', ['-tf', partial], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }); let output = ''; let error = ''; child.stdout.on('data', (chunk) => { output += String(chunk); }); child.stderr.on('data', (chunk) => { error += String(chunk); }); child.once('error', reject); child.once('exit', (code) => { if (code !== 0) reject(new Error(error.trim() || 'Nature archive could not be inspected.')); else { listing.push(...output.split(/\r?\n/).filter(Boolean)); resolve(); } }); });
             if (listing.length !== 1 || !/^[A-Za-z0-9][A-Za-z0-9._-]*\.oznature$/i.test(listing[0])) throw new Error('Nature archive must contain exactly one safe .oznature file.');
-            await run('tar', ['-xf', partial, '-C', staging, listing[0]], staging); this.importPack(path.join(staging, listing[0]));
+            await run('tar', ['-xf', partial, '-C', staging, listing[0]], staging); await this.importPackAsync(path.join(staging, listing[0]));
           } finally { fs.rmSync(staging, { recursive: true, force: true }); }
-        } else this.importPack(partial);
+        } else await this.importPackAsync(partial);
       } else { const target = this.paths.resolve(`AI/Nature/Models/${safeId(entry.id)}-${safeId(entry.version)}.onnx`); fs.copyFileSync(partial, `${target}.installing`); fs.renameSync(`${target}.installing`, target); }
       fs.unlinkSync(partial); this.download = { ...this.download, state: 'complete', message: `${entry.name} is installed and ready offline.` };
       return { ok: true, message: this.download.message, state: this.state() };
@@ -303,5 +363,5 @@ export class NatureService {
   cancelDownload(): NatureDownloadStatus { if (this.abort) { this.downloadDisposition = 'cancel'; this.download = { ...this.download, state: 'cancelled', message: 'Cancelling Nature download...' }; this.abort.abort(); } else if (this.download.entryId) { fs.rmSync(this.paths.resolve(`Downloads/Nature-${safeId(this.download.entryId)}.download`), { force: true }); this.download = { ...this.download, state: 'cancelled', downloadedBytes: 0, percent: 0, message: 'Nature download cancelled and partial data removed.' }; } return { ...this.download }; }
   downloadStatus(): NatureDownloadStatus { return { ...this.download }; }
   hasActiveDownload(): boolean { return Boolean(this.abort); }
-  close(): void { this.abort?.abort(); for (const db of this.databases.values()) db.close(); this.databases.clear(); }
+  close(): void { this.abort?.abort(); void this.installWorker?.terminate(); this.installWorker = undefined; for (const db of this.databases.values()) db.close(); this.databases.clear(); }
 }

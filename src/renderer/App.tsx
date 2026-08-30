@@ -643,8 +643,8 @@ function UpdatesView({ data }: { data: BootstrapData }) {
     setBusy('downloading');
     const downloadResult = await window.outpost.downloadUpdate();
     setReady(downloadResult.status === 'ready');
-    setResult(downloadResult.downloadedBytes ? `${downloadResult.message} Downloaded ${formatBytes(downloadResult.downloadedBytes)}.` : downloadResult.message);
-    setBusy(null);
+    setResult(downloadResult.status === 'ready' ? 'Update verified. Installing and restarting automatically; do not remove the drive.' : downloadResult.downloadedBytes ? `${downloadResult.message} Downloaded ${formatBytes(downloadResult.downloadedBytes)}.` : downloadResult.message);
+    setBusy(downloadResult.status === 'ready' ? 'applying' : null);
     acceptActivity(await window.outpost.getUpdateActivity());
   }
   async function apply() {
@@ -679,7 +679,7 @@ function UpdatesView({ data }: { data: BootstrapData }) {
       </div>
       <div className="update-actions">
         <button className="primary-button" onClick={() => void check()} disabled={busy !== null}>{busy === 'checking' ? 'CHECKING...' : 'CHECK FOR UPDATES'}</button>
-        {available && !ready && <button className="secondary-button" onClick={() => void download()} disabled={busy !== null}>{activity.state === 'verifying' ? 'VERIFYING UPDATE...' : busy === 'downloading' ? 'DOWNLOADING UPDATE...' : activity.state === 'paused' ? 'RESUME UPDATE' : 'DOWNLOAD UPDATE'}</button>}
+        {available && !ready && <button className="secondary-button" onClick={() => void download()} disabled={busy !== null}>{activity.state === 'verifying' ? 'VERIFYING UPDATE...' : busy === 'downloading' ? 'DOWNLOADING UPDATE...' : activity.state === 'paused' ? 'RESUME UPDATE' : 'DOWNLOAD AND INSTALL'}</button>}
         {ready && <button className="primary-button" onClick={() => void apply()} disabled={busy !== null}>{busy === 'applying' ? 'PREPARING INSTALL...' : 'INSTALL AND RESTART'}</button>}
       </div>
       {(activity.state === 'downloading' || activity.state === 'verifying' || activity.state === 'preparing-install') && <div className="update-activity"><div><b>{activity.state === 'preparing-install' ? 'INSTALL PREPARATION ACTIVE' : activity.state === 'verifying' ? 'VERIFYING UPDATE' : 'UPDATE DOWNLOAD ACTIVE'}</b><span>{activity.version ? `v${activity.version}` : ''}</span></div><p>{activity.message}</p>{activity.downloadedBytes > 0 && activity.state !== 'preparing-install' && <small>{formatBytes(activity.downloadedBytes)} downloaded and authenticated</small>}</div>}

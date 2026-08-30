@@ -50,6 +50,7 @@ app.setPath('logs', portablePaths.ensureDirectory('Logs'));
 app.setPath('temp', layout.Temp);
 app.commandLine.appendSwitch('disk-cache-dir', portablePaths.ensureDirectory('Cache/Chromium/DiskCache'));
 app.commandLine.appendSwitch('disable-component-update');
+if (!app.requestSingleInstanceLock({ portableRoot: root })) app.exit(0);
 
 const sessionState = new SessionState(layout['Data/State']);
 const profileService = new ProfileService(portablePaths);
@@ -83,6 +84,7 @@ const unifiedSearchService = new UnifiedSearchService(databaseService, documentS
 let isPrepared = false;
 let shutdownInProgress = false;
 let applyUpdatePromise: Promise<UpdateApplyResult> | null = null;
+let mainWindow: BrowserWindow | null = null;
 
 function modules(): ModuleSummary[] {
   return [kiwixService.summary(), remoteIdService.summary(), aiService.summary(), ...moduleService.modules()];
@@ -128,6 +130,8 @@ function createWindow(): void {
       sandbox: true,
     },
   });
+  mainWindow = window;
+  window.once('closed', () => { if (mainWindow === window) mainWindow = null; });
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event, url) => {
@@ -549,7 +553,7 @@ ipcMain.handle('outpost:refresh-nature-catalog', () => natureService.refreshCata
 ipcMain.handle('outpost:import-nature-pack', async () => {
   const selection = await dialog.showOpenDialog({ title: 'Install an offline Nature Pack', properties: ['openFile'], filters: [{ name: 'Outpost Nature Pack', extensions: ['oznature'] }] });
   if (selection.canceled || !selection.filePaths[0]) return { ok: false, message: 'Nature Pack import cancelled.', state: natureService.state() };
-  return natureService.importPack(selection.filePaths[0]);
+  return natureService.importPackAsync(selection.filePaths[0]);
 });
 ipcMain.handle('outpost:remove-nature-pack', (_event, packId: unknown) => {
   if (typeof packId !== 'string') throw new Error('Nature Pack identifier is invalid.'); return natureService.removePack(packId);
@@ -582,8 +586,7 @@ ipcMain.handle('outpost:delete-nature-sighting', (_event, id: unknown) => {
 });
 ipcMain.handle('outpost:check-updates', () => updateService.check());
 ipcMain.handle('outpost:get-update-activity', () => updateService.activityStatus());
-ipcMain.handle('outpost:download-update', () => updateService.download());
-ipcMain.handle('outpost:apply-update', async () => {
+async function applyVerifiedUpdate(): Promise<UpdateApplyResult> {
   if (applyUpdatePromise) return applyUpdatePromise;
   const preparation = updateService.prepareInstall();
   if (preparation.status !== 'preparing') return preparation;
@@ -613,7 +616,13 @@ ipcMain.handle('outpost:apply-update', async () => {
   const result = await operation;
   if (result.status !== 'launching') applyUpdatePromise = null;
   return result;
+}
+ipcMain.handle('outpost:download-update', async () => {
+  const result = await updateService.download();
+  if (result.status === 'ready') setTimeout(() => { void applyVerifiedUpdate(); }, 100);
+  return result;
 });
+ipcMain.handle('outpost:apply-update', () => applyVerifiedUpdate());
 ipcMain.handle('outpost:prepare-removal', async () => {
   natureService.close();
   await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), remoteIdService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
@@ -673,6 +682,11 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => app.quit());
+app.on('second-instance', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show(); mainWindow.focus();
+});
 app.on('before-quit', (event) => {
   if ((moduleService.hasRunningModules() || kiwixService.hasRunningProcess() || remoteIdService.hasActiveConnection() || aiService.hasRunningProcess() || mapService.hasActiveDownload() || natureService.hasActiveDownload() || updateService.hasActiveDownload() || relayService.isRunning() || ocrService.hasActiveJobs()) && !shutdownInProgress) {
     event.preventDefault();

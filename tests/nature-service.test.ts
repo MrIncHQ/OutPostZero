@@ -51,9 +51,30 @@ test('imports a self-contained Nature Pack and serves search, details, images, a
   service.close(); database.close(); fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('installs a Nature Pack in a worker without blocking the application event loop', async () => {
+  const { root, pack, database, service } = fixture(); let ticks = 0;
+  const heartbeat = setInterval(() => { ticks += 1; }, 1);
+  try {
+    const imported = await service.importPackAsync(pack);
+    assert.equal(imported.ok, true); assert.equal(imported.state.packs[0]?.packId, 'missouri-test'); assert.ok(ticks > 0);
+  } finally { clearInterval(heartbeat); service.close(); database.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('rejects malformed files instead of registering them as Nature Packs', () => {
   const { root, database, service } = fixture(); const broken = path.join(root, 'broken.oznature'); fs.writeFileSync(broken, 'not sqlite');
   assert.throws(() => service.importPack(broken)); assert.equal(service.state().packs.length, 0);
+  service.close(); database.close(); fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('removes only abandoned Nature installer artifacts while preserving the resumable download', () => {
+  const { root, database, service } = fixture();
+  const packs = path.join(root, 'Content', 'Nature', 'Packs'); const temp = path.join(root, 'Temp'); const downloads = path.join(root, 'Downloads');
+  fs.writeFileSync(path.join(packs, 'global-taxonomy.oznature.installing'), 'stale'); fs.writeFileSync(path.join(packs, 'operator-notes.txt'), 'keep');
+  fs.mkdirSync(path.join(temp, 'NatureInstall-04d4875d-b821-49cb-9eb2-a7153fbfbd21')); fs.writeFileSync(path.join(downloads, 'Nature-global-taxonomy.download'), 'resume');
+  service.state();
+  assert.equal(fs.existsSync(path.join(packs, 'global-taxonomy.oznature.installing')), false);
+  assert.equal(fs.existsSync(path.join(temp, 'NatureInstall-04d4875d-b821-49cb-9eb2-a7153fbfbd21')), false);
+  assert.equal(fs.existsSync(path.join(packs, 'operator-notes.txt')), true); assert.equal(fs.existsSync(path.join(downloads, 'Nature-global-taxonomy.download')), true);
   service.close(); database.close(); fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -66,12 +87,15 @@ test('loads a signed online catalog and installs a verified compressed pack for 
     sha256: crypto.createHash('sha256').update(bytes).digest('hex'), downloadBytes: bytes.length, installedBytes: fs.statSync(pack).size, archive: 'zip' as const, region: 'Missouri', description: 'Verified fixture pack' };
   const payload = Buffer.from(JSON.stringify({ schemaVersion: 1, publishedAt: '2026-08-29T00:00:00.000Z', entries: [entry] }));
   const envelope = { schemaVersion: 1, signedPayload: payload.toString('base64'), signature: crypto.sign(null, payload, keys.privateKey).toString('base64') };
+  let contentFetches = 0;
   const fetchImpl = async (url: string | URL | Request) => String(url).includes('catalog')
     ? new Response(JSON.stringify(envelope), { status: 200, headers: { 'Content-Type': 'application/json' } })
-    : new Response(bytes, { status: 200 });
+    : (contentFetches += 1, new Response(bytes, { status: 200 }));
   const service = new NatureService(database, new PortablePathService(root), fetchImpl as typeof fetch, keys.publicKey.export({ type: 'spki', format: 'pem' }).toString(), 'https://example.invalid/catalog.json');
   const refreshed = await service.refreshCatalog(); assert.equal(refreshed.ok, true); assert.equal(refreshed.state.catalog.length, 1);
+  fs.writeFileSync(path.join(root, 'Downloads', 'Nature-missouri-test.download'), bytes);
   const installed = await service.downloadContent(entry.id); assert.equal(installed.ok, true); assert.equal(installed.state.packs[0]?.packId, entry.id); assert.equal(service.search('black bear')[0]?.commonName, 'American black bear');
+  assert.equal(contentFetches, 0, 'an exact completed partial is verified and installed without an invalid range request');
   service.close(); database.close(); fs.rmSync(root, { recursive: true, force: true });
 });
 

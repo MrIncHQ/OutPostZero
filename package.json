@@ -1,6 +1,6 @@
 {
   "name": "outpost-zero",
-  "version": "0.15.5",
+  "version": "0.15.6",
   "private": true,
   "description": "Portable offline knowledge, tools, and communication platform",
   "main": "dist/main/main/main.js",
@@ -53,6 +53,7 @@
     "npmRebuild": false,
     "asar": true,
     "asarUnpack": [
+      "dist/main/main/nature-install-worker.js",
       "node_modules/@napi-rs/canvas/**/*",
       "node_modules/@napi-rs/canvas-win32-x64-msvc/**/*",
       "node_modules/tesseract.js/**/*",
