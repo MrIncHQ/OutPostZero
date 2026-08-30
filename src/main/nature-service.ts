@@ -162,7 +162,9 @@ export class NatureService {
       }
     }
     const models = fs.readdirSync(this.paths.ensureDirectory('AI/Nature/Models'), { withFileTypes: true }).filter((entry) => entry.isFile() && entry.name.endsWith('.onnx'));
-    return { packs: this.installedPacks(), catalog: this.catalog(), sightings: this.database.natureSightings(),
+    let freeBytes: number | null = null;
+    try { const disk = fs.statfsSync(this.paths.root); freeBytes = disk.bavail * disk.bsize; } catch { /* Removable-drive capacity may be temporarily unavailable. */ }
+    return { packs: this.installedPacks(), catalog: this.catalog(), freeBytes, sightings: this.database.natureSightings(),
       model: models.length ? { installed: true, name: path.basename(models[0].name, '.onnx'), message: 'A local Nature ID encoder is installed. Runtime validation is required before identification.' }
         : { installed: false, message: 'Install a verified Nature ID model to identify photographs offline.' }, download: { ...this.download } };
   }

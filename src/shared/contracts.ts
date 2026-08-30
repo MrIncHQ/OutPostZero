@@ -658,6 +658,7 @@ export interface NatureDownloadStatus {
 export interface NatureState {
   packs: NaturePackSummary[];
   catalog: NatureCatalogEntry[];
+  freeBytes: number | null;
   sightings: NatureSighting[];
   model: { installed: boolean; name?: string; version?: string; provider?: 'cpu' | 'directml'; message: string };
   download: NatureDownloadStatus;

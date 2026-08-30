@@ -38,6 +38,7 @@ test('imports a self-contained Nature Pack and serves search, details, images, a
   const { root, pack, database, service } = fixture();
   const imported = service.importPack(pack);
   assert.equal(imported.ok, true); assert.equal(imported.state.packs.length, 1);
+  assert.equal(typeof imported.state.freeBytes, 'number');
   assert.equal((await service.search('black bear'))[0]?.scientificName, 'Ursus americanus');
   assert.equal((await service.search('Euarctos'))[0]?.commonName, 'American black bear');
   assert.equal((await service.browse('Mammals')).length, 1);
@@ -108,4 +109,7 @@ test('Nature stays one primary navigation item with its tools contained as inter
   assert.match(app, /result\.source === 'nature'/);
   assert.ok(view.indexOf('getNatureState()') < view.indexOf('refreshNatureCatalog()'), 'installed state renders before an online catalog refresh');
   assert.match(view, /showTransfer = transferring \|\| \['paused','error'\]/, 'completed downloads do not remain as active transfer cards');
+  assert.match(view, /freeAfter = state\.freeBytes === null/, 'downloads show projected remaining drive space');
+  assert.match(view, /peakRequired = entry\.downloadBytes \+ entry\.installedBytes/, 'downloads account for temporary install working space');
+  assert.match(view, /filter\(\(entry\) => installed\.get\(entry\.id\)\?\.version !== entry\.version\)/, 'current installed packs are not repeated as downloads');
 });
