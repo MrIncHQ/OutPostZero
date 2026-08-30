@@ -106,10 +106,12 @@ async function hashFile(filePath: string): Promise<string> {
 }
 
 export class NatureService {
-  private readonly databases = new Map<string, DatabaseSync>();
   private abort?: AbortController;
   private downloadDisposition: 'pause' | 'cancel' | null = null;
   private installWorker?: Worker;
+  private queryWorker?: Worker;
+  private querySequence = 0;
+  private readonly queryRequests = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   private recoveredDownload = false;
   private recoveredInstallArtifacts = false;
   private download: NatureDownloadStatus = { state: 'idle', downloadedBytes: 0, totalBytes: 0, percent: 0, bytesPerSecond: 0, message: 'No Nature download is active.' };
@@ -148,7 +150,6 @@ export class NatureService {
   }
 
   state(): NatureState {
-    this.cleanInterruptedInstallArtifacts();
     if (!this.recoveredDownload) {
       this.recoveredDownload = true;
       for (const entry of this.catalog()) {
@@ -166,35 +167,59 @@ export class NatureService {
         : { installed: false, message: 'Install a verified Nature ID model to identify photographs offline.' }, download: { ...this.download } };
   }
 
-  private cleanInterruptedInstallArtifacts(): void {
+  private startMaintenance(): void {
     if (this.recoveredInstallArtifacts) return;
     this.recoveredInstallArtifacts = true;
+    void this.cleanInterruptedInstallArtifacts().catch(() => undefined);
+  }
+
+  private async cleanInterruptedInstallArtifacts(): Promise<void> {
     const packRoot = this.paths.ensureDirectory('Content/Nature/Packs');
     const stalePack = /^(?:[A-Za-z0-9][A-Za-z0-9._-]*\.oznature\.installing|\.installing-[0-9a-f-]{36}\.oznature)$/i;
-    for (const entry of fs.readdirSync(packRoot, { withFileTypes: true })) {
-      if (entry.isFile() && !entry.isSymbolicLink() && stalePack.test(entry.name)) fs.rmSync(path.join(packRoot, entry.name), { force: true });
+    for (const entry of await fs.promises.readdir(packRoot, { withFileTypes: true })) {
+      if (entry.isFile() && !entry.isSymbolicLink() && stalePack.test(entry.name)) await fs.promises.rm(path.join(packRoot, entry.name), { force: true });
     }
     const tempRoot = this.paths.ensureDirectory('Temp');
-    for (const entry of fs.readdirSync(tempRoot, { withFileTypes: true })) {
-      if (entry.isDirectory() && !entry.isSymbolicLink() && /^NatureInstall-[0-9a-f-]{36}$/i.test(entry.name)) fs.rmSync(path.join(tempRoot, entry.name), { recursive: true, force: true });
+    for (const entry of await fs.promises.readdir(tempRoot, { withFileTypes: true })) {
+      if (entry.isDirectory() && !entry.isSymbolicLink() && /^NatureInstall-[0-9a-f-]{36}$/i.test(entry.name)) await fs.promises.rm(path.join(tempRoot, entry.name), { recursive: true, force: true });
     }
   }
 
-  private openPack(packId: string): DatabaseSync {
-    safeId(packId); let pack = this.databases.get(packId); if (pack) return pack;
-    const record = this.database.naturePackRecords().find((item) => item.manifest.packId === packId);
-    if (!record) throw new Error('Nature Pack is not installed.');
-    pack = new DatabaseSync(this.paths.resolve(record.relativePath), { readOnly: true }); validatePack(pack); this.databases.set(packId, pack); return pack;
+  private packInput(packId: string): { packId: string; filePath: string } {
+    safeId(packId); const record = this.database.naturePackRecords().find((item) => item.manifest.packId === packId);
+    if (!record || !fs.existsSync(this.paths.resolve(record.relativePath))) throw new Error('Nature Pack is not installed.');
+    return { packId, filePath: this.paths.resolve(record.relativePath) };
+  }
+
+  private selectedPackInputs(packIds?: string[]): Array<{ packId: string; filePath: string }> {
+    const selected = new Set(packIds?.map(safeId));
+    return this.installedPacks().filter((pack) => !selected.size || selected.has(pack.packId)).map((pack) => this.packInput(pack.packId));
+  }
+
+  private workerRequest<T>(message: Record<string, unknown>): Promise<T> {
+    if (!this.queryWorker) {
+      const compiledWorker = path.join(__dirname, 'nature-query-worker.js');
+      const workerFile = fs.existsSync(compiledWorker) ? compiledWorker : path.join(__dirname, 'nature-query-worker.ts');
+      const worker = new Worker(workerFile); this.queryWorker = worker;
+      worker.on('message', (response: { id?: number; result?: unknown; error?: string }) => {
+        if (typeof response.id !== 'number') return; const request = this.queryRequests.get(response.id); if (!request) return;
+        this.queryRequests.delete(response.id); if (response.error) request.reject(new Error(response.error)); else request.resolve(response.result);
+      });
+      const fail = (error: Error) => {
+        if (this.queryWorker === worker) this.queryWorker = undefined;
+        for (const request of this.queryRequests.values()) request.reject(error); this.queryRequests.clear();
+      };
+      worker.once('error', fail); worker.once('exit', (code) => { if (code && this.queryWorker === worker) fail(new Error(`Nature database worker exited with code ${code}.`)); });
+    }
+    const id = ++this.querySequence;
+    return new Promise<T>((resolve, reject) => { this.queryRequests.set(id, { resolve: resolve as (value: unknown) => void, reject }); this.queryWorker!.postMessage({ id, ...message }); });
   }
 
   reconcile(): NatureState {
-    const root = this.paths.ensureDirectory('Content/Nature/Packs');
-    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.oznature')) continue;
-      const relativePath = path.relative(this.paths.root, path.join(root, entry.name)).replaceAll('\\', '/');
-      try { const db = new DatabaseSync(path.join(root, entry.name), { readOnly: true }); try { const manifest = validatePack(db); this.database.upsertNaturePack({ ...manifest, installedBytes: fs.statSync(path.join(root, entry.name)).size }, relativePath); } finally { db.close(); } }
-      catch { /* Invalid files remain untouched so the operator can inspect or remove them. */ }
-    }
+    // Packs are fully validated and registered during installation. Page entry only
+    // reconciles missing files; repeating PRAGMA integrity_check on multi-GB packs
+    // would block Electron's main process and make Windows report Not Responding.
+    this.startMaintenance();
     for (const record of this.database.naturePackRecords()) if (!fs.existsSync(this.paths.resolve(record.relativePath))) this.database.removeNaturePackRecord(record.manifest.packId);
     return this.state();
   }
@@ -212,7 +237,6 @@ export class NatureService {
     try { validatePack(copied); } finally { copied.close(); }
     fs.rmSync(destination, { force: true }); fs.renameSync(temporary, destination);
     const relativePath = path.relative(this.paths.root, destination).replaceAll('\\', '/');
-    this.databases.get(manifest.packId)?.close(); this.databases.delete(manifest.packId);
     this.database.upsertNaturePack({ ...manifest, installedBytes: fs.statSync(destination).size }, relativePath);
     if (prior && prior.relativePath !== relativePath) fs.rmSync(this.paths.resolve(prior.relativePath), { force: true });
     return { ok: true, message: `${manifest.name} ${manifest.version} is installed and ready offline.`, state: this.state() };
@@ -239,70 +263,43 @@ export class NatureService {
       });
       const prior = this.database.naturePackRecords().find((item) => item.manifest.packId === manifest.packId);
       const destination = this.paths.resolve(`Content/Nature/Packs/${safeId(manifest.packId)}-${safeId(manifest.version)}.oznature`);
-      fs.rmSync(destination, { force: true }); fs.renameSync(temporary, destination);
+      await this.closeQueryPack(manifest.packId); fs.rmSync(destination, { force: true }); fs.renameSync(temporary, destination);
       const relativePath = path.relative(this.paths.root, destination).replaceAll('\\', '/');
-      this.databases.get(manifest.packId)?.close(); this.databases.delete(manifest.packId);
       this.database.upsertNaturePack({ ...manifest, installedBytes: fs.statSync(destination).size }, relativePath);
       if (prior && prior.relativePath !== relativePath) fs.rmSync(this.paths.resolve(prior.relativePath), { force: true });
       return { ok: true, message: `${manifest.name} ${manifest.version} is installed and ready offline.`, state: this.state() };
     } finally { this.installWorker = undefined; fs.rmSync(temporary, { force: true }); }
   }
 
-  removePack(packId: string): NatureOperationResult {
+  async removePack(packId: string): Promise<NatureOperationResult> {
     safeId(packId); const record = this.database.naturePackRecords().find((item) => item.manifest.packId === packId);
     if (!record) return { ok: false, message: 'Nature Pack is not installed.', state: this.state() };
-    this.databases.get(packId)?.close(); this.databases.delete(packId); fs.unlinkSync(this.paths.resolve(record.relativePath)); this.database.removeNaturePackRecord(packId);
+    await this.closeQueryPack(packId); fs.unlinkSync(this.paths.resolve(record.relativePath)); this.database.removeNaturePackRecord(packId);
     return { ok: true, message: `${record.manifest.name} was removed. Saved sightings were kept.`, state: this.state() };
   }
 
-  search(query: string, packIds?: string[], limit = 80): NatureSpeciesSummary[] {
+  async search(query: string, packIds?: string[], limit = 80): Promise<NatureSpeciesSummary[]> {
     const expression = searchExpression(query); if (!expression) return [];
-    return this.queryPacks(packIds, (packId, db) => (db.prepare(`SELECT s.id, s.scientific_name, s.common_name, s.rank, s.category,
-      s.family, s.regional_status, (SELECT id FROM species_images WHERE species_id = s.id ORDER BY sort_order LIMIT 1) image_id
-      FROM species_fts f JOIN species s ON s.id = f.species_id WHERE species_fts MATCH ? ORDER BY CASE WHEN lower(s.common_name)=lower(?) OR lower(s.scientific_name)=lower(?) THEN 0 ELSE 1 END,bm25(species_fts) LIMIT ?`).all(expression, query.trim(), query.trim(), limit) as Array<Record<string, unknown>>)
-      .map((row) => this.speciesSummary(packId, row))).slice(0, limit);
+    return this.workerRequest<NatureSpeciesSummary[]>({ operation: 'search', packs: this.selectedPackInputs(packIds), query: expression, category: query.trim(), limit });
   }
 
-  browse(category?: string, packIds?: string[], limit = 200): NatureSpeciesSummary[] {
-    return this.queryPacks(packIds, (packId, db) => (db.prepare(`SELECT s.id, s.scientific_name, s.common_name, s.rank, s.category,
-      s.family, s.regional_status, (SELECT id FROM species_images WHERE species_id = s.id ORDER BY sort_order LIMIT 1) image_id
-      FROM species s WHERE (? = '' OR lower(s.category) = lower(?)) ORDER BY s.common_name, s.scientific_name LIMIT ?`).all(category ?? '', category ?? '', limit) as Array<Record<string, unknown>>)
-      .map((row) => this.speciesSummary(packId, row))).slice(0, limit);
+  async browse(category?: string, packIds?: string[], limit = 200): Promise<NatureSpeciesSummary[]> {
+    return this.workerRequest<NatureSpeciesSummary[]>({ operation: 'browse', packs: this.selectedPackInputs(packIds), category: category ?? '', limit });
   }
 
-  private queryPacks(packIds: string[] | undefined, query: (packId: string, db: DatabaseSync) => NatureSpeciesSummary[]): NatureSpeciesSummary[] {
-    const selected = new Set(packIds?.map(safeId)); const output: NatureSpeciesSummary[] = [];
-    for (const pack of this.installedPacks()) if (!selected.size || selected.has(pack.packId)) output.push(...query(pack.packId, this.openPack(pack.packId)));
-    return output;
+  private async closeQueryPack(packId: string): Promise<void> {
+    if (!this.queryWorker) return;
+    await this.workerRequest<boolean>({ operation: 'close-pack', packId });
   }
 
-  private speciesSummary(packId: string, row: Record<string, unknown>): NatureSpeciesSummary {
-    return { id: String(row.id), packId, scientificName: String(row.scientific_name), commonName: String(row.common_name || row.scientific_name),
-      rank: String(row.rank), category: String(row.category), family: row.family ? String(row.family) : undefined,
-      imageId: row.image_id ? String(row.image_id) : undefined, regionalStatus: row.regional_status ? String(row.regional_status) : undefined };
+  async species(packId: string, speciesId: string): Promise<NatureSpeciesDetails> {
+    safeId(packId); if (!/^[\w.:-]{1,160}$/u.test(speciesId)) throw new Error('Species identifier is invalid.');
+    return this.workerRequest<NatureSpeciesDetails>({ operation: 'species', pack: this.packInput(packId), speciesId });
   }
 
-  species(packId: string, speciesId: string): NatureSpeciesDetails {
-    safeId(packId); if (!/^[\w.:-]{1,160}$/u.test(speciesId)) throw new Error('Species identifier is invalid.'); const db = this.openPack(packId);
-    const row = db.prepare(`SELECT *, (SELECT id FROM species_images WHERE species_id = species.id ORDER BY sort_order LIMIT 1) image_id FROM species WHERE id = ?`).get(speciesId) as Record<string, unknown> | undefined;
-    if (!row) throw new Error('Species is not present in that Nature Pack.');
-    const names = db.prepare('SELECT name, kind FROM species_names WHERE species_id = ? ORDER BY preferred DESC, name').all(speciesId) as Array<{ name: string; kind: string }>;
-    const distribution = (db.prepare('SELECT area FROM species_distribution WHERE species_id = ? ORDER BY area').all(speciesId) as Array<{ area: string }>).map((item) => item.area);
-    const images = (db.prepare('SELECT id, mime_type, creator, source_url, license, license_url FROM species_images WHERE species_id = ? ORDER BY sort_order').all(speciesId) as Array<Record<string, unknown>>).map((item) => ({
-      id: String(item.id), mimeType: String(item.mime_type), creator: String(item.creator), sourceUrl: String(item.source_url), license: String(item.license), licenseUrl: String(item.license_url),
-      readerUrl: `outpost-nature://image/${encodeURIComponent(packId)}/${encodeURIComponent(String(item.id))}`,
-    }));
-    return { ...this.speciesSummary(packId, row), taxonomy: Object.fromEntries(['kingdom', 'phylum', 'class', 'order_name', 'family', 'genus'].flatMap((key) => row[key] ? [[key === 'order_name' ? 'order' : key, String(row[key])]] : [])),
-      synonyms: names.filter((item) => item.kind === 'synonym').map((item) => item.name), commonNames: names.filter((item) => item.kind === 'common').map((item) => item.name),
-      distribution, sourceTaxonId: row.source_taxon_id ? String(row.source_taxon_id) : undefined, sourceName: String(row.source_name || 'Catalogue of Life'),
-      sourceUrl: row.source_url ? String(row.source_url) : undefined, images };
-  }
-
-  image(packId: string, imageId: string): { bytes: Uint8Array; mimeType: string } {
+  async image(packId: string, imageId: string): Promise<{ bytes: Uint8Array; mimeType: string }> {
     if (!/^[\w.:-]{1,160}$/u.test(imageId)) throw new Error('Nature image identifier is invalid.');
-    const row = this.openPack(packId).prepare('SELECT data, mime_type FROM species_images WHERE id = ?').get(imageId) as { data: Uint8Array; mime_type: string } | undefined;
-    if (!row?.data || !String(row.mime_type).startsWith('image/')) throw new Error('Nature image is unavailable.');
-    return { bytes: Uint8Array.from(row.data), mimeType: row.mime_type };
+    return this.workerRequest<{ bytes: Uint8Array; mimeType: string }>({ operation: 'image', pack: this.packInput(packId), imageId });
   }
 
   saveSighting(input: NatureSightingInput): NatureState {
@@ -363,5 +360,5 @@ export class NatureService {
   cancelDownload(): NatureDownloadStatus { if (this.abort) { this.downloadDisposition = 'cancel'; this.download = { ...this.download, state: 'cancelled', message: 'Cancelling Nature download...' }; this.abort.abort(); } else if (this.download.entryId) { fs.rmSync(this.paths.resolve(`Downloads/Nature-${safeId(this.download.entryId)}.download`), { force: true }); this.download = { ...this.download, state: 'cancelled', downloadedBytes: 0, percent: 0, message: 'Nature download cancelled and partial data removed.' }; } return { ...this.download }; }
   downloadStatus(): NatureDownloadStatus { return { ...this.download }; }
   hasActiveDownload(): boolean { return Boolean(this.abort); }
-  close(): void { this.abort?.abort(); void this.installWorker?.terminate(); this.installWorker = undefined; for (const db of this.databases.values()) db.close(); this.databases.clear(); }
+  close(): void { this.abort?.abort(); void this.installWorker?.terminate(); this.installWorker = undefined; void this.queryWorker?.terminate(); this.queryWorker = undefined; const error = new Error('Nature database worker stopped.'); for (const request of this.queryRequests.values()) request.reject(error); this.queryRequests.clear(); }
 }

@@ -555,7 +555,7 @@ ipcMain.handle('outpost:import-nature-pack', async () => {
   if (selection.canceled || !selection.filePaths[0]) return { ok: false, message: 'Nature Pack import cancelled.', state: natureService.state() };
   return natureService.importPackAsync(selection.filePaths[0]);
 });
-ipcMain.handle('outpost:remove-nature-pack', (_event, packId: unknown) => {
+ipcMain.handle('outpost:remove-nature-pack', async (_event, packId: unknown) => {
   if (typeof packId !== 'string') throw new Error('Nature Pack identifier is invalid.'); return natureService.removePack(packId);
 });
 ipcMain.handle('outpost:download-nature-content', (_event, entryId: unknown) => {
@@ -575,8 +575,8 @@ ipcMain.handle('outpost:browse-nature', (_event, category: unknown, packIds: unk
 ipcMain.handle('outpost:get-nature-species', (_event, packId: unknown, speciesId: unknown) => {
   if (typeof packId !== 'string' || typeof speciesId !== 'string') throw new Error('Nature species request is invalid.'); return natureService.species(packId, speciesId);
 });
-ipcMain.handle('outpost:get-nature-image', (_event, packId: unknown, imageId: unknown) => {
-  if (typeof packId !== 'string' || typeof imageId !== 'string') throw new Error('Nature image request is invalid.'); return natureService.image(packId, imageId).bytes;
+ipcMain.handle('outpost:get-nature-image', async (_event, packId: unknown, imageId: unknown) => {
+  if (typeof packId !== 'string' || typeof imageId !== 'string') throw new Error('Nature image request is invalid.'); return (await natureService.image(packId, imageId)).bytes;
 });
 ipcMain.handle('outpost:save-nature-sighting', (_event, input: unknown) => {
   if (!input || typeof input !== 'object') throw new Error('Nature sighting is invalid.'); return natureService.saveSighting(input as Parameters<typeof natureService.saveSighting>[0]);
@@ -665,11 +665,11 @@ app.whenReady().then(() => {
     try { const filePath = mediaService.filePath(mediaId); return rangedFileResponse(filePath, request, mediaMime(filePath)); }
     catch { return new Response('Not found', { status: 404 }); }
   });
-  protocol.handle('outpost-nature', (request) => {
+  protocol.handle('outpost-nature', async (request) => {
     const url = new URL(request.url); const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
     if (url.hostname !== 'image' || parts.length !== 2) return new Response('Not found', { status: 404 });
     try {
-      const item = natureService.image(parts[0], parts[1]);
+      const item = await natureService.image(parts[0], parts[1]);
       return new Response(Uint8Array.from(item.bytes).buffer, { headers: { 'Content-Type': item.mimeType, 'Cache-Control': 'public, max-age=31536000, immutable' } });
     } catch { return new Response('Not found', { status: 404 }); }
   });

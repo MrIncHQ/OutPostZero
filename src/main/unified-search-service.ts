@@ -11,13 +11,13 @@ function fts(query: string): string | null {
 
 export class UnifiedSearchService {
   constructor(private readonly database: DatabaseService, private readonly documents: DocumentService, private readonly media?: MediaService, private readonly nature?: NatureService) {}
-  search(query: string): UnifiedSearchResult[] {
+  async search(query: string): Promise<UnifiedSearchResult[]> {
     const expression = fts(query); if (!expression) return [];
     const documentResults: UnifiedSearchResult[] = this.documents.search(query).slice(0, 30).map((item) => ({ source: 'document', id: item.documentId, title: item.title, excerpt: item.excerpt, context: `${item.format.toUpperCase()} · PAGE ${item.page}`, page: item.page }));
     const noteResults: UnifiedSearchResult[] = this.database.searchNotes(expression).map((item) => ({ source: 'note', id: item.id, title: item.title, excerpt: item.excerpt, context: item.context }));
     const mapResults: UnifiedSearchResult[] = this.database.searchMapPlaces(expression).map((item) => ({ source: 'map', id: item.id, title: item.title, excerpt: item.excerpt, context: `${item.latitude.toFixed(5)}, ${item.longitude.toFixed(5)}`, latitude: item.latitude, longitude: item.longitude }));
     const mediaResults: UnifiedSearchResult[] = (this.media?.state(query).items ?? []).slice(0, 30).map((item) => ({ source: 'media', id: item.id, title: item.title, excerpt: [...item.tags, ...item.collections].join(' · ') || item.fileName, context: `${item.kind.toUpperCase()} · PORTABLE MEDIA` }));
-    const natureResults: UnifiedSearchResult[] = (this.nature?.search(query, undefined, 30) ?? []).map((item) => ({ source: 'nature', id: item.id,
+    const natureResults: UnifiedSearchResult[] = (this.nature ? await this.nature.search(query, undefined, 30) : []).map((item) => ({ source: 'nature', id: item.id,
       packId: item.packId, title: item.commonName, excerpt: item.scientificName, context: `NATURE / ${item.category.toUpperCase()}` }));
     return [...natureResults, ...noteResults, ...documentResults, ...mediaResults, ...mapResults].slice(0, 80);
   }

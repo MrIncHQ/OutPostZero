@@ -85,7 +85,7 @@ test('expanded search returns documents, notes, and saved map places with deep-l
     fs.writeFileSync(path.join(app.root, 'Content', 'Documents', 'radio.txt'), 'Ridgetop repeater battery procedure'); await app.documents.reconcile(true);
     const note = app.notes.save({ title: 'Radio plan', body: 'Check the repeater antenna', folder: '', pinned: false, favorite: false, tags: [] });
     const place = app.maps.savePlace({ name: 'Repeater site', latitude: 40, longitude: -100, note: 'Ridgetop repeater location', favorite: false });
-    const results = new UnifiedSearchService(app.database, app.documents).search('repeater');
+    const results = await new UnifiedSearchService(app.database, app.documents).search('repeater');
     assert.deepEqual(new Set(results.map((result) => result.source)), new Set(['document', 'note', 'map']));
     assert.equal(results.find((result) => result.source === 'note')?.id, note.id); assert.equal(results.find((result) => result.source === 'map')?.id, place.id);
   } finally { app.database.close(); fs.rmSync(app.root, { recursive: true, force: true }); }

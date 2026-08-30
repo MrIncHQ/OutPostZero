@@ -38,6 +38,8 @@ category TEXT NOT NULL, regional_status TEXT NOT NULL DEFAULT '', source_taxon_i
 CREATE TABLE species_names(species_id TEXT NOT NULL REFERENCES species(id), name TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN('common','synonym')), language TEXT NOT NULL DEFAULT '', preferred INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(species_id,name,kind)) STRICT;
 CREATE TABLE species_distribution(species_id TEXT NOT NULL REFERENCES species(id), area TEXT NOT NULL, status TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', PRIMARY KEY(species_id,area)) STRICT;
 CREATE TABLE species_images(id TEXT PRIMARY KEY, species_id TEXT NOT NULL REFERENCES species(id), mime_type TEXT NOT NULL, data BLOB NOT NULL, creator TEXT NOT NULL, source_url TEXT NOT NULL, license TEXT NOT NULL CHECK(license IN('CC0','CC BY','CC0-1.0','CC-BY-4.0')), license_url TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0) STRICT;
+CREATE INDEX species_category_idx ON species(category);
+CREATE INDEX species_images_species_sort_idx ON species_images(species_id,sort_order);
 CREATE TABLE build_species_lookup(name TEXT PRIMARY KEY, species_id TEXT NOT NULL) WITHOUT ROWID;
 CREATE VIRTUAL TABLE species_fts USING fts5(species_id UNINDEXED, common_name, scientific_name, names, tokenize='unicode61 remove_diacritics 2');`);
 const insertSpecies = db.prepare('INSERT INTO species VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'); const insertLookup = db.prepare('INSERT OR IGNORE INTO build_species_lookup VALUES(?,?)'); db.exec('BEGIN'); let usageRows=0; let speciesRows=0;

@@ -34,19 +34,19 @@ function fixture() {
   return { root, pack, database, service };
 }
 
-test('imports a self-contained Nature Pack and serves search, details, images, and sightings offline', () => {
+test('imports a self-contained Nature Pack and serves search, details, images, and sightings offline', async () => {
   const { root, pack, database, service } = fixture();
   const imported = service.importPack(pack);
   assert.equal(imported.ok, true); assert.equal(imported.state.packs.length, 1);
-  assert.equal(service.search('black bear')[0]?.scientificName, 'Ursus americanus');
-  assert.equal(service.search('Euarctos')[0]?.commonName, 'American black bear');
-  assert.equal(service.browse('Mammals').length, 1);
-  const details = service.species('missouri-test', 'ursus-americanus');
+  assert.equal((await service.search('black bear'))[0]?.scientificName, 'Ursus americanus');
+  assert.equal((await service.search('Euarctos'))[0]?.commonName, 'American black bear');
+  assert.equal((await service.browse('Mammals')).length, 1);
+  const details = await service.species('missouri-test', 'ursus-americanus');
   assert.deepEqual(details.distribution, ['Missouri']); assert.equal(details.images[0]?.license, 'CC BY');
-  assert.deepEqual([...service.image('missouri-test', 'bear-photo').bytes], [0xff, 0xd8, 0xff, 0xd9]);
+  assert.deepEqual([...(await service.image('missouri-test', 'bear-photo')).bytes], [0xff, 0xd8, 0xff, 0xd9]);
   const sightingState = service.saveSighting({ observedAt: '2026-08-29T12:00:00.000Z', packId: 'missouri-test', speciesId: details.id, commonName: details.commonName, scientificName: details.scientificName, notes: 'Trail camera' });
   assert.equal(sightingState.sightings.length, 1);
-  assert.equal(service.removePack('missouri-test').ok, true);
+  assert.equal((await service.removePack('missouri-test')).ok, true);
   assert.equal(service.state().sightings.length, 1, 'private sightings survive pack removal');
   service.close(); database.close(); fs.rmSync(root, { recursive: true, force: true });
 });
@@ -66,12 +66,13 @@ test('rejects malformed files instead of registering them as Nature Packs', () =
   service.close(); database.close(); fs.rmSync(root, { recursive: true, force: true });
 });
 
-test('removes only abandoned Nature installer artifacts while preserving the resumable download', () => {
+test('removes only abandoned Nature installer artifacts while preserving the resumable download', async () => {
   const { root, database, service } = fixture();
   const packs = path.join(root, 'Content', 'Nature', 'Packs'); const temp = path.join(root, 'Temp'); const downloads = path.join(root, 'Downloads');
   fs.writeFileSync(path.join(packs, 'global-taxonomy.oznature.installing'), 'stale'); fs.writeFileSync(path.join(packs, 'operator-notes.txt'), 'keep');
   fs.mkdirSync(path.join(temp, 'NatureInstall-04d4875d-b821-49cb-9eb2-a7153fbfbd21')); fs.writeFileSync(path.join(downloads, 'Nature-global-taxonomy.download'), 'resume');
-  service.state();
+  service.reconcile();
+  for (let attempt = 0; attempt < 100 && (fs.existsSync(path.join(packs, 'global-taxonomy.oznature.installing')) || fs.existsSync(path.join(temp, 'NatureInstall-04d4875d-b821-49cb-9eb2-a7153fbfbd21'))); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
   assert.equal(fs.existsSync(path.join(packs, 'global-taxonomy.oznature.installing')), false);
   assert.equal(fs.existsSync(path.join(temp, 'NatureInstall-04d4875d-b821-49cb-9eb2-a7153fbfbd21')), false);
   assert.equal(fs.existsSync(path.join(packs, 'operator-notes.txt')), true); assert.equal(fs.existsSync(path.join(downloads, 'Nature-global-taxonomy.download')), true);
@@ -94,7 +95,7 @@ test('loads a signed online catalog and installs a verified compressed pack for 
   const service = new NatureService(database, new PortablePathService(root), fetchImpl as typeof fetch, keys.publicKey.export({ type: 'spki', format: 'pem' }).toString(), 'https://example.invalid/catalog.json');
   const refreshed = await service.refreshCatalog(); assert.equal(refreshed.ok, true); assert.equal(refreshed.state.catalog.length, 1);
   fs.writeFileSync(path.join(root, 'Downloads', 'Nature-missouri-test.download'), bytes);
-  const installed = await service.downloadContent(entry.id); assert.equal(installed.ok, true); assert.equal(installed.state.packs[0]?.packId, entry.id); assert.equal(service.search('black bear')[0]?.commonName, 'American black bear');
+  const installed = await service.downloadContent(entry.id); assert.equal(installed.ok, true); assert.equal(installed.state.packs[0]?.packId, entry.id); assert.equal((await service.search('black bear'))[0]?.commonName, 'American black bear');
   assert.equal(contentFetches, 0, 'an exact completed partial is verified and installed without an invalid range request');
   service.close(); database.close(); fs.rmSync(root, { recursive: true, force: true });
 });
@@ -105,4 +106,6 @@ test('Nature stays one primary navigation item with its tools contained as inter
   assert.equal((app.match(/id: 'nature'/g) ?? []).length, 1);
   for (const tab of ['SEARCH & BROWSE', 'IDENTIFY', 'SIGHTINGS', 'PACKS', 'SOURCES & LICENSES']) assert.ok(view.includes(tab));
   assert.match(app, /result\.source === 'nature'/);
+  assert.ok(view.indexOf('getNatureState()') < view.indexOf('refreshNatureCatalog()'), 'installed state renders before an online catalog refresh');
+  assert.match(view, /showTransfer = transferring \|\| \['paused','error'\]/, 'completed downloads do not remain as active transfer cards');
 });
