@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "publishedAt": "2026-08-29T23:30:00.000Z",
+  "entries": [
+    {
+      "id": "global-taxonomy",
+      "kind": "pack",
+      "name": "Global Nature Taxonomy",
+      "version": "2026.08.20",
+      "url": "https://github.com/MrIncHQ/OutPostZero/releases/download/nature-data-2026.08.20/global-taxonomy-2026.08.20.zip",
+      "sha256": "f24a06394dc6dbee98d19cd10ffd07b5e1c8ccefce05e9874dae105d7a4952dc",
+      "downloadBytes": 343535438,
+      "installedBytes": 1205788672,
+      "archive": "zip",
+      "region": "Worldwide",
+      "description": "Complete offline Catalogue of Life Base Release taxonomy with common names, synonyms, classification, and available distribution records. Photographs are not included."
+    }
+  ]
+}

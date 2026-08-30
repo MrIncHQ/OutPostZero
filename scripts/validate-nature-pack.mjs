@@ -2,11 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-const input = process.argv[2]; if (!input) throw new Error('Usage: node scripts/validate-nature-pack.mjs <pack.oznature>');
+const input = process.argv[2]; if (!input) throw new Error('Usage: node scripts/validate-nature-pack.mjs <pack.oznature> [--skip-integrity]');
 const file = path.resolve(input); if (!fs.statSync(file).isFile()) throw new Error('Nature Pack is missing.');
 const db = new DatabaseSync(file, { readOnly: true });
 try {
-  const integrity = db.prepare('PRAGMA integrity_check').get().integrity_check; if (integrity !== 'ok') throw new Error(`Integrity check failed: ${integrity}`);
+  const skipIntegrity = process.argv.includes('--skip-integrity');
+  const integrity = skipIntegrity ? 'previously verified' : db.prepare('PRAGMA integrity_check').get().integrity_check; if (integrity !== 'ok' && !skipIntegrity) throw new Error(`Integrity check failed: ${integrity}`);
   const manifest = JSON.parse(db.prepare("SELECT value FROM pack_metadata WHERE key='manifest'").get().value);
   const count = (table, where = '') => Number(db.prepare(`SELECT count(*) count FROM ${table} ${where}`).get().count);
   const counts = { species: count('species'), names: count('species_names'), commonNames: count('species_names', "WHERE kind='common'"), synonyms: count('species_names', "WHERE kind='synonym'"), searchRows: count('species_fts'), images: count('species_images') };
