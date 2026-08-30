@@ -635,7 +635,9 @@ function UpdatesView({ data }: { data: BootstrapData }) {
     const checkResult = await window.outpost.checkForUpdates();
     setAvailable(checkResult.status === 'available');
     setReady(Boolean(checkResult.readyToInstall));
-    setResult(checkResult.downloadBytes ? `${checkResult.message} Download: ${formatBytes(checkResult.downloadBytes)}.` : checkResult.message);
+    setResult(checkResult.status === 'available' && !checkResult.readyToInstall
+      ? `${checkResult.message} Select Download and Install to compare this copy and calculate the exact transfer size.`
+      : checkResult.message);
     setBusy(null);
     acceptActivity(await window.outpost.getUpdateActivity());
   }
@@ -682,7 +684,7 @@ function UpdatesView({ data }: { data: BootstrapData }) {
         {available && !ready && <button className="secondary-button" onClick={() => void download()} disabled={busy !== null}>{activity.state === 'verifying' ? 'VERIFYING UPDATE...' : busy === 'downloading' ? 'DOWNLOADING UPDATE...' : activity.state === 'paused' ? 'RESUME UPDATE' : 'DOWNLOAD AND INSTALL'}</button>}
         {ready && <button className="primary-button" onClick={() => void apply()} disabled={busy !== null}>{busy === 'applying' ? 'PREPARING INSTALL...' : 'INSTALL AND RESTART'}</button>}
       </div>
-      {(activity.state === 'downloading' || activity.state === 'verifying' || activity.state === 'preparing-install') && <div className="update-activity"><div><b>{activity.state === 'preparing-install' ? 'INSTALL PREPARATION ACTIVE' : activity.state === 'verifying' ? 'VERIFYING UPDATE' : 'UPDATE DOWNLOAD ACTIVE'}</b><span>{activity.version ? `v${activity.version}` : ''}</span></div><p>{activity.message}</p>{activity.downloadedBytes > 0 && activity.state !== 'preparing-install' && <small>{formatBytes(activity.downloadedBytes)} downloaded and authenticated</small>}</div>}
+      {(activity.state === 'downloading' || activity.state === 'verifying' || activity.state === 'preparing-install') && <div className="update-activity"><div><b>{activity.state === 'preparing-install' ? 'INSTALL PREPARATION ACTIVE' : activity.state === 'verifying' ? 'COMPARING SIGNED UPDATE' : 'UPDATE DOWNLOAD ACTIVE'}</b><span>{activity.version ? `v${activity.version}` : ''}</span></div><p>{activity.message}</p>{activity.state === 'verifying' && <small>Calculating the exact changed files before showing a download size.</small>}{activity.state === 'downloading' && activity.totalBytes > 0 && <small>{formatBytes(activity.downloadedBytes)} of {formatBytes(activity.totalBytes)} staged and authenticated</small>}</div>}
       {result && <div className="update-result">{result}</div>}
     </section>
   );

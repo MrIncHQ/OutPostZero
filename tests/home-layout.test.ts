@@ -35,6 +35,9 @@ test('Updates rehydrate active and completed downloads after navigation', () => 
   assert.match(app, /activity\.state === 'downloading'/);
   assert.match(app, /activity\.state === 'verifying'/);
   assert.match(app, /activity\.state === 'preparing-install'/);
+  assert.match(app, /calculate the exact transfer size/);
+  assert.match(app, /staged and authenticated/);
+  assert.match(main, /updateService\.prepareInstall\(\);[\s\S]*setTimeout\(\(\) => \{ void applyVerifiedUpdate\(\); \}, 100\)/);
   assert.match(app, /PREPARING INSTALL/);
   assert.match(main, /Stopping local services and releasing connected hardware/);
   assert.match(app, /setReady\(false\); acceptActivity\(await window\.outpost\.getUpdateActivity\(\)\)/);

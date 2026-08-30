@@ -155,6 +155,7 @@ test('downloads, verifies, and assembles an update only in portable staging', as
   assert.equal((await updates.check()).status, 'available');
   const result = await updates.download();
   assert.equal(result.status, 'ready');
+  assert.equal(updates.activityStatus().downloadedBytes, updates.activityStatus().totalBytes);
   assert.equal(fs.existsSync(path.join(root, 'Data', 'outpost-zero.sqlite')), true);
   assert.equal(fs.existsSync(path.join(root, 'Profile', 'profile.json')), false);
   const pending = JSON.parse(fs.readFileSync(path.join(root, 'Updates', 'State', 'pending-update.json'), 'utf8'));
@@ -185,6 +186,26 @@ test('removes an obsolete staged update before downloading a newer signed releas
     assert.equal(fs.existsSync(obsolete), false);
     const pending = JSON.parse(fs.readFileSync(paths.resolve('Updates/State/pending-update.json'), 'utf8'));
     assert.equal(pending.version, '0.4.0');
+  } finally { database.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('withdraws a damaged same-version pending record while repairing its staged files', async () => {
+  const fixture = signedFixture();
+  const { root, paths, database, updates } = createServices(fixture.fetchImpl, fixture.publicKey);
+  try {
+    const staging = paths.resolve('Updates/Staging/0.4.0'); fs.mkdirSync(staging, { recursive: true });
+    fs.writeFileSync(path.join(staging, 'README.txt'), fixture.readme.subarray(0, 3));
+    fs.writeFileSync(paths.resolve('Updates/State/pending-update.json'), JSON.stringify({
+      version: '0.4.0', previousVersion: '0.3.0', createdAt: new Date().toISOString(), stagingDirectory: '0.4.0',
+      files: [{ path: 'README.txt', size: fixture.readme.length, sha256: crypto.createHash('sha256').update(fixture.readme).digest('hex') }],
+    }));
+    assert.equal((await updates.check()).status, 'available');
+    const operation = updates.download();
+    assert.equal(fs.existsSync(paths.resolve('Updates/State/pending-update.json')), false, 'incomplete metadata is hidden while staged bytes are repaired');
+    const result = await operation;
+    assert.equal(result.status, 'ready', result.message);
+    assert.equal(updates.status().readyVersion, '0.4.0');
+    assert.equal(updates.activityStatus().downloadedBytes, updates.activityStatus().totalBytes);
   } finally { database.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 

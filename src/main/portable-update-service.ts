@@ -342,10 +342,10 @@ export class UpdateService {
     }
   }
 
-  private async downloadFile(file: ManifestFile, destination: string, downloadSignal: AbortSignal, releaseRef: string): Promise<number> {
+  private async downloadFile(file: ManifestFile, destination: string, downloadSignal: AbortSignal, releaseRef: string, onProgress?: (completedBytes: number) => void): Promise<void> {
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     if (fs.existsSync(destination)) {
-      if (fs.statSync(destination).size === file.size && await sha256File(destination) === file.sha256) return 0;
+      if (fs.statSync(destination).size === file.size && await sha256File(destination) === file.sha256) { onProgress?.(file.size); return; }
       fs.rmSync(destination, { force: true });
     }
     const temporary = `${destination}.download`;
@@ -357,9 +357,10 @@ export class UpdateService {
       hash.update(chunk as Buffer);
     }
     if (offset === file.size) {
-      if (hash.digest('hex').toUpperCase() === file.sha256) { fs.renameSync(temporary, destination); return 0; }
+      if (hash.digest('hex').toUpperCase() === file.sha256) { fs.renameSync(temporary, destination); onProgress?.(file.size); return; }
       fs.rmSync(temporary, { force: true }); offset = 0; hash = crypto.createHash('sha256');
     }
+    onProgress?.(offset);
     const headers: Record<string, string> = { 'User-Agent': 'Outpost-Zero-Updater', 'Accept-Encoding': 'identity' };
     if (offset) headers.Range = `bytes=${offset}-`;
     const signal = AbortSignal.any([downloadSignal, AbortSignal.timeout(300_000)]);
@@ -378,7 +379,7 @@ export class UpdateService {
     }
     let received = 0;
     const authenticate = new Transform({ transform: (chunk: Buffer, _encoding, callback) => {
-      hash.update(chunk); received += chunk.length; callback(null, chunk);
+      hash.update(chunk); received += chunk.length; onProgress?.(offset + received); callback(null, chunk);
     } });
     await pipeline(Readable.fromWeb(response.body as never), authenticate, createWriteStream(temporary, { flags: offset ? 'a' : 'w' }));
     const completedBytes = offset + received;
@@ -388,7 +389,7 @@ export class UpdateService {
       throw new Error(`Downloaded file failed verification and its invalid partial was removed: ${file.path}`);
     }
     fs.renameSync(temporary, destination);
-    return received;
+    onProgress?.(file.size);
   }
 
   async download(): Promise<UpdateDownloadResult> {
@@ -402,12 +403,17 @@ export class UpdateService {
         return { status: 'no-update', message: 'No newer update is available.' };
       }
       const stagingDirectory = safeStagingVersion(manifest.version);
-      const totalBytes = manifest.files.reduce((sum, file) => sum + file.size, manifest.executable.parts.reduce((sum, part) => sum + part.size, 0));
-      this.activity = { state: 'downloading', version: manifest.version, message: `Downloading Outpost Zero ${manifest.version}...`, downloadedBytes: 0, totalBytes };
+      this.activity = { state: 'verifying', version: manifest.version, message: 'Comparing this portable runtime with the signed release...', downloadedBytes: 0, totalBytes: 0 };
       const stagingRelative = `Updates/Staging/${stagingDirectory}`;
       const stagingRoot = this.paths.resolve(stagingRelative);
       const previousPending = this.readPending();
-      if (previousPending && previousPending.version !== manifest.version) fs.rmSync(this.pendingFile, { force: true });
+      if (previousPending && previousPending.version === manifest.version && this.installReadiness().version === manifest.version) {
+        this.activity = { state: 'ready', version: manifest.version, message: `Outpost Zero ${manifest.version} is verified and ready to install.`, downloadedBytes: 0, totalBytes: 0 };
+        return { status: 'ready', message: this.activity.message, version: manifest.version, changedFiles: previousPending.files.length, downloadedBytes: 0 };
+      }
+      // A pending record must never describe files while they are being repaired
+      // or resumed. Publish a new record only after every staged byte is verified.
+      fs.rmSync(this.pendingFile, { force: true });
       this.cleanStagingExcept(new Set([stagingDirectory]));
       const conservativeRequiredBytes = manifest.files.reduce((sum, file) => sum + file.size, 0)
         + manifest.executable.parts.reduce((sum, part) => sum + part.size, 0)
@@ -426,15 +432,11 @@ export class UpdateService {
       }
       fs.mkdirSync(stagingRoot, { recursive: true });
       const changed: ManifestFile[] = [];
-      let downloadedBytes = 0;
-
+      const runtimeDownloads: ManifestFile[] = [];
       for (const file of manifest.files) {
         const current = this.paths.resolve(file.path);
         if (fs.existsSync(current) && fs.statSync(current).size === file.size && await sha256File(current) === file.sha256) continue;
-        const staged = path.join(stagingRoot, ...file.path.split('/'));
-        this.activity = { ...this.activity, message: `Downloading and verifying ${file.path}...` };
-        downloadedBytes += await this.downloadFile(file, staged, controller.signal, manifest.releaseRef); this.activity = { ...this.activity, downloadedBytes };
-        changed.push(file);
+        runtimeDownloads.push(file); changed.push(file);
       }
 
       const executable = manifest.executable;
@@ -442,13 +444,27 @@ export class UpdateService {
       const executableMatches = fs.existsSync(currentExecutable)
         && fs.statSync(currentExecutable).size === executable.size
         && await sha256File(currentExecutable) === executable.sha256;
+      const plannedItems = [...runtimeDownloads, ...(executableMatches ? [] : executable.parts)];
+      const totalBytes = plannedItems.reduce((sum, file) => sum + file.size, 0);
+      this.activity = { state: 'downloading', version: manifest.version, message: totalBytes ? `Downloading and authenticating ${plannedItems.length} changed release file${plannedItems.length === 1 ? '' : 's'}...` : 'All runtime files already match. Preparing the verified update record...', downloadedBytes: 0, totalBytes };
+      let completedBytes = 0;
+      for (const file of runtimeDownloads) {
+        const staged = path.join(stagingRoot, ...file.path.split('/'));
+        const before = completedBytes;
+        this.activity = { ...this.activity, message: `Downloading and authenticating ${file.path}...` };
+        await this.downloadFile(file, staged, controller.signal, manifest.releaseRef, (fileBytes) => { this.activity = { ...this.activity, downloadedBytes: before + fileBytes }; });
+        completedBytes = before + file.size; this.activity = { ...this.activity, downloadedBytes: completedBytes };
+      }
+
       if (!executableMatches) {
         const partsRoot = path.join(stagingRoot, 'RuntimeParts');
         fs.mkdirSync(partsRoot, { recursive: true });
         for (const part of executable.parts) {
           const destination = path.join(stagingRoot, ...part.path.split('/'));
-          this.activity = { ...this.activity, message: `Downloading and verifying ${part.path}...` };
-          downloadedBytes += await this.downloadFile(part, destination, controller.signal, manifest.releaseRef); this.activity = { ...this.activity, downloadedBytes };
+          const before = completedBytes;
+          this.activity = { ...this.activity, message: `Downloading and authenticating ${part.path}...` };
+          await this.downloadFile(part, destination, controller.signal, manifest.releaseRef, (fileBytes) => { this.activity = { ...this.activity, downloadedBytes: before + fileBytes }; });
+          completedBytes = before + part.size; this.activity = { ...this.activity, downloadedBytes: completedBytes };
         }
         this.activity = { ...this.activity, state: 'verifying', message: 'Assembling and verifying the portable executable...' };
         const stagedExecutable = path.join(stagingRoot, executable.path);
@@ -483,13 +499,13 @@ export class UpdateService {
       fs.writeFileSync(temporaryPending, `${JSON.stringify(pending, null, 2)}\n`, 'utf8');
       fs.renameSync(temporaryPending, this.pendingFile);
       this.cleanStagingExcept(new Set([stagingDirectory]));
-      this.activity = { state: 'ready', version: manifest.version, message: `Outpost Zero ${manifest.version} is verified and ready to install.`, downloadedBytes, totalBytes };
+      this.activity = { state: 'ready', version: manifest.version, message: `Outpost Zero ${manifest.version} is verified and ready to install.`, downloadedBytes: completedBytes, totalBytes };
       return {
         status: 'ready',
         message: `Outpost Zero ${manifest.version} is verified and ready to install.`,
         version: manifest.version,
         changedFiles: changed.length,
-        downloadedBytes,
+        downloadedBytes: completedBytes,
       };
     } catch (error) {
       const paused = controller.signal.aborted; const message = paused ? 'Update download paused. Reopen Outpost Zero and choose Download Update to resume.' : error instanceof Error ? error.message : 'Update download failed.';

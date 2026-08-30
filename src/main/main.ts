@@ -619,7 +619,12 @@ async function applyVerifiedUpdate(): Promise<UpdateApplyResult> {
 }
 ipcMain.handle('outpost:download-update', async () => {
   const result = await updateService.download();
-  if (result.status === 'ready') setTimeout(() => { void applyVerifiedUpdate(); }, 100);
+  if (result.status === 'ready') {
+    // Enter preparation before returning to the renderer so navigation or a
+    // second click cannot make a verified handoff look idle or ready again.
+    updateService.prepareInstall();
+    setTimeout(() => { void applyVerifiedUpdate(); }, 100);
+  }
   return result;
 });
 ipcMain.handle('outpost:apply-update', () => applyVerifiedUpdate());
