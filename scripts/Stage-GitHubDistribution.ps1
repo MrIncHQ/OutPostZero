@@ -1,6 +1,6 @@
 param([Parameter(Mandatory = $true)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version)
 $ErrorActionPreference = 'Stop'
-if ([version]$Version -gt [version]'0.15.4') { throw 'The legacy root update channel is frozen at 0.15.4. Publish later releases as immutable runtime tags and update only UpdateChannel/update-manifest.json.' }
+$bridgeVersion = [version]'0.15.4'
 $projectRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $releaseRoot = [System.IO.Path]::GetFullPath((Join-Path $projectRoot 'Releases'))
 $source = [System.IO.Path]::GetFullPath((Join-Path $releaseRoot 'OutpostZero-Windows-x64'))
@@ -97,8 +97,10 @@ Set-Content -LiteralPath $readmePath -Value $readme -Encoding utf8
 & node (Join-Path $projectRoot 'scripts\sign-update-manifest.mjs') $distribution $privateKey $Version
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $channelManifest = Join-Path $distribution 'UpdateChannel\update-manifest.json'
-New-Item -ItemType Directory -Path (Split-Path -Parent $channelManifest) -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $distribution 'update-manifest.json') -Destination $channelManifest -Force
+if ([version]$Version -le $bridgeVersion) {
+    New-Item -ItemType Directory -Path (Split-Path -Parent $channelManifest) -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $distribution 'update-manifest.json') -Destination $channelManifest -Force
+}
 & node (Join-Path $projectRoot 'scripts\verify-update-distribution.mjs') $distribution (Join-Path $projectRoot 'ReleaseSigning\public.pem')
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "GitHub runtime distribution staged for v$Version ($hash)." -ForegroundColor Green

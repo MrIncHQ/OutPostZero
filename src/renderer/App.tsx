@@ -670,6 +670,7 @@ function UpdatesView({ data }: { data: BootstrapData }) {
         <div><dt>Provider</dt><dd>{data.updates.configured ? 'GitHub signed manifest' : 'Not configured'}</dd></div>
         <div><dt>Repository</dt><dd>{data.updates.repositoryOwner && data.updates.repositoryName ? `${data.updates.repositoryOwner}/${data.updates.repositoryName}` : 'Not configured'}</dd></div>
         <div><dt>Channel</dt><dd>{data.updates.channel}</dd></div>
+        <div><dt>Release files</dt><dd>Version-locked and signed</dd></div>
         <div><dt>Automatic checks</dt><dd>{data.updates.automaticChecks ? 'Enabled' : 'Disabled'}</dd></div>
       </dl>
       <div className="update-explainer">

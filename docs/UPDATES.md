@@ -6,6 +6,8 @@ The Update Center is connected to the source-free `MrIncHQ/OutPostZero` distribu
 
 Version 0.15.4 is the permanent bridge from the original mutable update layout. The repository-root manifest and runtime files are frozen at that version so an older Outpost installation can always finish that update safely. Version 0.15.4 and later read `UpdateChannel/update-manifest.json`; every signed manifest names an immutable `runtime-v<version>` Git tag, and every file is downloaded from that tag. A later publication may update the channel manifest only after its immutable runtime tag is available. It must never replace the bridge files or move/reuse an existing runtime tag.
 
+For a release after 0.15.4, stage and audit the new runtime at the distribution root, commit it, and tag that commit as `runtime-v<version>`. Push and verify the immutable tag first. Then run `Finalize-GitHubUpdateChannel.ps1`; it restores the root runtime from `runtime-v0.15.4` and places the new signed manifest only at `UpdateChannel/update-manifest.json`. Commit that restoration/channel change and push `distribution:main`. Never push the intermediate runtime commit to `main`.
+
 The update flow:
 
 1. Download `UpdateChannel/update-manifest.json` from GitHub.

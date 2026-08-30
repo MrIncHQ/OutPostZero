@@ -9,14 +9,20 @@ const verifyIndex = process.argv.includes('--git-index');
 const rootManifestPath = path.join(distribution, 'update-manifest.json');
 const channelManifestPath = path.join(distribution, 'UpdateChannel', 'update-manifest.json');
 const rootManifestBytes = fs.readFileSync(rootManifestPath);
-if (fs.existsSync(channelManifestPath) && !rootManifestBytes.equals(fs.readFileSync(channelManifestPath))) {
-  throw new Error('The update channel manifest does not exactly match the signed root manifest.');
-}
 const manifest = JSON.parse(rootManifestBytes.toString('utf8'));
 const signedBytes = Buffer.from(manifest.signedPayload, 'base64');
 if (!crypto.verify(null, signedBytes, fs.readFileSync(publicKeyPath), Buffer.from(manifest.signature, 'base64'))) throw new Error('Update manifest signature is invalid.');
 const payload = JSON.parse(signedBytes.toString('utf8'));
 if (payload.releaseRef !== `runtime-v${payload.version}`) throw new Error('The signed release reference does not match the manifest version.');
+let channelVersion = null;
+if (fs.existsSync(channelManifestPath)) {
+  const channelManifest = JSON.parse(fs.readFileSync(channelManifestPath, 'utf8'));
+  const channelBytes = Buffer.from(channelManifest.signedPayload, 'base64');
+  if (!crypto.verify(null, channelBytes, fs.readFileSync(publicKeyPath), Buffer.from(channelManifest.signature, 'base64'))) throw new Error('Update channel manifest signature is invalid.');
+  const channelPayload = JSON.parse(channelBytes.toString('utf8'));
+  if (channelPayload.releaseRef !== `runtime-v${channelPayload.version}`) throw new Error('The signed channel release reference does not match its version.');
+  channelVersion = channelPayload.version;
+}
 const files = [...payload.files, ...payload.executable.parts];
 
 function expected(relativePath) {
@@ -42,4 +48,4 @@ if (verifyIndex) for (const file of files) await indexAudit(file);
 const executableHash = crypto.createHash('sha256'); let executableSize = 0;
 for (const part of payload.executable.parts) { const bytes = fs.readFileSync(path.join(distribution, ...part.path.split('/'))); executableHash.update(bytes); executableSize += bytes.length; }
 if (expected(payload.executable.path).size !== executableSize || payload.executable.sha256 !== executableHash.digest('hex').toUpperCase()) throw new Error('Executable parts do not reconstruct the signed executable.');
-console.log(JSON.stringify({ version: payload.version, signature: 'valid', files: files.length, gitIndexChecked: verifyIndex, executableSize, executableSha256: payload.executable.sha256 }, null, 2));
+console.log(JSON.stringify({ version: payload.version, channelVersion, signature: 'valid', files: files.length, gitIndexChecked: verifyIndex, executableSize, executableSha256: payload.executable.sha256 }, null, 2));
