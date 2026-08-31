@@ -46,9 +46,8 @@ function search(message: QueryMessage) {
     rows.sort((left, right) => Number(![left.common_name, left.scientific_name].some((name) => String(name).toLocaleLowerCase() === exact))
       - Number(![right.common_name, right.scientific_name].some((name) => String(name).toLocaleLowerCase() === exact)));
     output.push(...rows.map((row) => summary(pack.packId, row)));
-    if (output.length >= limit) break;
   }
-  return output.slice(0, limit);
+  return preferPhotoRecords(output, limit);
 }
 
 function browse(message: QueryMessage) {
@@ -64,9 +63,17 @@ function browse(message: QueryMessage) {
           FROM species s LIMIT ?`;
     const rows = (category ? database.prepare(sql).all(category, limit) : database.prepare(sql).all(limit)) as Array<Record<string, unknown>>;
     output.push(...rows.map((row) => summary(pack.packId, row)));
-    if (output.length >= limit) break;
   }
-  return output.slice(0, limit);
+  return preferPhotoRecords(output, limit);
+}
+
+function preferPhotoRecords(records: ReturnType<typeof summary>[], limit: number) {
+  const selected = new Map<string, ReturnType<typeof summary>>();
+  for (const record of records) {
+    const key = record.scientificName.normalize('NFKC').toLocaleLowerCase(); const current = selected.get(key);
+    if (!current || (!current.imageId && record.imageId)) selected.set(key, record);
+  }
+  return [...selected.values()].sort((left, right) => Number(!right.imageId) - Number(!left.imageId)).slice(0, limit);
 }
 
 function species(message: QueryMessage) {

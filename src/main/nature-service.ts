@@ -26,7 +26,13 @@ function catalogEntry(raw: unknown): NatureCatalogEntry | null {
     || typeof item.sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(item.sha256)
     || !Number.isSafeInteger(item.downloadBytes) || Number(item.downloadBytes) <= 0
     || !Number.isSafeInteger(item.installedBytes) || Number(item.installedBytes) <= 0 || typeof item.description !== 'string'
-    || (item.archive !== undefined && !['oznature', 'zip'].includes(item.archive))) return null;
+    || (item.archive !== undefined && !['oznature', 'zip'].includes(item.archive))
+    || (item.packType !== undefined && !['taxonomy', 'photo', 'regional'].includes(item.packType))
+    || (item.coverage !== undefined && (!Array.isArray(item.coverage) || item.coverage.some((value) => typeof value !== 'string' || !value.trim())))
+    || (item.categories !== undefined && (!Array.isArray(item.categories) || item.categories.some((value) => typeof value !== 'string' || !value.trim())))
+    || (item.speciesCount !== undefined && (!Number.isSafeInteger(item.speciesCount) || item.speciesCount < 0))
+    || (item.imageCount !== undefined && (!Number.isSafeInteger(item.imageCount) || item.imageCount < 0))
+    || (item.licenseSummary !== undefined && (!Array.isArray(item.licenseSummary) || item.licenseSummary.some((value) => typeof value !== 'string' || !value.trim())))) return null;
   try { safeId(item.id); return item as NatureCatalogEntry; } catch { return null; }
 }
 

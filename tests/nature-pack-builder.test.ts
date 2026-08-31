@@ -68,3 +68,13 @@ test('pack builder matches GBIF authorship, imports synonyms, and records DOI pr
   assert.equal(streamed.status, 0, streamed.stderr); assert.ok(fs.statSync(streamedOutput).size > 0);
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test('photo pack builder copies matching taxonomy and embeds attributed offline images', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'outpost-nature-photo-pack-')); const base = path.join(root, 'base.oznature'); const db = new DatabaseSync(base);
+  db.exec(`CREATE TABLE species(id TEXT PRIMARY KEY,scientific_name TEXT,common_name TEXT,rank TEXT,kingdom TEXT,phylum TEXT,class TEXT,order_name TEXT,family TEXT,genus TEXT,category TEXT,regional_status TEXT,source_taxon_id TEXT,source_name TEXT,source_url TEXT);
+    CREATE TABLE species_names(species_id TEXT,name TEXT,kind TEXT,language TEXT,preferred INTEGER,PRIMARY KEY(species_id,name,kind)); CREATE TABLE species_distribution(species_id TEXT,area TEXT,status TEXT,source TEXT,PRIMARY KEY(species_id,area));
+    CREATE VIRTUAL TABLE species_fts USING fts5(species_id UNINDEXED,common_name,scientific_name,names); INSERT INTO species VALUES('oak','Quercus alba','White oak','species','Plantae','Tracheophyta','','Fagales','Fagaceae','Quercus','Plants','','oak','Catalogue of Life','https://example.invalid/oak'); INSERT INTO species_names VALUES('oak','White oak','common','en',1); INSERT INTO species_fts VALUES('oak','White oak','Quercus alba','White oak');`); db.close();
+  const image = path.join(root, 'oak.jpg'); fs.writeFileSync(image, Buffer.from([0xff,0xd8,0xff,0xd9])); const manifest = path.join(root, 'images.tsv'); fs.writeFileSync(manifest, 'id\tscientificName\tfile\tcreator\tsourceUrl\tlicense\tlicenseUrl\tsortOrder\n1\tQuercus alba\toak.jpg\tTest Creator\thttps://example.invalid/photo\tCC0-1.0\thttps://creativecommons.org/publicdomain/zero/1.0/\t0\n'); const output = path.join(root, 'plants.oznature');
+  const built = spawnSync(process.execPath, ['scripts/build-nature-photo-pack.mjs','--base-pack',base,'--images',manifest,'--output',output,'--pack-id','plants-photo','--version','2026.08','--name','Plants Photo','--region','Worldwide','--coverage','Worldwide','--description','Offline plant photographs'], { cwd:path.resolve('.'),encoding:'utf8' }); assert.equal(built.status,0,built.stderr);
+  const result = new DatabaseSync(output,{readOnly:true}); assert.equal(Number((result.prepare('SELECT count(*) count FROM species_images').get() as {count:number}).count),1); const metadata = result.prepare("SELECT value FROM pack_metadata WHERE key='manifest'").get() as {value:string}; assert.equal(JSON.parse(metadata.value).packType,'photo'); result.close(); fs.rmSync(root,{recursive:true,force:true});
+});

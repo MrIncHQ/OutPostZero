@@ -571,6 +571,8 @@ export interface NaturePackManifest {
   categories: string[];
   licenseSummary: string[];
   dependencies: string[];
+  packType?: 'taxonomy' | 'photo' | 'regional';
+  coverage?: string[];
 }
 
 export interface NaturePackSummary extends NaturePackManifest {
@@ -638,6 +640,12 @@ export interface NatureCatalogEntry {
   downloadBytes: number;
   installedBytes: number;
   region?: string;
+  packType?: 'taxonomy' | 'photo' | 'regional';
+  coverage?: string[];
+  categories?: string[];
+  speciesCount?: number;
+  imageCount?: number;
+  licenseSummary?: string[];
   description: string;
   archive?: 'oznature' | 'zip';
   minimumRamBytes?: number;

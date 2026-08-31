@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "publishedAt": "2026-08-29T23:30:00.000Z",
+  "publishedAt": "2026-08-31T01:02:00.000Z",
   "entries": [
     {
       "id": "global-taxonomy",
@@ -14,6 +14,44 @@
       "archive": "zip",
       "region": "Worldwide",
       "description": "Complete offline Catalogue of Life Base Release taxonomy with common names, synonyms, classification, and available distribution records. Photographs are not included."
+    },
+    {
+      "id": "worldwide-plants",
+      "kind": "pack",
+      "name": "Worldwide Plants Photo Guide",
+      "version": "2026.08.30",
+      "url": "https://github.com/MrIncHQ/OutPostZero/releases/download/nature-data-2026.08.30/worldwide-plants-2026.08.30.oznature",
+      "sha256": "3034acd5e09d99cd019ac00957077e5e27b93aff158c276badc0c7e01843c72e",
+      "downloadBytes": 30986240,
+      "installedBytes": 30986240,
+      "archive": "oznature",
+      "region": "Worldwide",
+      "description": "An offline starter field guide with attributed photographs of 132 commonly recorded plants from around the world, plus searchable names, classification, synonyms, and available distribution records.",
+      "packType": "photo",
+      "coverage": ["Worldwide", "Africa", "Asia", "Europe", "North America", "Oceania", "South America"],
+      "categories": ["Plants"],
+      "speciesCount": 132,
+      "imageCount": 132,
+      "licenseSummary": ["CC-BY-3.0", "CC-BY-4.0", "CC-BY-SA-3.0", "CC-BY-SA-4.0", "CC0-1.0", "Public domain"]
+    },
+    {
+      "id": "worldwide-animals",
+      "kind": "pack",
+      "name": "Worldwide Animals Photo Guide",
+      "version": "2026.08.30",
+      "url": "https://github.com/MrIncHQ/OutPostZero/releases/download/nature-data-2026.08.30/worldwide-animals-2026.08.30.oznature",
+      "sha256": "b39692709bc056d1507aa47a23fb51471559691aa06684fe1f83eb0d70875040",
+      "downloadBytes": 33718272,
+      "installedBytes": 33718272,
+      "archive": "oznature",
+      "region": "Worldwide",
+      "description": "An offline starter field guide with attributed photographs of 190 commonly recorded birds, mammals, reptiles, amphibians, fish, insects, and arachnids from around the world.",
+      "packType": "photo",
+      "coverage": ["Worldwide", "Africa", "Asia", "Europe", "North America", "Oceania", "South America"],
+      "categories": ["Amphibians", "Arachnids", "Birds", "Fish", "Insects", "Mammals", "Reptiles"],
+      "speciesCount": 190,
+      "imageCount": 190,
+      "licenseSummary": ["CC-BY-3.0", "CC-BY-4.0", "CC-BY-SA-3.0", "CC-BY-SA-4.0", "CC0-1.0", "Public domain"]
     }
   ]
 }
