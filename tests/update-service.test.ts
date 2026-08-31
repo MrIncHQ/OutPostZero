@@ -317,6 +317,17 @@ test('install preparation reports the exact staged file that became unavailable'
   } finally { database.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('install readiness defers staged file integrity to the updater SHA-256 verification', async () => {
+  const fixture = signedFixture();
+  const { root, paths, database, updates } = createServices(fixture.fetchImpl, fixture.publicKey);
+  try {
+    assert.equal((await updates.check()).status, 'available'); assert.equal((await updates.download()).status, 'ready');
+    fs.appendFileSync(paths.resolve('Updates/Staging/0.4.0/README.txt'), 'changed after staging');
+    const result = updates.prepareInstall(); assert.equal(result.status, 'preparing');
+    assert.match(result.message, /Preparing the portable update/i);
+  } finally { database.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('confirms updater startup, applies the staged update, and relaunches', {
   skip: process.platform !== 'win32',
   timeout: 30_000,

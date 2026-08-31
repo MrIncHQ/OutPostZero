@@ -227,12 +227,21 @@ export class UpdateService {
       for (const file of pending.files) {
         const staged = path.join(stagingRoot, ...file.path.split('/'));
         if (!fs.existsSync(staged)) return { version: null, message: `The staged update is incomplete: ${file.path} is missing. Resume the update download.` };
-        if (fs.statSync(staged).size !== file.size) return { version: null, message: `The staged update is incomplete: ${file.path} has the wrong size. Resume the update download.` };
       }
       return { version: pending.version, message: `Outpost Zero ${pending.version} is verified and ready to install.` };
     } catch (error) {
       return { version: null, message: `The staged update could not be read from this drive: ${error instanceof Error ? error.message : 'unknown drive error'}` };
     }
+  }
+
+  private stagedFilesMatchRecordedSizes(pending: PendingUpdate): boolean {
+    try {
+      const stagingRoot = this.paths.resolve(`Updates/Staging/${pending.stagingDirectory}`);
+      return pending.files.every((file) => {
+        const staged = path.join(stagingRoot, ...file.path.split('/'));
+        return fs.existsSync(staged) && fs.statSync(staged).size === file.size;
+      });
+    } catch { return false; }
   }
 
   private readyVersion(): string | null { return this.installReadiness().version; }
@@ -407,7 +416,7 @@ export class UpdateService {
       const stagingRelative = `Updates/Staging/${stagingDirectory}`;
       const stagingRoot = this.paths.resolve(stagingRelative);
       const previousPending = this.readPending();
-      if (previousPending && previousPending.version === manifest.version && this.installReadiness().version === manifest.version) {
+      if (previousPending && previousPending.version === manifest.version && this.installReadiness().version === manifest.version && this.stagedFilesMatchRecordedSizes(previousPending)) {
         this.activity = { state: 'ready', version: manifest.version, message: `Outpost Zero ${manifest.version} is verified and ready to install.`, downloadedBytes: 0, totalBytes: 0 };
         return { status: 'ready', message: this.activity.message, version: manifest.version, changedFiles: previousPending.files.length, downloadedBytes: 0 };
       }
