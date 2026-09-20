@@ -59,3 +59,11 @@ OUTPOST ZERO - PORTABLE WINDOWS BUILD
 
 Outpost Zero stores its controlled data beneath this folder. Do not move the
 EXE away from the .outpost-zero-root marker or the other bundled files.
+
+Browser settings and caches are separated by Windows installation and account
+under Cache/BrowserProfiles. Moving this folder to another computer creates a
+fresh browser profile without changing your notes, identity, or library. The
+older shared browser cache is left untouched and is no longer used.
+Drive preparation locks the app while saving and stopping services. After it
+reports ready, close the window before safely ejecting the drive. If preparation
+fails, keep the drive connected and use RETRY PREPARATION.

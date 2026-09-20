@@ -7,6 +7,7 @@ interface CategoryDefinition {
   id: string;
   label: string;
   roots: string[];
+  excludes?: string[];
 }
 
 const CATEGORIES: CategoryDefinition[] = [
@@ -16,13 +17,18 @@ const CATEGORIES: CategoryDefinition[] = [
   { id: 'documents', label: 'Documents', roots: ['Content/PDFs', 'Content/Documents', 'Content/Books'] },
   { id: 'notes', label: 'Note Attachments', roots: ['Content/Notes'] },
   { id: 'education', label: 'Education', roots: ['Content/Education'] },
-  { id: 'ai', label: 'AI', roots: ['AI'] },
+  { id: 'ai', label: 'AI', roots: ['AI'], excludes: ['AI/Nature'] },
   { id: 'media', label: 'Media', roots: ['Content/Media'] },
   { id: 'modules', label: 'Modules', roots: ['Modules'] },
-  { id: 'outpost-data', label: 'Outpost Data', roots: ['Data', 'Profile', 'Config', 'Cache', 'Logs', 'Backups', 'Downloads', 'Updates', 'Exports'] },
+  { id: 'outpost-data', label: 'Outpost Data', roots: ['Data', 'Profile', 'Config', 'Cache', 'Logs', 'Backups', 'Downloads', 'Updates', 'Exports'], excludes: ['Data/Nature'] },
 ];
 
-async function directoryBytes(directory: string): Promise<number> {
+function comparisonPath(directory: string): string {
+  return process.platform === 'win32' ? directory.toLowerCase() : directory;
+}
+
+async function directoryBytes(directory: string, excludes: Set<string>): Promise<number> {
+  if (excludes.has(comparisonPath(directory))) return 0;
   let total = 0;
   let entries;
   try {
@@ -33,7 +39,7 @@ async function directoryBytes(directory: string): Promise<number> {
   for (const entry of entries) {
     const entryPath = path.join(directory, entry.name);
     if (entry.isSymbolicLink()) continue;
-    if (entry.isDirectory()) total += await directoryBytes(entryPath);
+    if (entry.isDirectory()) total += await directoryBytes(entryPath, excludes);
     else if (entry.isFile()) {
       try {
         total += (await fs.stat(entryPath)).size;
@@ -62,7 +68,7 @@ export class StorageService {
     const categories: StorageCategory[] = await Promise.all(CATEGORIES.map(async (category) => ({
       id: category.id,
       label: category.label,
-      bytes: (await Promise.all(category.roots.map((root) => directoryBytes(this.paths.resolve(root)))))
+      bytes: (await Promise.all(category.roots.map((root) => directoryBytes(this.paths.resolve(root), new Set((category.excludes ?? []).map((excluded) => comparisonPath(this.paths.resolve(excluded))))))))
         .reduce((sum, bytes) => sum + bytes, 0),
     })));
 

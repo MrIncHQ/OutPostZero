@@ -63,6 +63,10 @@ test('portable updater installs runtime files without changing user content', {
     ['Data/user.db', Buffer.from('database bytes')],
     ['Content/library.txt', Buffer.from('saved library')],
     ['Profile/identity.json', Buffer.from('{"identity":"local"}')],
+    ['Profile/Identity/device-private.pem', Buffer.from('existing identity fixture')],
+    ['Config/preferences.json', Buffer.from('{"existing":true}')],
+    ['Data/State/Electron/Local State', Buffer.from('legacy browser profile fixture')],
+    ['Cache/BrowserProfiles/existing-account/Local State', Buffer.from('scoped browser profile fixture')],
   ]);
   fs.writeFileSync(path.join(staging, 'README.txt'), runtime);
   for (const [relativePath, content] of userFiles) {

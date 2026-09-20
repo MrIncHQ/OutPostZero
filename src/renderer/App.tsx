@@ -2,6 +2,7 @@ import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, use
 import type { AiDownloadStatus, AiSource, BootstrapData, KiwixCatalogEntry, KiwixCatalogOptionsResult, KiwixCatalogResult, KiwixDownloadStatus, LocalProfile, MapDownloadStatus, ModuleOperationResult, ModuleSummary, OfflineLibraryStatus, StorageSummary, UnifiedSearchResult, UpdateActivity } from '../shared/contracts';
 import { DocumentsView } from './DocumentsView';
 import { AiView } from './AiView';
+import { flushPendingSaves } from './pending-saves';
 
 const NotesView = lazy(() => import('./NotesView').then((module) => ({ default: module.NotesView })));
 const MapsView = lazy(() => import('./MapsView').then((module) => ({ default: module.MapsView })));
@@ -696,6 +697,9 @@ export default function App() {
   const [view, setView] = useState<ViewId>('home');
   const [fileTab, setFileTab] = useState<FileTab>('documents');
   const [removalMessage, setRemovalMessage] = useState('');
+  const [removalState, setRemovalState] = useState<'idle' | 'preparing' | 'ready' | 'error'>('idle');
+  const [removalClosed, setRemovalClosed] = useState(false);
+  const removalPending = useRef(false);
   const [requestedDocument, setRequestedDocument] = useState<{ id: string; page: number }>();
   const [requestedNote, setRequestedNote] = useState<string>();
   const [requestedPlace, setRequestedPlace] = useState<string>();
@@ -732,8 +736,23 @@ export default function App() {
     setData((current) => current ? { ...current, database: { ...current.database, integrityOk } } : current);
   }
   async function prepareForRemoval() {
-    const result = await window.outpost.prepareForRemoval();
-    setRemovalMessage(result.message);
+    if (removalPending.current || removalState === 'ready') return;
+    removalPending.current = true;
+    setRemovalState('preparing');
+    setRemovalMessage('Saving your latest edits and stopping background activity. Keep the drive connected.');
+    try {
+      await flushPendingSaves();
+      setRemovalClosed(true);
+      const result = await window.outpost.prepareForRemoval();
+      if (!result.ready) throw new Error(result.message);
+      setRemovalMessage(result.message);
+      setRemovalState('ready');
+    } catch (error) {
+      setRemovalMessage(error instanceof Error ? error.message : 'Preparation failed. Keep the drive connected and retry.');
+      setRemovalState('error');
+    } finally {
+      removalPending.current = false;
+    }
   }
   function renderView() {
     if (view === 'home') return <HomeView data={activeData} go={setView} onOpenResult={(result) => {
@@ -764,7 +783,17 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <>
+    {removalState !== 'idle' && <div className="removal-screen" role="dialog" aria-modal="true" aria-labelledby="removal-title">
+      <section className="page-panel">
+        <p className="section-label">DRIVE REMOVAL</p>
+        <h2 id="removal-title">{removalState === 'ready' ? 'Ready to close Outpost Zero' : removalState === 'error' ? 'Keep your drive connected' : 'Preparing your drive...'}</h2>
+        <p role="status">{removalMessage}</p>
+        {removalState === 'ready' && <p>Close this window using the X in the title bar, then use Windows Safely Remove Hardware. Reopen Outpost Zero to continue using it.</p>}
+        {removalState === 'error' && <button className="primary-button" onClick={() => void prepareForRemoval()}>RETRY PREPARATION</button>}
+      </section>
+    </div>}
+    {!removalClosed && <div className="app-shell" inert={removalState !== 'idle'} aria-hidden={removalState !== 'idle'}>
       <aside className="rail">
         <button className="brand-mark" onClick={() => setView('home')}>
           <span>O</span>
@@ -807,8 +836,8 @@ export default function App() {
           <div className="global-status"><span>OFFLINE</span><i />0 OUTPOSTS NEARBY<i />{formatBytes(data.storage.freeBytes)} FREE<i />AI: {data.modules.find((module) => module.id === 'local-ai')?.status.replace('-', ' ').toUpperCase() ?? 'NOT INSTALLED'}</div>
           <button className="eject-button" onClick={prepareForRemoval}>PREPARE DRIVE FOR REMOVAL</button>
         </footer>
-        {removalMessage && <div className="toast" role="status">✓ {removalMessage}</div>}
       </main>
-    </div>
+    </div>}
+    </>
   );
 }

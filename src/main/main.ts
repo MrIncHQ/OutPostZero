@@ -3,6 +3,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, session } from 'electron';
 import { findPortableRoot, PortablePathService } from './portable-path';
+import { currentBrowserProfileId } from './browser-profile';
+import { RemovalPreparation } from './removal-preparation';
 import { SessionState } from './session-state';
 import { ProfileService } from './profile-service';
 import { StorageService } from './storage-service';
@@ -44,13 +46,31 @@ process.env.TMP = layout.Temp;
 process.env.TMPDIR = layout.Temp;
 
 app.setPath('userData', portablePaths.ensureDirectory('Data/State/Electron'));
-app.setPath('sessionData', portablePaths.ensureDirectory('Cache/Chromium'));
-app.setPath('cache', portablePaths.ensureDirectory('Cache/Electron'));
 app.setPath('logs', portablePaths.ensureDirectory('Logs'));
 app.setPath('temp', layout.Temp);
-app.commandLine.appendSwitch('disk-cache-dir', portablePaths.ensureDirectory('Cache/Chromium/DiskCache'));
 app.commandLine.appendSwitch('disable-component-update');
 if (!app.requestSingleInstanceLock({ portableRoot: root })) app.exit(0);
+
+// Acquire the lock at a stable location before choosing the browser profile.
+// If Windows identity lookup fails, use a fresh disposable profile rather than
+// falling back to another account's encrypted settings. User data is separate.
+let browserDirectory: string;
+try {
+  browserDirectory = portablePaths.ensureDirectory(`Cache/BrowserProfiles/${currentBrowserProfileId()}`);
+} catch {
+  browserDirectory = fs.mkdtempSync(path.join(portablePaths.ensureDirectory('Temp'), 'browser-profile-'));
+  app.once('quit', () => {
+    try { fs.rmSync(browserDirectory, { recursive: true, force: true }); } catch { /* A later cleanup can remove a locked cache. */ }
+  });
+}
+app.setPath('userData', browserDirectory);
+app.setPath('sessionData', browserDirectory);
+app.setPath('cache', browserDirectory);
+// Older portable launchers pass the shared paths on the command line.
+app.commandLine.removeSwitch('user-data-dir');
+app.commandLine.removeSwitch('disk-cache-dir');
+app.commandLine.appendSwitch('user-data-dir', browserDirectory);
+app.commandLine.appendSwitch('disk-cache-dir', path.join(browserDirectory, 'DiskCache'));
 
 const sessionState = new SessionState(layout['Data/State']);
 const profileService = new ProfileService(portablePaths);
@@ -628,14 +648,21 @@ ipcMain.handle('outpost:download-update', async () => {
   return result;
 });
 ipcMain.handle('outpost:apply-update', () => applyVerifiedUpdate());
+const removalPreparation = new RemovalPreparation([
+  () => natureService.close(),
+  async () => {
+    const results = await Promise.allSettled([moduleService.stopAll(), kiwixService.shutdown(), remoteIdService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
+    const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failures.length) throw new AggregateError(failures.map((result) => result.reason), 'Some services could not stop. Retry preparation before removing the drive.');
+  },
+  () => session.defaultSession.clearCache(),
+  () => databaseService.createRotatingBackup(),
+  () => databaseService.close(),
+  () => sessionState.markClean(),
+  () => { isPrepared = true; },
+]);
 ipcMain.handle('outpost:prepare-removal', async () => {
-  natureService.close();
-  await Promise.all([moduleService.stopAll(), kiwixService.shutdown(), remoteIdService.shutdown(), aiService.shutdown(), mapService.shutdown(), updateService.shutdown(), relayService.stop(), ocrService.cancelAll()]);
-  await session.defaultSession.clearCache();
-  await databaseService.createRotatingBackup();
-  databaseService.close();
-  sessionState.markClean();
-  isPrepared = true;
+  await removalPreparation.run();
   return { ready: true, message: 'All Outpost Zero data is flushed. Close the app, then safely eject the drive.' };
 });
 

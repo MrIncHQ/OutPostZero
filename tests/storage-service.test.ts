@@ -36,3 +36,21 @@ test('quick storage summary does not scan portable content', () => {
   assert.equal(summary.totalBytes, 200);
   assert.equal(summary.scannedAt, null);
 });
+
+test('Nature models and state are counted exactly once alongside other AI and data', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'outpost-zero-storage-nature-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(root, ROOT_MARKER), 'test');
+  const paths = new PortablePathService(root);
+  paths.initializeLayout();
+  for (const [file, size] of [
+    ['AI/Nature/Models/model.bin', 1024], ['Data/Nature/index.bin', 2048],
+    ['Content/Nature/Packs/pack.bin', 4096], ['AI/Models/chat.bin', 8192],
+    ['Data/State/settings.json', 512],
+  ] as const) fs.writeFileSync(paths.resolve(file), Buffer.alloc(size));
+  const summary = await new StorageService(paths).summarize();
+  assert.equal(summary.categories.find((item) => item.id === 'nature')?.bytes, 7168);
+  assert.equal(summary.categories.find((item) => item.id === 'ai')?.bytes, 8192);
+  assert.equal(summary.categories.find((item) => item.id === 'outpost-data')?.bytes, 512);
+  assert.equal(summary.usedByOutpostBytes, 15872);
+});

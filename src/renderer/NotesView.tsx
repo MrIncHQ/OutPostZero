@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { registerPendingSave } from './pending-saves';
 import type { NoteInput, NotesState, PortableNote } from '../shared/contracts';
 
 const templates = [
@@ -48,12 +49,21 @@ export function NotesView({ requestedNoteId, onRequestHandled }: { requestedNote
 
   useEffect(() => {
     if (!draft?.id || JSON.stringify(draft) === savedSnapshot.current) return;
-    const timer = window.setTimeout(() => {
-      void window.outpost.saveNote({ ...draft, tags: parseTags(tagText) }).then((saved) => {
+    let pending: Promise<unknown> | undefined;
+    const save = () => {
+      window.clearTimeout(timer);
+      if (pending) return pending;
+      pending = window.outpost.saveNote({ ...draft, tags: parseTags(tagText) }).then((saved) => {
         const input = asInput(saved); savedSnapshot.current = JSON.stringify(input); setSelected(saved); setState((current) => current ? { ...current, notes: current.notes.map((note) => note.id === saved.id ? saved : note) } : current); setMessage('Saved locally');
+      }).catch((error) => {
+        pending = undefined;
+        throw error;
       });
-    }, 700);
-    return () => window.clearTimeout(timer);
+      return pending;
+    };
+    const timer = window.setTimeout(() => { void save().catch(() => setMessage('Could not save. Please retry before closing.')); }, 700);
+    const unregister = registerPendingSave(save);
+    return () => { window.clearTimeout(timer); unregister(); };
   }, [draft, tagText]);
 
   const visible = useMemo(() => (state?.notes ?? []).filter((note) => {
