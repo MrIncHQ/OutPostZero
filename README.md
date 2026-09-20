@@ -1,4 +1,4 @@
-﻿# Outpost Zero
+# Outpost Zero
 
 Outpost Zero is a portable, offline-first knowledge and tools platform. The application runs directly from its folder and keeps its controlled data on the same drive.
 
@@ -18,12 +18,12 @@ On first launch, the launcher assembles and verifies the packaged executable fro
 
 ## Current release
 
-Version: `0.15.4`
+Version: `0.16.3`
 
 SHA-256 for the assembled `Outpost Zero.exe`:
 
 ```text
-B12CDBCD80B69E824F80EC91321C45F0DB88FBF1BACBF755AC58D0C083B13128
+B39D3FCCDE256E8523844E10B20145FA02084752BC242DEED423A54BCF5234A1
 ```
 
 This repository is used only to distribute ready-to-run Outpost Zero releases. Source code is not published here.
