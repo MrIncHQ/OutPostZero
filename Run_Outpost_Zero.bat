@@ -22,9 +22,10 @@ if not exist "Outpost Zero.exe" (
 )
 if not exist "Temp" mkdir "Temp"
 if not exist "Data\State\Electron" mkdir "Data\State\Electron"
+if not exist "Cache\Chromium\DiskCache" mkdir "Cache\Chromium\DiskCache"
 set "ELECTRON_RUN_AS_NODE="
 set "TEMP=%~dp0Temp"
 set "TMP=%~dp0Temp"
 set "TMPDIR=%~dp0Temp"
-start "" /wait "%~dp0Outpost Zero.exe"
+start "" /wait "%~dp0Outpost Zero.exe" --user-data-dir="%~dp0Data\State\Electron" --disk-cache-dir="%~dp0Cache\Chromium\DiskCache"
 endlocal
