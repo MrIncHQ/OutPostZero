@@ -1,31 +1,55 @@
 OUTPOST ZERO - REMOTE ID RECEIVER PROTOCOL
 ==========================================
 
-Remote ID Radar is optional. Install and start it from Modules, then open Maps > Radar.
+Remote ID Radar is optional. Install and start it from Modules or Maps > Radar.
 EXTERNAL HARDWARE IS REQUIRED. Outpost Zero cannot detect Remote ID broadcasts by itself.
-A separate, compatible ESP32-S3 Remote ID receiver must be connected to the computer by USB.
-The ESP32-S3 must appear as a Windows COM port and send UTF-8 newline-delimited JSON at 115200 baud.
-Each JSON object must fit on one line. Outpost accepts its versioned schema and also translates common unversioned ESP32 Remote ID field names.
-Normal ESP-IDF startup and debug lines on the same serial stream are ignored.
+A separate, compatible ESP32 Remote ID receiver must be connected to the computer by USB.
+The receiver must appear as a Windows COM port and send UTF-8 newline-delimited JSON at 115200 baud.
+Each JSON object must fit on one line. Normal ESP-IDF startup and debug lines on the same serial stream are ignored.
 
-Working ESP32 scanner-ready example:
-{"type":"boot","msg":"==== SCANNER READY - WiFi + BLE scanning active ===="}
+CONNECTING
+----------
+Auto-connect is on by default. While the radar is running, Outpost Zero looks for the last receiver
+you used, or any USB serial port from a common ESP32 bridge (Espressif native USB 303A, Silicon Labs
+CP210x 10C4, WCH CH34x 1A86, FTDI 0403), connects at 115200 baud, and reconnects automatically if the
+receiver is unplugged or reset. Selecting DISCONNECT pauses auto-connect until you connect again.
+If the radar was running when Outpost Zero closed, it starts again on the next launch.
 
-Receiver hello example:
-{"schema":"outpost.remote-id.v1","type":"hello","receiver":{"name":"ESP32-S3 Remote ID Receiver","firmwareVersion":"1.0.0","receiverId":"receiver-01","transports":["ble4","ble5","wifi-beacon"],"priorityControl":true}}
+SUPPORTED RECEIVERS
+-------------------
+1. ESP32-S3 scanner firmware (unversioned JSON). Common field names are translated, for example:
+   {"type":"drone","mac":"60:60:1f:16:bd:88","interface":"WiFi Beacon","rssi":-34,"basic_id":"1581F3YTDJ1S0032J1N0","drone_lat":39.791698,"drone_long":-94.851814,"drone_altitude":324,"height_agl":0,"speed_horizontal":0,"heading":90,"pilot_lat":39.791703,"pilot_long":-94.851812,"operator_id":""}
+   Scanner-ready example:
+   {"type":"boot","msg":"==== SCANNER READY - WiFi + BLE scanning active ===="}
 
-Heartbeat example:
-{"schema":"outpost.remote-id.v1","type":"heartbeat"}
+2. Outpost Vector (Waveshare ESP32-C5 touch display, schema "outpost-vector/<version>").
+   boot is treated as receiver ready, health as a heartbeat, and rid_observation as an aircraft
+   observation keyed by source_key, track_id, basic_id, or mac (in that order). Observations without
+   any of these identifiers cannot be assembled into a track and are counted as ignored.
+   When you set your position in Radar, Outpost sends it to Outpost Vector:
+   {"type":"receiver_position","latitude":39.7681,"longitude":-94.8466}
 
-Observation example:
-{"schema":"outpost.remote-id.v1","type":"observation","sequence":42,"sourceKey":"ble-AABBCCDDEEFF","source":{"transport":"ble5","address":"AABBCCDDEEFF","rssiDbm":-67},"aircraft":{"id":"REMOTE-ID-SERIAL","idType":"serial","latitude":39.7681,"longitude":-94.8466,"altitudeMslM":131.2,"heightAglM":45.4,"horizontalSpeedMps":12.6,"verticalSpeedMps":0.2,"headingDeg":184.5,"status":"airborne"},"secondaryPosition":{"kind":"control-station","latitude":39.7712,"longitude":-94.8510}}
+3. The Outpost receiver schema (outpost.remote-id.v1):
+   Receiver hello:
+   {"schema":"outpost.remote-id.v1","type":"hello","receiver":{"name":"ESP32-S3 Remote ID Receiver","firmwareVersion":"1.0.0","receiverId":"receiver-01","transports":["ble4","ble5","wifi-beacon"],"priorityControl":true}}
+   Heartbeat:
+   {"schema":"outpost.remote-id.v1","type":"heartbeat"}
+   Observation:
+   {"schema":"outpost.remote-id.v1","type":"observation","sequence":42,"sourceKey":"ble-AABBCCDDEEFF","source":{"transport":"ble5","address":"AABBCCDDEEFF","rssiDbm":-67},"aircraft":{"id":"REMOTE-ID-SERIAL","idType":"serial","latitude":39.7681,"longitude":-94.8466,"altitudeMslM":131.2,"heightAglM":45.4,"horizontalSpeedMps":12.6,"verticalSpeedMps":0.2,"headingDeg":184.5,"status":"airborne"},"secondaryPosition":{"kind":"control-station","latitude":39.7712,"longitude":-94.8510}}
 
-Allowed transports: ble4, ble5, wifi-beacon, wifi-nan, unknown.
-Allowed secondary position kinds: control-station, takeoff, operator, unknown.
-Fields not present in a received Remote ID message should be omitted rather than guessed.
-sourceKey must remain stable while messages from the same aircraft are being assembled.
+   Allowed transports: ble4, ble5, wifi-beacon, wifi-nan, unknown.
+   Allowed secondary position kinds: control-station, takeoff, operator, unknown.
+   Fields not present in a received Remote ID message should be omitted rather than guessed.
+   sourceKey must remain stable while messages from the same aircraft are being assembled.
 
-If priorityControl is true, Outpost can send this command back to the receiver:
-{"schema":"outpost.remote-id.command.v1","type":"set_priority","sourceKey":"ble-AABBCCDDEEFF","backgroundIntervalMs":1000}
+   If priorityControl is true, Outpost can send this command back to the receiver:
+   {"schema":"outpost.remote-id.command.v1","type":"set_priority","sourceKey":"ble-AABBCCDDEEFF","backgroundIntervalMs":1000}
+   Clearing priority sends sourceKey as null. Priority can change receiver forwarding or scan focus,
+   but it cannot make a drone transmit Remote ID messages more frequently.
 
-Clearing priority sends sourceKey as null. Priority can change receiver forwarding or scan focus, but it cannot make a drone transmit Remote ID messages more frequently.
+DETECTION HISTORY
+-----------------
+While recording is on (Radar > History), Outpost saves at most one sighting per aircraft per second to
+Data/RemoteId/History/<date>.ndjson on this drive. History can be exported as CSV or KML (Google Earth).
+Your receiver position is stored in Config/remote-id.json and is never transmitted except to a
+receiver that accepts receiver_position over USB.
